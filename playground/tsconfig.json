@@ -12,4 +12,12 @@
 		"module": "NodeNext",
 		"moduleResolution": "NodeNext"
 	}
+,
+	"typedocOptions": {
+		"entryPoints": ["src"],
+		"out": "docs",
+		"theme": "default",
+		"excludePrivate": true,
+		"excludeInternal": true
+	}
 }
