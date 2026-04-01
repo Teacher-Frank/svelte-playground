@@ -21,7 +21,7 @@
 	.container {
 		position: fixed;
 		left: 0%;
-		top: 30%;
+		top: 25%;
 		width: 25%;
 		height: 10%;
 	}

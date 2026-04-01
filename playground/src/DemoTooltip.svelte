@@ -28,7 +28,7 @@
 		left: 0%;
 		top: 20%;
 		width: 25%;
-		height: 10%;
+		height: 5%;
 	}
 
 	:global {
