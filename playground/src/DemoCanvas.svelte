@@ -61,7 +61,7 @@
 	.container {
 		position: fixed;
 		left: var(--leftbar-size);
-		top: 0;
+		top: 5%;
 		width: 100%;
 		height: 50%;
 	}

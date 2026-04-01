@@ -26,7 +26,7 @@
 	.container {
 		position: fixed;
 		left: 0%;
-		top: 20%;
+		top: 25%;
 		width: var(--leftbar-size);
 		height: 5%;
 	}
