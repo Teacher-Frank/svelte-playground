@@ -3,7 +3,6 @@
 	import { elasticOut } from 'svelte/easing';
 	import type { TransitionConfig } from 'svelte/transition';
 
-
 	let visible = $state<boolean>(true);
   let status = $state('waiting...');
 
@@ -26,6 +25,7 @@
 					);`;
 			}
 		};
+
 	}
 </script>
 
@@ -63,7 +63,6 @@
       >transitions!</span>
     </div>
   {/if}
-
 
 </div>
 

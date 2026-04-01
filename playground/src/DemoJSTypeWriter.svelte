@@ -1,15 +1,30 @@
 <script lang="ts">
 	import type { TransitionConfig } from 'svelte/transition';
  	import { slide } from 'svelte/transition';
+  import { messages } from './loading-messages.ts';
 
 	let TWvisible = $state<boolean>(false);
 
+  //show list with slide bar
  	let items = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 
 	let showItems = $state(true);
 	let i = $state(5);
 
+  
+  // Code for loading demo
+  let j = $state(-1);
 
+  $effect(() => {
+    const interval = setInterval(() => {
+      j += 1;
+      j %= messages.length;
+    }, 2500);
+
+    return () => {
+      clearInterval(interval);
+    };
+  });
 	interface TypewriterParams {
 		speed?: number;
 	}
@@ -62,6 +77,13 @@
     {/each}
   {/if}
 
+  <h1>loading...demo</h1>
+
+  {#key i}
+    <p in:typewriter={{ speed: 10 }}>
+      {messages[j] || ''}
+    </p>
+  {/key}
 </div>
 
 <style>
@@ -72,4 +94,4 @@
 		width: var(--leftbar-size);
 		height: 15%;
 	}
-</style>  
+</style>
