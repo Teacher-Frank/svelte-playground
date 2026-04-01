@@ -60,7 +60,7 @@
 <style>
 	.container {
 		position: fixed;
-		left: 0;
+		left: 15%;
 		top: 0;
 		width: 100%;
 		height: 100%;
@@ -91,7 +91,7 @@
 
 	.menu {
 		position: relative;
-		background: var(--bg-2);
+ 		background: var(--bg-2);
 		width: calc(100% - 2em);
 		max-width: 28em;
 		padding: 1em 1em 0.5em 1em;

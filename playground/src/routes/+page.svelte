@@ -4,3 +4,4 @@
 </script>
 
 <App />
+<CanvasDemo />

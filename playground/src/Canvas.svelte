@@ -23,9 +23,9 @@
 	});
 
 	function resize(): void {
-		if (canvas) {
-			canvas.width = window.innerWidth;
-			canvas.height = window.innerHeight;
+		if (canvas && canvas.parentElement) {
+			canvas.width = canvas.parentElement.clientWidth;
+			canvas.height = canvas.parentElement.clientHeight;
 		}
 	}
 </script>
