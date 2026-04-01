@@ -1,0 +1,10 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/proxmox.ts"],
+  "entryPointStrategy": "resolve",
+  "out": "docs",
+  "exclude": ["**/*.spec.ts", "**/*.test.ts"],
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "skipErrorChecking": true
+}
