@@ -20,4 +20,16 @@
 	}
 </script>
 
-<BigRedButton onclick={honk} />
+<div class="container">
+	<BigRedButton onclick={honk} />
+</div>
+
+<style>
+	.container {
+		position: fixed;
+		left: 0;
+		top: 0;
+		width: 25%;
+		height: 15%;
+	}
+</style>

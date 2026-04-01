@@ -8,12 +8,15 @@
 	let props: Props = $props(); // this will put all props passed to the component into the `props` variable, which we can then spread onto the button element
 </script>
 
+<div class="container">
 <!-- we spread the props onto the button element, which will include any event handlers or other attributes passed to the component -->
 <button {...props}> 
 	Push
 </button>
+</div>
 
 <style>
+
 	button {
 		font-size: 1.4em;
 		width: 6em;

@@ -1,4 +1,3 @@
-import { on } from 'svelte/events';
 import type { Action } from 'svelte/action';
 
 type FocusableElement = HTMLButtonElement | HTMLAnchorElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLElement;

@@ -1,7 +1,11 @@
 <script lang="ts">
-	import App from '../app.svelte';
-    import CanvasDemo from '../CanvasDemo.svelte';
+	import BigRedButton from '../DemoBigRedButton.svelte';
+    import Canvas from '../DemoCanvas.svelte';
+    import Tooltip from '../DemoTooltip.svelte';
+    import Transition from '../DemoTransition.svelte';
 </script>
 
-<App />
-<CanvasDemo />
+<BigRedButton />
+<Canvas />
+<Tooltip />
+<Transition />
