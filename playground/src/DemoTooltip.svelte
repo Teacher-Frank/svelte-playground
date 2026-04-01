@@ -27,7 +27,7 @@
 		position: fixed;
 		left: 0%;
 		top: 20%;
-		width: 25%;
+		width: var(--leftbar-size);
 		height: 5%;
 	}
 

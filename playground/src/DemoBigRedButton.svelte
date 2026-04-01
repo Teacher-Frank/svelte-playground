@@ -29,7 +29,7 @@
 		position: fixed;
 		left: 0;
 		top: 0;
-		width: 25%;
+		width: var(--leftbar-size);
 		height: 15%;
 	}
 </style>

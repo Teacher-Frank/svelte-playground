@@ -60,7 +60,7 @@
 <style>
 	.container {
 		position: fixed;
-		left: 25%;
+		left: var(--leftbar-size);
 		top: 0;
 		width: 100%;
 		height: 100%;
