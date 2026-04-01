@@ -3,7 +3,9 @@
 	import { elasticOut } from 'svelte/easing';
 	import type { TransitionConfig } from 'svelte/transition';
 
+
 	let visible = $state<boolean>(true);
+  let status = $state('waiting...');
 
 	interface SpinParams {
 		duration: number;
@@ -27,20 +29,43 @@
 	}
 </script>
 
-<label>
-	<input type="checkbox" bind:checked={visible} />
-	visible
-</label>
+<div class="container">
+  <p>status: {status}</p>
 
-{#if visible}
-	<div
-		class="centered"
-		in:spin={{ duration: 8000 }}
-		out:fade
-	>
-		<span>transitions!</span>
-	</div>
-{/if}
+  <label>
+    <input type="checkbox" bind:checked={visible} />
+    visible
+  </label>
+
+  {#if visible}
+    <p 
+      in:fly={{ y: 200, duration: 2000 }} 
+      out:fade
+      onintrostart={() => status = 'intro started'}
+      onoutrostart={() => status = 'outro started'}
+      onintroend={() => status = 'intro ended'}
+      onoutroend={() => status = 'outro ended'}
+    >
+      Flies in, fades out
+    </p>
+  {/if}
+
+  {#if visible}
+    <div
+      in:spin={{ duration: 4000 }}
+      out:fade
+      onintrostart={() => status = 'intro started'}
+      onoutrostart={() => status = 'outro started'}
+      onintroend={() => status = 'intro ended'}
+      onoutroend={() => status = 'outro ended'}
+    >
+      <span
+      >transitions!</span>
+    </div>
+  {/if}
+
+
+</div>
 
 <style>
 	.container {
@@ -48,34 +73,19 @@
 		left: 0%;
 		top: 25%;
 		width: var(--leftbar-size);
-		height: 5%;
+		height: 15%;
 	}
-
-  .centered {
-		position: absolute;
-		left: 50%;
-		top: 50%;
-		transform: translate(-50%, -50%);
+  span {
+		position: relative;
+    top: 50%;
+		font-size: 3em;
 	}
-
-	span {
-		position: absolute;
-		transform: translate(-50%, -50%);
-		font-size: 4em;
+	.slide {
+		padding: 0.5em 0;
+		border-top: 1px solid #eee;
 	}
 </style>
 
 
-<div class="container">
-  <label>
-    <input type="checkbox" bind:checked={visible} />
-    visible
-  </label>
 
-  {#if visible}
-    <p in:fly={{ y: 200, duration: 2000 }} out:fade>
-      Flies in, fades out
-    </p>
-  {/if}
-</div>
 
