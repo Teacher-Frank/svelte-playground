@@ -90,7 +90,7 @@
 	.container {
 		position: fixed;
 		left: 0%;
-		top: 50%;
+		top: 55%;
 		width: var(--leftbar-size);
 		height: 15%;
 	}

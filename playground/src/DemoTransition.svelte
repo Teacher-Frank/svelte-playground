@@ -41,10 +41,6 @@
     <p 
       in:fly={{ y: 200, duration: 2000 }} 
       out:fade
-      onintrostart={() => status = 'intro started'}
-      onoutrostart={() => status = 'outro started'}
-      onintroend={() => status = 'intro ended'}
-      onoutroend={() => status = 'outro ended'}
     >
       Flies in, fades out
     </p>
@@ -70,19 +66,16 @@
 	.container {
 		position: fixed;
 		left: 0%;
-		top: 25%;
+		top: 30%;
 		width: var(--leftbar-size);
-		height: 15%;
+		height: 10%;
 	}
   span {
 		position: relative;
-    top: 50%;
+    top: 0%;
 		font-size: 3em;
 	}
-	.slide {
-		padding: 0.5em 0;
-		border-top: 1px solid #eee;
-	}
+
 </style>
 
 

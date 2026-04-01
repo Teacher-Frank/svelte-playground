@@ -49,9 +49,9 @@
 	.container {
 		position: fixed;
 		left: var(--leftbar-size);
-		top: 50%;
+		top: 55%;
 		width: 100%;
-		height: 50%;
+		height: 45%;
 	}
 
 	label {
