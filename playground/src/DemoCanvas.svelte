@@ -6,10 +6,25 @@
 	let selected = $state<string>(colors[0]);
 	let size = $state<number>(10);
 	let showMenu = $state<boolean>(false);
+	let clearToken = $state<number>(0);
+
+	function handleKeydown(event: KeyboardEvent): void {
+		const target = event.target as HTMLElement | null;
+
+		if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+			return;
+		}
+
+		if (event.key.toLowerCase() === 'c') {
+			clearToken += 1;
+		}
+	}
 </script>
 
+<svelte:window onkeydown={handleKeydown} />
+
 <div class="container">
-	<Canvas color={selected} size={size} />
+	<Canvas color={selected} size={size} {clearToken} />
 
 	{#if showMenu}
 		<div
@@ -54,6 +69,9 @@
 		<button class="show-menu" onclick={() => showMenu = !showMenu}>
 			{showMenu ? 'close' : 'menu'}
 		</button>
+		<button class="clear" onclick={() => clearToken += 1}>
+			clear
+		</button>
 	</div>
 </div>
 
@@ -71,9 +89,15 @@
 		left: 0;
 		top: 0;
 		padding: 1em;
+		display: flex;
+		gap: 0.5em;
 	}
 
 	.show-menu {
+		width: 5em;
+	}
+
+	.clear {
 		width: 5em;
 	}
 

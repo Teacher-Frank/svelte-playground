@@ -2,6 +2,7 @@
 	interface Props {
 		color: string;
 		size: number;
+		clearToken: number;
 	}
 
 	interface Coords {
@@ -9,7 +10,7 @@
 		y: number;
 	}
 
-	let { color, size }: Props = $props();
+	let { color, size, clearToken }: Props = $props();
 
 	let canvas = $state<HTMLCanvasElement>();
 	let context = $state<CanvasRenderingContext2D>();
@@ -19,6 +20,13 @@
 		if (canvas) {
 			context = canvas.getContext('2d')!;
 			resize();
+		}
+	});
+
+	$effect(() => {
+		if (context && canvas) {
+			clearToken;
+			context.clearRect(0, 0, canvas.width, canvas.height);
 		}
 	});
 
