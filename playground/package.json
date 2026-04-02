@@ -3,7 +3,6 @@
 	"version": "0.0.1",
 	"scripts": {
 		"dev": "vite dev",
-		"dev:with-pve-client": "node ./scripts/dev-with-pve-client.mjs",
 		"build": "vite build && npm run prepack",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
@@ -64,7 +63,6 @@
 	],
 	"dependencies": {
 		"https": "^1.0.0",
-		"pve-client": "file:../../pve-client",
 		"tippy": "^0.0.0",
 		"tippy.js": "^6.3.7"
 	}
