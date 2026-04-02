@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 
-const vitestTempDir = resolve('.vitest', 'tmp');
+const vitestTempDir = 'C:\\temp';
 mkdirSync(vitestTempDir, { recursive: true });
 
 const child = spawn(
@@ -13,7 +13,8 @@ const child = spawn(
 		env: {
 			...process.env,
 			TEMP: vitestTempDir,
-			TMP: vitestTempDir
+			TMP: vitestTempDir,
+			TMPDIR: vitestTempDir
 		}
 	}
 );
