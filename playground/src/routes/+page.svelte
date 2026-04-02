@@ -8,10 +8,7 @@
 </script>
 
 <div style="height:5% width:100%; background:var(--color-primary); display:flex; align-items:center; justify-content:center;">
-  <nav>
-    <a href="/">home</a>
-    <a href="/about">about</a>
-  </nav>
+  <h1 style="color:black;">Svelte Playground Homepage</h1>
 </div>
 <div style="height:95% width:100%; background:var(--color-primary); display:flex; align-items:center; justify-content:center;">
   <BigRedButton />
