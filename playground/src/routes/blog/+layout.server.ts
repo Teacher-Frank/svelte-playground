@@ -1,5 +1,5 @@
 // @ts-ignore - SvelteKit virtual module  didn't resolve otherwise
-import type { PageServerLoad } from './$types';
+import type { PageServerLoad } from './$types.js';
 import { posts } from './data.ts';
 
 export const load: PageServerLoad = () => {
