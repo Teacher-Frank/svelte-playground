@@ -5,7 +5,7 @@
 
 	let selected = $state<string>(colors[0]);
 	let size = $state<number>(10);
-	let showMenu = $state<boolean>(true);
+	let showMenu = $state<boolean>(false);
 </script>
 
 <div class="container">
