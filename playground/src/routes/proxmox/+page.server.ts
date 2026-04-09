@@ -45,6 +45,12 @@ export const load: PageServerLoad = async () => {
 
     const node = process.env.PVE_NODE ?? 'pve';
 
+    // NOTE: pve-client's typed surface does not expose node-scoped qemu/lxc listing cleanly
+    // from this loader context, so we query cluster resources and then filter by node + type.
+    // README samples that do not solve this use case:
+    // - client.api.nodes.list() -> lists nodes, not node workloads (VMs/containers)
+    // - client.api.nodes.get("pve").status.get() -> does not resolve cleanly in VS Code for this version,
+    //   and even conceptually returns node status only, not VM/container inventory
     const [nodes, version, cluster, allResources] = await Promise.all([
       client.api.nodes.list(),
       client.api.version.version(),
