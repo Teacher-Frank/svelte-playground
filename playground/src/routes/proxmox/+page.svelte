@@ -1,15 +1,15 @@
 <script lang="ts">
-  import type { PageData } from './$types.js';
-  import ListProxmox from '../../ListProxmox.svelte';
-  import VMContainerControls from '../../VMContainerControls.svelte';
+  import type { ActionData, PageData } from './$types.js';
+  import AdminProxmox from '../../AdminProxmox.svelte';
 
-  let { data }: { data: PageData } = $props();
+  let {
+    data,
+    form
+  }: {
+    data: PageData;
+    form?: ActionData;
+  } = $props();
 </script>
 
-<ListProxmox {data} />
-<VMContainerControls
-  onStart={() => alert('Start VM/Container')}
-  onStop={() => alert('Stop VM/Container')}
-  onRestart={() => alert('Restart VM/Container')}
-/>
+<AdminProxmox {data} {form} />
 

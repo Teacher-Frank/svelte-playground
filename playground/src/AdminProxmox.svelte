@@ -1,10 +1,13 @@
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
-  import { onMount } from 'svelte';
   import VMContainerControls from './VMContainerControls.svelte';
 
-  const SERVER_STATUS_REFRESH_SECONDS = 5;
-  const SERVER_STATUS_REFRESH_INTERVAL_MS = SERVER_STATUS_REFRESH_SECONDS * 1000;
+  let STATUS_REFRESH_SECONDS = $state(5);
+
+  const REFRESH_INTERVAL_MS = $derived.by(() => {
+    const seconds = Number(STATUS_REFRESH_SECONDS);
+    return (Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 1) * 1000;
+  });
 
   type Workload = {
     id?: number | string;
@@ -21,12 +24,28 @@
     cluster: unknown;
     vms: Workload[];
     containers: Workload[];
+    recentTasks: {
+      id: string;
+      node: string;
+      starttime: number;
+      endtime?: number;
+      status?: string;
+      type: string;
+      user: string;
+      upid: string;
+    }[];
   };
 
   let {
-    data
+    data,
+    form
   }: {
     data: { results: ProxmoxResults | null; error: string | null };
+    form?: {
+      message?: string;
+      status?: 'success' | 'error';
+      workloadType?: 'vm' | 'container';
+    } | null;
   } = $props();
 
   const toWorkloads = (value: unknown): Workload[] => {
@@ -53,10 +72,19 @@
     return `${minutes}m`;
   };
 
-  onMount(() => {
+  const formatTaskTime = (unixSeconds?: number): string => {
+    if (!unixSeconds || unixSeconds <= 0) {
+      return '-';
+    }
+
+    return new Date(unixSeconds * 1000).toLocaleString();
+  };
+
+  $effect(() => {
+    // Refreshes server status, VM/container status, and the task log together.
     const intervalId = setInterval(() => {
       void invalidateAll();
-    }, SERVER_STATUS_REFRESH_INTERVAL_MS);
+    }, REFRESH_INTERVAL_MS);
 
     return () => {
       clearInterval(intervalId);
@@ -69,6 +97,17 @@
   {#if data.error}
     <p>{data.error}</p>
   {:else if data.results}
+    <div class="refresh-control">
+      <label for="status-refresh-seconds">Refresh every (seconds)</label>
+      <input
+        id="status-refresh-seconds"
+        type="number"
+        min="1"
+        step="1"
+        bind:value={STATUS_REFRESH_SECONDS}
+      />
+    </div>
+
     <p class="server-status">Server status: {data.results.serverStatus}</p>
 
     <section>
@@ -108,6 +147,10 @@
         </ul>
       {:else}
         <p>No virtual machines found.</p>
+      {/if}
+
+      {#if form?.message && form.workloadType === 'vm'}
+        <p class="action-status" class:success={form.status === 'success'} class:error={form.status === 'error'}>{form.message}</p>
       {/if}
     </section>
 
@@ -149,6 +192,44 @@
       {:else}
         <p>No containers found.</p>
       {/if}
+
+      {#if form?.message && form.workloadType === 'container'}
+        <p class="action-status" class:success={form.status === 'success'} class:error={form.status === 'error'}>{form.message}</p>
+      {/if}
+    </section>
+
+    <section>
+      <h2>Last 10 Actions</h2>
+      {#if data.results.recentTasks.length > 0}
+        <div class="tasks-table-wrap">
+          <table class="tasks-table">
+            <thead>
+              <tr>
+                <th>Start</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Node</th>
+                <th>User</th>
+                <th>ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each data.results.recentTasks as task}
+                <tr>
+                  <td>{formatTaskTime(task.starttime)}</td>
+                  <td>{task.type || '-'}</td>
+                  <td>{task.status || '-'}</td>
+                  <td>{task.node || '-'}</td>
+                  <td>{task.user || '-'}</td>
+                  <td>{task.id || task.upid || '-'}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {:else}
+        <p>No task history available.</p>
+      {/if}
     </section>
   {:else}
     <p>No Proxmox data available.</p>
@@ -168,6 +249,27 @@
     margin-top: 1.5rem;
   }
 
+  .refresh-control {
+    align-items: center;
+    display: flex;
+    gap: 0.6rem;
+    margin: 0 0 1rem;
+  }
+
+  .refresh-control label {
+    color: #444;
+    font-size: 0.92rem;
+    font-weight: 600;
+  }
+
+  .refresh-control input {
+    border: 1px solid #c8c8c8;
+    border-radius: 0.5rem;
+    font-size: 0.9rem;
+    padding: 0.35rem 0.45rem;
+    width: 5.5rem;
+  }
+
   .server-status {
     background: #f0f0f0;
     border: 1px solid #d6d6d6;
@@ -175,6 +277,22 @@
     font-weight: 600;
     margin: 0 0 1rem;
     padding: 0.65rem 0.85rem;
+  }
+
+  .action-status {
+    border-radius: 0.75rem;
+    margin-top: 0.9rem;
+    padding: 0.85rem 1rem;
+  }
+
+  .success {
+    background: #e6f5ea;
+    color: #215c33;
+  }
+
+  .error {
+    background: #fbe9e7;
+    color: #8b2e24;
   }
 
   ul {
@@ -241,5 +359,30 @@
 
   .workload-row-button span:last-child {
     color: #555;
+  }
+
+  .tasks-table-wrap {
+    overflow-x: auto;
+  }
+
+  .tasks-table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  .tasks-table th,
+  .tasks-table td {
+    border-bottom: 1px solid #e1e1e1;
+    font-size: 0.9rem;
+    padding: 0.6rem 0.5rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .tasks-table th {
+    color: #555;
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 </style>

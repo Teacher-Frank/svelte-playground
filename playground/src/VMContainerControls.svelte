@@ -1,50 +1,76 @@
 <script lang="ts">
-  type ActionHandler = () => void;
+  type SelectedWorkload = {
+    type: 'vm' | 'container';
+    id?: number | string;
+    name?: string;
+  };
 
   let {
-    onStart = () => {},
-    onStop = () => {},
-    onRestart = () => {},
+    disabled = false,
+    selectedLabel = 'No workload selected',
+    selectedWorkload = null,
+    compact = false,
   }: {
-    onStart?: ActionHandler;
-    onStop?: ActionHandler;
-    onRestart?: ActionHandler;
+    disabled?: boolean;
+    selectedLabel?: string;
+    selectedWorkload?: SelectedWorkload | null;
+    compact?: boolean;
   } = $props();
 </script>
 
-<div class="controls">
-  <button onclick={onStart} title="Start" aria-label="Start">
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
-      <path d="M8 5v14l11-7z" />
-    </svg>
-  </button>
+<div class="controls" class:compact>
+  {#if !compact}
+    <div class="selected-target">{selectedLabel}</div>
+  {/if}
 
-  <button onclick={onStop} title="Stop" aria-label="Stop">
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
-      <path d="M6 4h12v16H6z" />
-    </svg>
-  </button>
+  <form class="action-buttons" method="POST">
+    <input name="type" type="hidden" value={selectedWorkload?.type ?? ''} />
+    <input name="id" type="hidden" value={selectedWorkload?.id?.toString() ?? ''} />
+    <input name="name" type="hidden" value={selectedWorkload?.name ?? ''} />
 
-  <button onclick={onRestart} title="Restart" aria-label="Restart">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-      <path d="M21 2v6h-6" />
-      <path d="M3 11a9 9 0 0 1 15-6.7L21 8" />
-      <path d="M3 22v-6h6" />
-      <path d="M21 13a9 9 0 0 1-15 6.7L3 16" />
-    </svg>
-  </button>
+    <button formaction="?/start" title="Start" aria-label="Start" disabled={disabled}>
+      <img src="/play.svg" alt="" aria-hidden="true" />
+    </button>
+
+    <button formaction="?/stop" title="Stop" aria-label="Stop" disabled={disabled}>
+      <img src="/stop.svg" alt="" aria-hidden="true" />
+    </button>
+
+    <button formaction="?/restart" title="Restart" aria-label="Restart" disabled={disabled}>
+      <img src="/restart.svg" alt="" aria-hidden="true" />
+    </button>
+  </form>
 </div>
 
 <style>
   .controls {
     display: flex;
-    gap: 0.5rem;
+    align-items: center;
+    gap: 0.25rem;
+    background: #d7d7d7;
+    border: 1px solid #b8b8b8;
+    border-radius: 0.9rem;
+    padding: 0.35rem;
+    width: fit-content;
+  }
+
+  .selected-target {
+    color: #2f2f2f;
+    font-size: 0.95rem;
+    margin: 0 0.65rem 0 0.4rem;
+    min-width: 14rem;
+  }
+
+  .action-buttons {
+    display: flex;
+    gap: 0.25rem;
+    margin: 0;
   }
 
   button {
-    background: none;
-    border: 1px solid #ccc;
-    border-radius: 4px;
+    background: #efefef;
+    border: 1px solid #b3b3b3;
+    border-radius: 0.7rem;
     cursor: pointer;
     padding: 0.5rem;
     width: 2.5rem;
@@ -52,22 +78,42 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #666;
     transition: all 0.2s;
   }
 
   button:hover {
-    border-color: #999;
-    color: #333;
-    background-color: #f5f5f5;
+    border-color: #888;
+    background-color: #fafafa;
   }
 
   button:active {
     transform: scale(0.95);
   }
 
-  svg {
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  img {
     width: 1.25rem;
     height: 1.25rem;
+    display: block;
+  }
+
+  .controls.compact {
+    border-radius: 0.7rem;
+    padding: 0.2rem;
+  }
+
+  .controls.compact button {
+    height: 2.1rem;
+    padding: 0.35rem;
+    width: 2.1rem;
+  }
+
+  .controls.compact img {
+    height: 1rem;
+    width: 1rem;
   }
 </style>
