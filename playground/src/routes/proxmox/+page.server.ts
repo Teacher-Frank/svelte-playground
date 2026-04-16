@@ -34,7 +34,7 @@ type ProxmoxResults = {
   }[];
 };
 
-const getNodeName = (): string => process.env.PVE_NODE ?? 'pve';
+const getNodeName = (): string => process.env.PVE_NODE ?? 'unknown';
 
 const createClient = async (): Promise<Client> => {
   const baseUrl = process.env.PVE_BASE_URL;
