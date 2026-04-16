@@ -9,7 +9,9 @@
     data: PageData;
     form?: ActionData;
   } = $props();
+
+  const normalizedForm = $derived(form ?? undefined);
 </script>
 
-<AdminProxmox {data} {form} />
+<AdminProxmox {data} form={normalizedForm} />
 
