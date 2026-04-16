@@ -5,7 +5,6 @@
     cluster: unknown;
     vms: unknown;
     containers: unknown;
-    resources: unknown;
   };
 
   let { data }: { data: { results: ProxmoxResults | null; error: string | null } } = $props();

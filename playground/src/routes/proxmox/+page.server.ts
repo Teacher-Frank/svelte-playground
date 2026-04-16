@@ -1,4 +1,3 @@
-// @ts-ignore - SvelteKit virtual module didn't resolve otherwise
 import type { PageServerLoad } from './$types.js';
 import { Client } from 'pve-client';
 import { Agent } from 'node:https';
@@ -9,7 +8,6 @@ type ProxmoxResults = {
   cluster: unknown;
   vms: unknown;
   containers: unknown;
-  resources: unknown;
 };
 
 export const load: PageServerLoad = async () => {
@@ -45,24 +43,19 @@ export const load: PageServerLoad = async () => {
 
     const node = process.env.PVE_NODE ?? 'pve';
 
-    // NOTE: pve-client's typed surface does not expose node-scoped qemu/lxc listing cleanly
-    // from this loader context, so we query cluster resources and then filter by node + type.
-    // README samples that do not solve this use case:
-    // - client.api.nodes.list() -> lists nodes, not node workloads (VMs/containers)
-    // - client.api.nodes.get("pve").status.get() -> does not resolve cleanly in VS Code for this version,
-    //   and even conceptually returns node status only, not VM/container inventory
-    const [nodes, version, cluster, allResources] = await Promise.all([
+    const nodeApi: any = client.api.nodes.get(node);
+
+    const [nodes, version, cluster, vms, containers] = await Promise.all([
       client.api.nodes.list(),
       client.api.version.version(),
       client.api.cluster.status(),
-      client.api.cluster.resources.resources({ $query: { type: 'vm' } }),
+      nodeApi.qemu.list({ $path: { node } }),
+      nodeApi.lxc.list({ $path: { node } }),
     ]);
 
-    const vms = (allResources as any[]).filter((r: any) => r.type === 'qemu' && r.node === node);
-    const containers = (allResources as any[]).filter((r: any) => r.type === 'lxc' && r.node === node);
-    const resources = allResources;
+    // const resources = [...(vms as any[]), ...(containers as any[])];
 
-    const results: ProxmoxResults = { nodes, version, cluster, vms, containers, resources };
+    const results: ProxmoxResults = { nodes, version, cluster, vms, containers };
     return {
       results,
       error: null
