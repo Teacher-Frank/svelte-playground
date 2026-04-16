@@ -1,4 +1,3 @@
-// @ts-expect-error - SvelteKit virtual module didn't resolve otherwise
 import type { PageServerLoad } from './$types.js';
 
 export const load: PageServerLoad = ({ cookies }) => {

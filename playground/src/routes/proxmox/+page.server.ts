@@ -6,6 +6,7 @@ import { Agent } from 'node:https';
 
 type WorkloadKind = 'vm' | 'container';
 type WorkloadAction = 'start' | 'stop' | 'restart';
+type AnyFn = (...args: unknown[]) => unknown;
 
 type Workload = {
   id?: number | string;
@@ -108,20 +109,21 @@ const loadResults = async (): Promise<ProxmoxResults> => {
 
   const loadRecentTasks = async (): Promise<Array<Record<string, unknown>>> => {
     const query = { limit: 10, source: 'all' as const };
+    const typedApi = nodeApi as Record<string, unknown>;
 
-    if (nodeApi?.tasks?.list) {
-      return (await nodeApi.tasks.list({ $path: { node }, $query: query })) as Array<Record<string, unknown>>;
+    if ((typedApi.tasks as Record<string, unknown>)?.list) {
+      return (await ((typedApi.tasks as Record<string, AnyFn>).list({ $path: { node }, $query: query }))) as Array<Record<string, unknown>>;
     }
 
-    if (nodeApi?.tasks && typeof nodeApi.tasks === 'function') {
-      return (await nodeApi.tasks({ $path: { node }, $query: query })) as Array<Record<string, unknown>>;
+    if (typedApi.tasks && typeof typedApi.tasks === 'function') {
+      return (await ((typedApi.tasks as AnyFn)({ $path: { node }, $query: query }))) as Array<Record<string, unknown>>;
     }
 
-    const clusterApi: unknown = (client.api as unknown).cluster;
-    if (clusterApi && typeof clusterApi === 'object' && 'tasks' in clusterApi) {
-      const tasks = (clusterApi as Record<string, unknown>).tasks;
+    const clusterApiObj = (client.api as Record<string, unknown>).cluster as Record<string, unknown> | undefined;
+    if (clusterApiObj && typeof clusterApiObj === 'object' && 'tasks' in clusterApiObj) {
+      const tasks = (clusterApiObj.tasks as AnyFn);
       if (typeof tasks === 'function') {
-        const clusterTasks = await tasks();
+        const clusterTasks = await (tasks() as Promise<unknown>);
         return Array.isArray(clusterTasks)
           ? (clusterTasks.filter((task: Record<string, unknown>) => task.node === node) as Array<Record<string, unknown>>)
           : [];
@@ -132,8 +134,8 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   };
 
   const [vms, containers, tasks] = await Promise.all([
-    nodeApi.qemu.list({ $path: { node } }),
-    nodeApi.lxc.list({ $path: { node } }),
+      ((nodeApi as Record<string, unknown>).qemu as Record<string, AnyFn>).list({ $path: { node } }) as unknown as Promise<Workload[]>,
+      ((nodeApi as Record<string, unknown>).lxc as Record<string, AnyFn>).list({ $path: { node } }) as unknown as Promise<Workload[]>,
     loadRecentTasks(),
   ]);
 
@@ -205,15 +207,19 @@ const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: 
 const executeWorkloadAction = async (type: WorkloadKind, id: number, node: string, action: WorkloadAction): Promise<string> => {
   const client = await createClient();
   const nodeApi: unknown = client.api.nodes.get(node);
-  const guestApi = type === 'vm' ? nodeApi.qemu.vmid(id) : nodeApi.lxc.id(id);
+  const typedNodeApi = nodeApi as Record<string, Record<string, unknown>>;
+    const qemuApi = (typedNodeApi.qemu as Record<string, AnyFn>).vmid as (id: number) => Record<string, unknown>;
+    const lxcApi = (typedNodeApi.lxc as Record<string, AnyFn>).id as (id: number) => Record<string, unknown>;
+    const guestApi = type === 'vm' ? qemuApi(id) : lxcApi(id);
+  const status = guestApi.status as Record<string, unknown>;
 
   switch (action) {
     case 'start':
-      return guestApi.status.start();
+      return await ((status.start as AnyFn)()) as string;
     case 'stop':
-      return guestApi.status.stop();
+      return await ((status.stop as AnyFn)()) as string;
     case 'restart':
-      return guestApi.status.reboot();
+      return await ((status.reboot as AnyFn)()) as string;
   }
 };
 

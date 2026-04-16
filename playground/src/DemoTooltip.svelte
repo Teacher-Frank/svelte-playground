@@ -1,5 +1,4 @@
 <script lang="ts">
-	// @ts-expect-error - tippy.js has module resolution issues
 	import tippy from 'tippy.js';
 	import 'tippy.js/dist/tippy.css';
 

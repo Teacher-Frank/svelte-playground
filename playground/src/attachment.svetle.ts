@@ -34,8 +34,10 @@ export const trapFocus: Action<HTMLElement> = (node: HTMLElement) => {
 	focusable()[0]?.focus();
 	node.addEventListener('keydown', handleKeydown);
 
-	return () => {
+	return {
+		destroy() {
 		node.removeEventListener('keydown', handleKeydown);
 		previous?.focus();
+		}
 	};
 };

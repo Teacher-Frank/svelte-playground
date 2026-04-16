@@ -1,5 +1,4 @@
 <script lang="ts">
-	// @ts-expect-error - SvelteKit virtual module
 	// $app/environment and $state are only available in SvelteKit, but this playground is meant to be used in a variety of environments, so we ignore the type error here
 	import { browser } from '$app/environment';	
 	import BigRedButton from './BigRedButton.svelte';

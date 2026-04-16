@@ -80,8 +80,9 @@ export class ProxmoxAPI {
                 password: this.password,
             });
 
-            this.ticket = response.data.ticket;
-            this.csrf = response.data.CSRFPreventionToken;
+                const data = response.data as Record<string, unknown>;
+                this.ticket = data.ticket as string;
+                this.csrf = data.CSRFPreventionToken as string;
             this.log('info', 'Authentication successful');
         } catch (error) {
             this.log('error', 'Authentication failed', error);
