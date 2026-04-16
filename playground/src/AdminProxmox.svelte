@@ -3,6 +3,7 @@
   import VMContainerControls from './VMContainerControls.svelte';
 
   let STATUS_REFRESH_SECONDS = $state(5);
+  let REFRESH_ENABLED = $state(true);
 
   const REFRESH_INTERVAL_MS = $derived.by(() => {
     const seconds = Number(STATUS_REFRESH_SECONDS);
@@ -81,6 +82,10 @@
   };
 
   $effect(() => {
+    if (!REFRESH_ENABLED) {
+      return;
+    }
+
     // Refreshes server status, VM/container status, and the task log together.
     const intervalId = setInterval(() => {
       void invalidateAll();
@@ -106,6 +111,14 @@
         step="1"
         bind:value={STATUS_REFRESH_SECONDS}
       />
+      <label class="refresh-toggle" for="refresh-enabled">
+        <input
+          id="refresh-enabled"
+          type="checkbox"
+          bind:checked={REFRESH_ENABLED}
+        />
+        Enable refresh
+      </label>
     </div>
 
     <p class="server-status">Server status: {data.results.serverStatus}</p>
@@ -268,6 +281,20 @@
     font-size: 0.9rem;
     padding: 0.35rem 0.45rem;
     width: 5.5rem;
+  }
+
+  .refresh-toggle {
+    align-items: center;
+    color: #444;
+    display: inline-flex;
+    font-size: 0.9rem;
+    font-weight: 600;
+    gap: 0.4rem;
+    margin-left: 0.25rem;
+  }
+
+  .refresh-toggle input {
+    margin: 0;
   }
 
   .server-status {

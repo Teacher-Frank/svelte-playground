@@ -162,7 +162,7 @@ const executeWorkloadAction = async (type: WorkloadKind, id: number, action: Wor
   const client = await createClient();
   const node = getNodeName();
   const nodeApi: any = client.api.nodes.get(node);
-  const guestApi = type === 'vm' ? nodeApi.qemu.vmid(id) : nodeApi.lxc.vmid(id);
+  const guestApi = type === 'vm' ? nodeApi.qemu.vmid(id) : nodeApi.lxc.id(id);
 
   switch (action) {
     case 'start':
@@ -176,9 +176,17 @@ const executeWorkloadAction = async (type: WorkloadKind, id: number, action: Wor
 
 const buildAction = (action: WorkloadAction) => {
   return async ({ request }: RequestEvent) => {
+    let selectedWorkload:
+      | {
+          type: WorkloadKind;
+          id: number;
+          name?: string;
+        }
+      | undefined;
+
     try {
       const formData = await request.formData();
-      const selectedWorkload = parseWorkloadSubmission(formData);
+      selectedWorkload = parseWorkloadSubmission(formData);
       const upid = await executeWorkloadAction(selectedWorkload.type, selectedWorkload.id, action);
       const actionLabel = action === 'restart' ? 'Restarted' : `${action.charAt(0).toUpperCase()}${action.slice(1)}ed`;
       const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
@@ -192,7 +200,8 @@ const buildAction = (action: WorkloadAction) => {
     } catch (error) {
       return fail(500, {
         status: 'error' as const,
-        message: error instanceof Error ? error.message : String(error)
+        message: error instanceof Error ? error.message : String(error),
+        workloadType: selectedWorkload?.type
       });
     }
   };
