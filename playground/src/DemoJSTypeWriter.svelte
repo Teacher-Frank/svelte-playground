@@ -70,7 +70,7 @@
   </label>
 
   {#if showItems}
-    {#each items.slice(0, i) as item}
+    {#each items.slice(0, i) as item (item)}
       <div class="slide" transition:slide|global>
         {item}
       </div>

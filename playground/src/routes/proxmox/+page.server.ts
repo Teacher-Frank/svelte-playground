@@ -104,7 +104,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   }));
 
   const node = resolveNodeName(clusterNodes, getConfiguredNodeName());
-  const nodeApi: any = client.api.nodes.get(node);
+  const nodeApi: unknown = client.api.nodes.get(node);
 
   const loadRecentTasks = async (): Promise<Array<Record<string, unknown>>> => {
     const query = { limit: 10, source: 'all' as const };
@@ -117,12 +117,15 @@ const loadResults = async (): Promise<ProxmoxResults> => {
       return (await nodeApi.tasks({ $path: { node }, $query: query })) as Array<Record<string, unknown>>;
     }
 
-    const clusterApi: any = (client.api as any).cluster;
-    if (clusterApi?.tasks) {
-      const clusterTasks = await clusterApi.tasks();
-      return Array.isArray(clusterTasks)
-        ? (clusterTasks.filter((task: Record<string, unknown>) => task.node === node) as Array<Record<string, unknown>>)
-        : [];
+    const clusterApi: unknown = (client.api as unknown).cluster;
+    if (clusterApi && typeof clusterApi === 'object' && 'tasks' in clusterApi) {
+      const tasks = (clusterApi as Record<string, unknown>).tasks;
+      if (typeof tasks === 'function') {
+        const clusterTasks = await tasks();
+        return Array.isArray(clusterTasks)
+          ? (clusterTasks.filter((task: Record<string, unknown>) => task.node === node) as Array<Record<string, unknown>>)
+          : [];
+      }
     }
 
     return [];
@@ -201,7 +204,7 @@ const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: 
 
 const executeWorkloadAction = async (type: WorkloadKind, id: number, node: string, action: WorkloadAction): Promise<string> => {
   const client = await createClient();
-  const nodeApi: any = client.api.nodes.get(node);
+  const nodeApi: unknown = client.api.nodes.get(node);
   const guestApi = type === 'vm' ? nodeApi.qemu.vmid(id) : nodeApi.lxc.id(id);
 
   switch (action) {

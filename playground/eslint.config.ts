@@ -15,11 +15,16 @@ export default defineConfig(
 	ts.configs.recommended,
 	svelte.configs.recommended,
 	{
+		ignores: ['docs/**', 'dist/**', 'build/**']
+	},
+	{
 		languageOptions: { globals: { ...globals.browser, ...globals.node } },
 		rules: {
 			// typescript-eslint strongly recommend that you do not use the no-undef lint rule on TypeScript projects.
 			// see: https://typescript-eslint.io/troubleshooting/faqs/eslint/#i-get-errors-from-the-no-undef-rule-about-global-variables-not-being-defined-even-though-there-are-no-typescript-errors
-			"no-undef": 'off'
+			"no-undef": 'off',
+			// Allow standard SvelteKit navigation without resolve() - these are valid in SvelteKit
+			"svelte/no-navigation-without-resolve": 'off'
 		}
 	},
 	{

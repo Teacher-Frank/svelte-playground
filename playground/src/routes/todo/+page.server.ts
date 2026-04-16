@@ -1,4 +1,4 @@
-// @ts-ignore - SvelteKit virtual module didn't resolve otherwise
+// @ts-expect-error - SvelteKit virtual module didn't resolve otherwise
 import type { Actions, PageServerLoad } from './$types.js';
 import * as db from '$lib/server/database.js';
 

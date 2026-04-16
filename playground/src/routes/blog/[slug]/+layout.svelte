@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   let { data, children } = $props();
 </script>
 
@@ -10,9 +11,9 @@
   	<aside>
 		<h2>More posts</h2>
 		<ul>
-			{#each data.summaries as { slug, title }}
+			{#each data.summaries as { slug, title } (slug)}
 				<li>
-					<a href="/blog/{slug}">{title}</a>
+					<a href="{base}/blog/{slug}">{title}</a>
 				</li>
 			{/each}
 		</ul>

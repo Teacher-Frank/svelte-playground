@@ -1,5 +1,5 @@
 <script lang="ts">
-	// @ts-ignore - tippy.js has module resolution issues
+	// @ts-expect-error - tippy.js has module resolution issues
 	import tippy from 'tippy.js';
 	import 'tippy.js/dist/tippy.css';
 
@@ -7,7 +7,7 @@
 
 	function tooltip(content: string) {
 		return (node: HTMLElement): (() => void) => {
-			// @ts-ignore
+			// @ts-expect-error tippy.js doesn't have proper types
 			const instance = tippy(node, { content });
 			return () => instance.destroy();
 		};

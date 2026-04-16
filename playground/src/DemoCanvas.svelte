@@ -43,7 +43,7 @@
 		>
 			<div class="menu">
 				<div class="colors">
-					{#each colors as color}
+					{#each colors as color (color)}
 						<button
 							class="color"
 							aria-label={color}

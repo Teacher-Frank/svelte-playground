@@ -25,7 +25,8 @@
 
 	$effect(() => {
 		if (context && canvas) {
-			clearToken;
+			// clearToken is used to track when the canvas should be cleared
+			void clearToken;
 			context.clearRect(0, 0, canvas.width, canvas.height);
 		}
 	});

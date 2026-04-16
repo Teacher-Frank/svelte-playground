@@ -2,7 +2,7 @@
 	import type { HTMLButtonAttributes } from 'svelte/elements';
 	
 	interface Props extends HTMLButtonAttributes {
-		[key: string]: any;
+		[key: string]: string | number | boolean | undefined;
 	}
 	
 	let props: Props = $props(); // this will put all props passed to the component into the `props` variable, which we can then spread onto the button element

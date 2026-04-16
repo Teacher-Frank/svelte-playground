@@ -59,7 +59,7 @@ export class ProxmoxAPI {
      * @param data - Optional additional data to log
      * @private
      */
-    private log(level: 'info' | 'error' | 'warn', message: string, data?: any): void {
+    private log(level: 'info' | 'error' | 'warn', message: string, data?: unknown): void {
         const timestamp = new Date().toISOString();
         console.log(`[${timestamp}] [${level.toUpperCase()}] ${message}`, data || '');
     }
@@ -75,7 +75,6 @@ export class ProxmoxAPI {
      */
     async authenticate(): Promise<void> {
         try {
-            const credentials = btoa(`${this.username}@${this.realm}:${this.password}`);
             const response = await this.request('POST', '/api2/json/access/ticket', {
                 username: `${this.username}@${this.realm}`,
                 password: this.password,
@@ -99,7 +98,7 @@ export class ProxmoxAPI {
      * @throws {Error} If the request fails or returns a non-2xx status code
      * @private
      */
-    private request(method: string, path: string, data?: any): Promise<any> {
+    private request(method: string, path: string, data?: unknown): Promise<Record<string, unknown>> {
         return new Promise((resolve, reject) => {
             const options = {
                 hostname: this.host,
@@ -130,7 +129,7 @@ export class ProxmoxAPI {
                         } else {
                             reject(new Error(`HTTP ${res.statusCode}: ${parsed.errors || body}`));
                         }
-                    } catch (e) {
+                    } catch {
                         reject(new Error(`Failed to parse response: ${body}`));
                     }
                 });
@@ -158,7 +157,7 @@ export class ProxmoxAPI {
      * console.log(nodes.data);
      * ```
      */
-    async getNodes(): Promise<any> {
+    async getNodes(): Promise<Record<string, unknown>> {
         try {
             return await this.request('GET', '/api2/json/nodes');
         } catch (error) {
@@ -177,7 +176,7 @@ export class ProxmoxAPI {
      * console.log(status.data);
      * ```
      */
-    async getClusterStatus(): Promise<any> {
+    async getClusterStatus(): Promise<Record<string, unknown>> {
         try {
             return await this.request('GET', '/api2/json/cluster/status');
         } catch (error) {

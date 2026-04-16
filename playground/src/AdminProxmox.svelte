@@ -137,7 +137,7 @@
           <span class="actions-header">Actions</span>
         </div>
         <ul class="workload-list">
-          {#each toWorkloads(data.results.vms) as vm}
+          {#each toWorkloads(data.results.vms) as vm (vm.id)}
             <li class="vm-row">
               <button
                 class="workload-row-button"
@@ -181,7 +181,7 @@
           <span class="actions-header">Actions</span>
         </div>
         <ul class="workload-list">
-          {#each toWorkloads(data.results.containers) as container}
+          {#each toWorkloads(data.results.containers) as container (container.id)}
             <li class="vm-row">
               <button
                 class="workload-row-button"
@@ -227,7 +227,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each data.results.recentTasks as task}
+              {#each data.results.recentTasks as task (task.upid || task.id)}
                 <tr>
                   <td>{formatTaskTime(task.starttime)}</td>
                   <td>{task.type || '-'}</td>

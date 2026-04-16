@@ -1,5 +1,5 @@
 <script lang="ts">
-	// @ts-ignore - SvelteKit virtual module didn't resolve otherwise
+	// @ts-expect-error - SvelteKit virtual module didn't resolve otherwise
 	import type { PageData } from './$types.js';
 
 	let { data }: { data: PageData } = $props();

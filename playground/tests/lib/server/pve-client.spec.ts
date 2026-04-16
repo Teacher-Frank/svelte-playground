@@ -36,7 +36,7 @@ describe('pve-client', () => {
 			username: 'root',
 			password: 'secret',
 			realm: 'pam',
-			fetch: fetchMock as any
+			fetch: fetchMock as unknown as typeof fetch
 		});
 
 		await client.login();
@@ -62,7 +62,7 @@ describe('pve-client', () => {
 		const client = new Client({
 			baseUrl: 'https://pve.example.com:8006',
 			apiToken: 'root@pam!mytoken=abc123',
-			fetch: fetchMock as any
+			fetch: fetchMock as unknown as typeof fetch
 		});
 
 		const version = await client.api.version.version();
@@ -95,7 +95,7 @@ describe('pve-client', () => {
 		const client = new Client({
 			baseUrl: 'https://pve.example.com:8006',
 			apiToken: 'root@pam!mytoken=abc123',
-			fetch: fetchMock as any
+			fetch: fetchMock as unknown as typeof fetch
 		});
 
 		await expect(client.api.version.version()).rejects.toThrow('HTTP 403 Forbidden: permission denied');

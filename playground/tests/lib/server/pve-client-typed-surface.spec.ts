@@ -20,7 +20,7 @@ function makeClient() {
 	const client = new Client({
 		baseUrl: 'https://pve.example.com:8006',
 		apiToken: 'root@pam!mytoken=abc123',
-		fetch: fetchMock as any
+		fetch: fetchMock as unknown as typeof fetch
 	});
 
 	return { client, fetchMock };
@@ -29,7 +29,7 @@ function makeClient() {
 describe('pve-client typed surface canary tests', () => {
 	it.fails('README path-based status sample should be exposed on node API', async () => {
 		const { client } = makeClient();
-		const nodeApi: any = client.api.nodes.get('pve');
+		const nodeApi: unknown = client.api.nodes.get('pve');
 
 		expect(nodeApi.status).toBeDefined();
 		expect(typeof nodeApi.status.get).toBe('function');
@@ -40,7 +40,7 @@ describe('pve-client typed surface canary tests', () => {
 
 	it('node-scoped qemu list should be exposed on node API', async () => {
 		const { client } = makeClient();
-		const nodeApi: any = client.api.nodes.get('pve');
+		const nodeApi: unknown = client.api.nodes.get('pve');
 
 		expect(nodeApi.qemu).toBeDefined();
 		expect(typeof nodeApi.qemu.list).toBe('function');
@@ -51,7 +51,7 @@ describe('pve-client typed surface canary tests', () => {
 
 	it('node-scoped lxc list should be exposed on node API', async () => {
 		const { client } = makeClient();
-		const nodeApi: any = client.api.nodes.get('pve');
+		const nodeApi: unknown = client.api.nodes.get('pve');
 
 		expect(nodeApi.lxc).toBeDefined();
 		expect(typeof nodeApi.lxc.list).toBe('function');
