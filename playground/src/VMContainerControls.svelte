@@ -3,6 +3,7 @@
     type: 'vm' | 'container';
     id?: number | string;
     name?: string;
+    node?: string;
   };
 
   let {
@@ -27,6 +28,7 @@
     <input name="type" type="hidden" value={selectedWorkload?.type ?? ''} />
     <input name="id" type="hidden" value={selectedWorkload?.id?.toString() ?? ''} />
     <input name="name" type="hidden" value={selectedWorkload?.name ?? ''} />
+    <input name="node" type="hidden" value={selectedWorkload?.node ?? ''} />
 
     <button formaction="?/start" title="Start" aria-label="Start" disabled={disabled}>
       <img src="/play.svg" alt="" aria-hidden="true" />

@@ -153,7 +153,7 @@
               <VMContainerControls
                 compact={true}
                 disabled={vm.id == null}
-                selectedWorkload={{ type: 'vm', id: vm.id, name: vm.name }}
+                selectedWorkload={{ type: 'vm', id: vm.id, name: vm.name, node: vm.node }}
               />
             </li>
           {/each}
@@ -197,7 +197,7 @@
               <VMContainerControls
                 compact={true}
                 disabled={container.id == null}
-                selectedWorkload={{ type: 'container', id: container.id, name: container.name }}
+                selectedWorkload={{ type: 'container', id: container.id, name: container.name, node: container.node }}
               />
             </li>
           {/each}

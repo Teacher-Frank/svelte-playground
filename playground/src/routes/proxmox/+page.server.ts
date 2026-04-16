@@ -15,6 +15,11 @@ type Workload = {
   uptime?: number;
 };
 
+type ClusterNode = {
+  node?: string;
+  status?: string;
+};
+
 type ProxmoxResults = {
   serverStatus: string;
   nodes: unknown;
@@ -34,7 +39,28 @@ type ProxmoxResults = {
   }[];
 };
 
-const getNodeName = (): string => process.env.PVE_NODE ?? 'unknown';
+const getConfiguredNodeName = (): string | undefined => {
+  const node = process.env.PVE_NODE?.trim();
+  return node ? node : undefined;
+};
+
+const resolveNodeName = (nodes: ClusterNode[], preferredNode?: string): string => {
+  if (preferredNode) {
+    return preferredNode;
+  }
+
+  const onlineNode = nodes.find((entry) => typeof entry.node === 'string' && entry.status === 'online')?.node;
+  if (onlineNode) {
+    return onlineNode;
+  }
+
+  const firstNode = nodes.find((entry) => typeof entry.node === 'string')?.node;
+  if (firstNode) {
+    return firstNode;
+  }
+
+  throw new Error('Missing PVE_NODE and could not resolve a Proxmox node from the cluster.');
+};
 
 const createClient = async (): Promise<Client> => {
   const baseUrl = process.env.PVE_BASE_URL;
@@ -65,7 +91,19 @@ const createClient = async (): Promise<Client> => {
 
 const loadResults = async (): Promise<ProxmoxResults> => {
   const client = await createClient();
-  const node = getNodeName();
+
+  const [nodes, version, cluster] = await Promise.all([
+    client.api.nodes.list(),
+    client.api.version.version(),
+    client.api.cluster.status(),
+  ]);
+
+  const clusterNodes = (nodes as Array<Record<string, unknown>>).map((entry) => ({
+    node: typeof entry.node === 'string' ? entry.node : undefined,
+    status: typeof entry.status === 'string' ? entry.status : undefined,
+  }));
+
+  const node = resolveNodeName(clusterNodes, getConfiguredNodeName());
   const nodeApi: any = client.api.nodes.get(node);
 
   const loadRecentTasks = async (): Promise<Array<Record<string, unknown>>> => {
@@ -90,16 +128,13 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     return [];
   };
 
-  const [nodes, version, cluster, vms, containers, tasks] = await Promise.all([
-    client.api.nodes.list(),
-    client.api.version.version(),
-    client.api.cluster.status(),
+  const [vms, containers, tasks] = await Promise.all([
     nodeApi.qemu.list({ $path: { node } }),
     nodeApi.lxc.list({ $path: { node } }),
     loadRecentTasks(),
   ]);
 
-  const currentNode = (nodes as Array<Record<string, unknown>>).find((entry) => entry.node === node);
+  const currentNode = clusterNodes.find((entry) => entry.node === node);
   const serverStatus = typeof currentNode?.status === 'string' ? currentNode.status : 'unknown';
 
   return {
@@ -109,12 +144,12 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     cluster,
     vms: (vms as Array<Record<string, unknown>>).map((vm) => ({
       ...vm,
-      node,
+      node: typeof vm.node === 'string' ? vm.node : node,
       id: vm.vmid as number | string | undefined
     })) as Workload[],
     containers: (containers as Array<Record<string, unknown>>).map((container) => ({
       ...container,
-      node,
+      node: typeof container.node === 'string' ? container.node : node,
       id: container.vmid as number | string | undefined
     })) as Workload[],
     recentTasks: (tasks as Array<Record<string, unknown>>)
@@ -133,10 +168,11 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   };
 };
 
-const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: number; name: string } => {
+const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: number; name: string; node: string } => {
   const type = formData.get('type');
   const idValue = formData.get('id');
   const name = formData.get('name');
+  const nodeValue = formData.get('node');
 
   if (type !== 'vm' && type !== 'container') {
     throw new Error('Select a virtual machine or container first.');
@@ -151,16 +187,20 @@ const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: 
     throw new Error('Invalid workload ID.');
   }
 
+  if (typeof nodeValue !== 'string' || nodeValue.trim().length === 0) {
+    throw new Error('Missing workload node.');
+  }
+
   return {
     type,
     id,
-    name: typeof name === 'string' ? name : ''
+    name: typeof name === 'string' ? name : '',
+    node: nodeValue.trim()
   };
 };
 
-const executeWorkloadAction = async (type: WorkloadKind, id: number, action: WorkloadAction): Promise<string> => {
+const executeWorkloadAction = async (type: WorkloadKind, id: number, node: string, action: WorkloadAction): Promise<string> => {
   const client = await createClient();
-  const node = getNodeName();
   const nodeApi: any = client.api.nodes.get(node);
   const guestApi = type === 'vm' ? nodeApi.qemu.vmid(id) : nodeApi.lxc.id(id);
 
@@ -181,13 +221,14 @@ const buildAction = (action: WorkloadAction) => {
           type: WorkloadKind;
           id: number;
           name?: string;
+          node: string;
         }
       | undefined;
 
     try {
       const formData = await request.formData();
       selectedWorkload = parseWorkloadSubmission(formData);
-      const upid = await executeWorkloadAction(selectedWorkload.type, selectedWorkload.id, action);
+      const upid = await executeWorkloadAction(selectedWorkload.type, selectedWorkload.id, selectedWorkload.node, action);
       const actionLabel = action === 'restart' ? 'Restarted' : `${action.charAt(0).toUpperCase()}${action.slice(1)}ed`;
       const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
 
