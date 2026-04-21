@@ -1,0 +1,208 @@
+:root {
+  --actions-col-width: 7.6rem;
+}
+
+.pxmx-admin {
+  padding: 2rem;
+}
+
+.pxmx-admin section + section {
+  margin-top: 1.5rem;
+}
+
+.pxmx-admin .refresh-control {
+  align-items: center;
+  display: flex;
+  gap: 0.6rem;
+  margin: 0 0 1rem;
+}
+
+.pxmx-admin .refresh-control label {
+  color: #444;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.pxmx-admin .refresh-control input {
+  border: 1px solid #c8c8c8;
+  border-radius: 0.5rem;
+  font-size: 0.9rem;
+  padding: 0.35rem 0.45rem;
+  width: 5.5rem;
+}
+
+.pxmx-admin .refresh-toggle {
+  align-items: center;
+  color: #444;
+  display: inline-flex;
+  font-size: 0.9rem;
+  font-weight: 600;
+  gap: 0.4rem;
+  margin-left: 0.25rem;
+}
+
+.pxmx-admin .refresh-toggle input {
+  margin: 0;
+}
+
+.pxmx-admin .server-status {
+  background: #f0f0f0;
+  border: 1px solid #d6d6d6;
+  border-radius: 0.65rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.pxmx-admin .last-refresh {
+  color: #555;
+  font-size: 0.88rem;
+  margin: -0.35rem 0 1rem;
+}
+
+.pxmx-admin .load-error {
+  background: #fff2cc;
+  border: 1px solid #e3c16a;
+  border-radius: 0.65rem;
+  color: #6b4f00;
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.pxmx-admin .action-status {
+  border-radius: 0.75rem;
+  margin-top: 0.9rem;
+  padding: 0.85rem 1rem;
+}
+
+.pxmx-admin .success {
+  background: #e6f5ea;
+  color: #215c33;
+}
+
+.pxmx-admin .error {
+  background: #fbe9e7;
+  color: #8b2e24;
+}
+
+.pxmx-admin ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pxmx-admin .workload-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.pxmx-admin .workload-header,
+.pxmx-admin .workload-row-button {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 5rem minmax(10rem, 2fr) 7rem 7rem 6rem;
+}
+
+.pxmx-admin .vm-header-row {
+  align-items: center;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(20rem, 1fr) var(--actions-col-width);
+}
+
+.pxmx-admin .actions-header {
+  color: #666;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.pxmx-admin .vm-row {
+  align-items: center;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(20rem, 1fr) var(--actions-col-width);
+}
+
+.pxmx-admin .workload-header {
+  color: #666;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.5rem;
+  padding: 0 1rem;
+  text-transform: uppercase;
+}
+
+.pxmx-admin .workload-row-button {
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 0.65rem;
+  color: #222;
+  cursor: pointer;
+  padding: 0.85rem 1rem;
+  text-align: left;
+  width: 100%;
+}
+
+.pxmx-admin .workload-row-button span:last-child {
+  color: #555;
+}
+
+.pxmx-admin .tasks-table-wrap {
+  overflow-x: auto;
+}
+
+.pxmx-admin .tasklist-header {
+  align-items: center;
+  background: #f5f5f5;
+  border: 1px solid #d9d9d9;
+  border-radius: 0.65rem;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.pxmx-admin .tasklist-header h2 {
+  margin: 0;
+}
+
+.pxmx-admin .tasklist-toggle {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  color: #333;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.35rem 0.7rem;
+}
+
+.pxmx-admin .tasklist-toggle:hover {
+  background: transparent;
+}
+
+.pxmx-admin .tasks-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.pxmx-admin .tasks-table th,
+.pxmx-admin .tasks-table td {
+  border-bottom: 1px solid #e1e1e1;
+  font-size: 0.9rem;
+  padding: 0.6rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.pxmx-admin .tasks-table th {
+  color: #555;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}

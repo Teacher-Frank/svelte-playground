@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ActionData, PageData } from './$types.js';
-  import AdminProxmox from '../../AdminProxmox.svelte';
+  import PxMxAdmin from '../../PxMxAdmin.svelte';
 
   let {
     data,
@@ -13,5 +13,5 @@
   const normalizedForm = $derived(form ?? undefined);
 </script>
 
-<AdminProxmox {data} form={normalizedForm} />
+<PxMxAdmin {data} form={normalizedForm} />
 
