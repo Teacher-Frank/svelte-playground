@@ -7,6 +7,7 @@ import { Agent } from 'node:https';
 type WorkloadKind = 'vm' | 'container';
 type WorkloadAction = 'start' | 'stop' | 'restart';
 type AnyFn = (...args: unknown[]) => unknown;
+const PROXMOX_REQUEST_TIMEOUT_MS = 8000;
 
 type Workload = {
   id?: number | string;
@@ -21,8 +22,24 @@ type ClusterNode = {
   status?: string;
 };
 
+const compareByName = (left: Workload, right: Workload): number => {
+  const leftName = (left.name ?? '').toString().toLowerCase();
+  const rightName = (right.name ?? '').toString().toLowerCase();
+
+  if (leftName === rightName) {
+    return 0;
+  }
+
+  return leftName < rightName ? -1 : 1;
+};
+
 type ProxmoxResults = {
+  apiHost: string;
+  configuredNode: string;
+  configuredNodeExists: boolean;
+  serverNode: string;
   serverStatus: string;
+  lastSuccessfulRefresh: number | null;
   nodes: unknown;
   version: unknown;
   cluster: unknown;
@@ -40,27 +57,59 @@ type ProxmoxResults = {
   }[];
 };
 
+const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error(message));
+      }, timeoutMs);
+    });
+
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+};
+
 const getConfiguredNodeName = (): string | undefined => {
   const node = process.env.PVE_NODE?.trim();
   return node ? node : undefined;
 };
 
-const resolveNodeName = (nodes: ClusterNode[], preferredNode?: string): string => {
-  if (preferredNode) {
-    return preferredNode;
+type ResolvedNodeContext = {
+  configuredNodeExists: boolean;
+  node: string;
+};
+
+const getApiHost = (): string => {
+  const baseUrl = process.env.PVE_BASE_URL;
+  if (!baseUrl) {
+    return 'unknown';
   }
 
-  const onlineNode = nodes.find((entry) => typeof entry.node === 'string' && entry.status === 'online')?.node;
-  if (onlineNode) {
-    return onlineNode;
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
+};
+
+const resolveNodeContext = (nodes: ClusterNode[], preferredNode?: string): ResolvedNodeContext => {
+  const configuredNodeExists = !!preferredNode && nodes.some((entry) => entry.node === preferredNode);
+  if (configuredNodeExists && preferredNode) {
+    return { configuredNodeExists: true, node: preferredNode };
   }
 
   const firstNode = nodes.find((entry) => typeof entry.node === 'string')?.node;
   if (firstNode) {
-    return firstNode;
+    return { configuredNodeExists, node: firstNode };
   }
 
-  throw new Error('Missing PVE_NODE and could not resolve a Proxmox node from the cluster.');
+  throw new Error('Could not resolve any Proxmox node from the cluster node list.');
 };
 
 const createClient = async (): Promise<Client> => {
@@ -92,6 +141,7 @@ const createClient = async (): Promise<Client> => {
 
 const loadResults = async (): Promise<ProxmoxResults> => {
   const client = await createClient();
+  const configuredNode = getConfiguredNodeName();
 
   const [nodes, version, cluster] = await Promise.all([
     client.api.nodes.list(),
@@ -104,8 +154,12 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     status: typeof entry.status === 'string' ? entry.status : undefined,
   }));
 
-  const node = resolveNodeName(clusterNodes, getConfiguredNodeName());
+  const { node, configuredNodeExists } = resolveNodeContext(clusterNodes, configuredNode);
   const nodeApi: unknown = client.api.nodes.get(node);
+
+  console.info(
+    `[proxmox] baseUrl=${process.env.PVE_BASE_URL ?? 'unset'} apiHost=${getApiHost()} configuredNode=${configuredNode ?? 'unset'} resolvedNode=${node}`
+  );
 
   const loadRecentTasks = async (): Promise<Array<Record<string, unknown>>> => {
     const query = { limit: 10, source: 'all' as const };
@@ -143,20 +197,29 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   const serverStatus = typeof currentNode?.status === 'string' ? currentNode.status : 'unknown';
 
   return {
+    apiHost: getApiHost(),
+    configuredNode: configuredNode ?? 'unset',
+    configuredNodeExists,
+    serverNode: node,
     serverStatus,
+    lastSuccessfulRefresh: Date.now(),
     nodes,
     version,
     cluster,
-    vms: (vms as Array<Record<string, unknown>>).map((vm) => ({
-      ...vm,
-      node: typeof vm.node === 'string' ? vm.node : node,
-      id: vm.vmid as number | string | undefined
-    })) as Workload[],
-    containers: (containers as Array<Record<string, unknown>>).map((container) => ({
-      ...container,
-      node: typeof container.node === 'string' ? container.node : node,
-      id: container.vmid as number | string | undefined
-    })) as Workload[],
+    vms: (vms as Array<Record<string, unknown>>)
+      .map((vm) => ({
+        ...vm,
+        node: typeof vm.node === 'string' ? vm.node : node,
+        id: vm.vmid as number | string | undefined
+      }))
+      .sort(compareByName) as Workload[],
+    containers: (containers as Array<Record<string, unknown>>)
+      .map((container) => ({
+        ...container,
+        node: typeof container.node === 'string' ? container.node : node,
+        id: container.vmid as number | string | undefined
+      }))
+      .sort(compareByName) as Workload[],
     recentTasks: (tasks as Array<Record<string, unknown>>)
       .map((task) => ({
         id: String(task.id ?? ''),
@@ -170,6 +233,26 @@ const loadResults = async (): Promise<ProxmoxResults> => {
       }))
       .sort((a, b) => b.starttime - a.starttime)
       .slice(0, 10)
+  };
+};
+
+const buildUnavailableResults = (): ProxmoxResults => {
+  const configuredNode = getConfiguredNodeName();
+  const fallbackNode = configuredNode ?? 'unknown';
+
+  return {
+    apiHost: getApiHost(),
+    configuredNode: configuredNode ?? 'unset',
+    configuredNodeExists: false,
+    serverNode: fallbackNode,
+    serverStatus: 'offline',
+    lastSuccessfulRefresh: null,
+    nodes: [],
+    version: null,
+    cluster: null,
+    vms: [],
+    containers: [],
+    recentTasks: []
   };
 };
 
@@ -259,13 +342,19 @@ const buildAction = (action: WorkloadAction) => {
 
 export const load: PageServerLoad = async () => {
   try {
+    const results = await withTimeout(
+      loadResults(),
+      PROXMOX_REQUEST_TIMEOUT_MS,
+      `Timed out after ${PROXMOX_REQUEST_TIMEOUT_MS}ms while loading Proxmox data.`
+    );
+
     return {
-      results: await loadResults(),
+      results,
       error: null
     };
   } catch (e) {
     return {
-      results: null,
+      results: buildUnavailableResults(),
       error: e instanceof Error ? e.message : String(e)
     };
   }

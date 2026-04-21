@@ -19,7 +19,12 @@
   };
 
   type ProxmoxResults = {
+    apiHost: string;
+    configuredNode: string;
+    configuredNodeExists: boolean;
+    serverNode: string;
     serverStatus: string;
+    lastSuccessfulRefresh: number | null;
     nodes: unknown;
     version: unknown;
     cluster: unknown;
@@ -81,6 +86,14 @@
     return new Date(unixSeconds * 1000).toLocaleString();
   };
 
+  const formatRefreshTime = (unixMs?: number | null): string => {
+    if (!unixMs || unixMs <= 0) {
+      return 'No successful refresh yet';
+    }
+
+    return new Date(unixMs).toLocaleString();
+  };
+
   $effect(() => {
     if (!REFRESH_ENABLED) {
       return;
@@ -99,9 +112,11 @@
 
 <main>
   <h1>Proxmox VE Client</h1>
-  {#if data.error}
-    <p>{data.error}</p>
-  {:else if data.results}
+  {#if data.results}
+    {#if data.error}
+      <p class="load-error">{data.error}</p>
+    {/if}
+
     <div class="refresh-control">
       <label for="status-refresh-seconds">Refresh every (seconds)</label>
       <input
@@ -121,7 +136,10 @@
       </label>
     </div>
 
-    <p class="server-status">Server status: {data.results.serverStatus}</p>
+    <p class="server-status">
+      Server status ({data.results.serverNode}): {data.results.serverStatus} | Configured node exists: {data.results.configuredNodeExists ? 'yes' : 'no'} | Configured node: {data.results.configuredNode} | API host: {data.results.apiHost}
+    </p>
+    <p class="last-refresh">Last successful refresh: {formatRefreshTime(data.results.lastSuccessfulRefresh)}</p>
 
     <section>
       <h2>Virtual Machines</h2>
@@ -244,6 +262,8 @@
         <p>No task history available.</p>
       {/if}
     </section>
+  {:else if data.error}
+    <p class="load-error">{data.error}</p>
   {:else}
     <p>No Proxmox data available.</p>
   {/if}
@@ -302,6 +322,21 @@
     border: 1px solid #d6d6d6;
     border-radius: 0.65rem;
     font-weight: 600;
+    margin: 0 0 1rem;
+    padding: 0.65rem 0.85rem;
+  }
+
+  .last-refresh {
+    color: #555;
+    font-size: 0.88rem;
+    margin: -0.35rem 0 1rem;
+  }
+
+  .load-error {
+    background: #fff2cc;
+    border: 1px solid #e3c16a;
+    border-radius: 0.65rem;
+    color: #6b4f00;
     margin: 0 0 1rem;
     padding: 0.65rem 0.85rem;
   }
