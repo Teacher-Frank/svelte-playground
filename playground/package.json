@@ -64,6 +64,7 @@
 	"dependencies": {
 		"https": "^1.0.0",
 		"tippy": "^0.0.0",
-		"tippy.js": "^6.3.7"
+		"tippy.js": "^6.3.7",
+		"pve-client": "file:../../pve-client"
 	}
 }
