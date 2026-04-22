@@ -31,7 +31,7 @@
 
 <section>
   <div class="tasklist-header">
-    <h2>Last 10 Actions</h2>
+    <h2>Proxmox tasklog: Last 10 Actions</h2>
     <button
       class="tasklist-toggle"
       type="button"
