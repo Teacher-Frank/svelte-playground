@@ -1,10 +1,15 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "entryPoints": ["src/proxmox.ts"],
+  "entryPoints": ["src/routes/proxmox/+page.server.ts"],
   "entryPointStrategy": "resolve",
   "out": "docs",
   "exclude": ["**/*.spec.ts", "**/*.test.ts"],
   "excludePrivate": true,
   "excludeInternal": true,
-  "skipErrorChecking": true
+  "skipErrorChecking": true,
+  "includeVersion": true,
+  "categorizeByGroup": true,
+  "searchInComments": true,
+  "maxTypeConversionDepth": 10,
+  "sort": ["source-order"]
 }

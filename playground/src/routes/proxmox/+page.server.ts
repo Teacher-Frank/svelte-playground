@@ -8,22 +8,33 @@ import { Agent } from 'node:https';
 // Types
 // ---------------------------------------------------------------------------
 
-type WorkloadKind = 'vm' | 'container';
-type WorkloadAction = 'start' | 'stop' | 'restart';
+/** The kind of Proxmox guest workload: a QEMU virtual machine or an LXC container. */
+export type WorkloadKind = 'vm' | 'container';
+/** A power-control action that can be applied to a workload. */
+export type WorkloadAction = 'start' | 'stop' | 'restart';
 type AnyFn = (...args: unknown[]) => unknown;
 
 const PROXMOX_REQUEST_TIMEOUT_MS = 8000;
 
-type Workload = {
+/** A Proxmox guest workload (VM or LXC container) as returned by the API list endpoints. */
+export type Workload = {
+  /** Numeric or string VMID / container ID. */
   id?: number | string;
+  /** Human-readable name of the workload. */
   name?: string;
+  /** Name of the cluster node that owns this workload. */
   node?: string;
+  /** Current power status (e.g. `"running"`, `"stopped"`). */
   status?: string;
+  /** Seconds the workload has been running, or `0` when stopped. */
   uptime?: number;
 };
 
-type ClusterNode = {
+/** A Proxmox cluster node as returned by the `/nodes` API endpoint. */
+export type ClusterNode = {
+  /** Node hostname. */
   node?: string;
+  /** Node availability status (e.g. `"online"`, `"offline"`). */
   status?: string;
 };
 
@@ -39,42 +50,82 @@ const compareByName = (left: Workload, right: Workload): number => {
   return leftName < rightName ? -1 : 1;
 };
 
-type LxcTemplate = {
+/** An LXC container template available in Proxmox storage. */
+export type LxcTemplate = {
+  /** Storage pool that holds the template. */
   storage: string;
+  /** Full volume identifier (e.g. `local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst`). */
   volid: string;
+  /** Archive format of the template image. */
   format: string;
+  /** Uncompressed template size in bytes. */
   size: number;
+  /** Content type tag (typically `"vztmpl"`). */
   content: string;
+  /** Optional human-readable notes stored with the template. */
   notes?: string;
+  /** Parent snapshot identifier, if applicable. */
   parent?: string;
+  /** Creation timestamp (Unix epoch seconds). */
   ctime?: number;
+  /** Disk space currently used by the template in bytes. */
   used?: number;
+  /** VMID of a running container derived from this template, if any. */
   vmid?: number;
 };
 
-type ProxmoxResults = {
+/** A single entry from the Proxmox task log. */
+export type RecentTask = {
+  /** Short task identifier. */
+  id: string;
+  /** Node that executed the task. */
+  node: string;
+  /** Task start time (Unix epoch seconds). */
+  starttime: number;
+  /** Task end time (Unix epoch seconds), absent while the task is still running. */
+  endtime?: number;
+  /** Final status string (e.g. `"OK"`) once the task has finished. */
+  status?: string;
+  /** Task type key (e.g. `"qmstart"`, `"vzstop"`). */
+  type: string;
+  /** User that triggered the task. */
+  user: string;
+  /** Unique Process ID string used by Proxmox to track the task. */
+  upid: string;
+};
+
+/**
+ * Aggregated data returned by {@link load} to the SvelteKit page.
+ * When the Proxmox API is unreachable, all list fields are empty and
+ * `serverStatus` is `"unavailable"`.
+ */
+export type ProxmoxResults = {
+  /** Hostname extracted from `PVE_BASE_URL` for display purposes. */
   apiHost: string;
+  /** Value of the `PVE_NODE` environment variable (may be `"unknown"`). */
   configuredNode: string;
+  /** `true` when `configuredNode` matches an online cluster node. */
   configuredNodeExists: boolean;
+  /** Hostname of the cluster node actually used for API calls. */
   serverNode: string;
+  /** Human-readable server availability string (e.g. `"online"`, `"unavailable"`). */
   serverStatus: string;
+  /** Timestamp of the most recent successful data refresh, or `null` on first failure. */
   lastSuccessfulRefresh: number | null;
+  /** Raw node list from the Proxmox `/nodes` endpoint. */
   nodes: unknown;
+  /** Raw version object from the Proxmox `/version` endpoint. */
   version: unknown;
+  /** Raw cluster status object from the Proxmox `/cluster/status` endpoint. */
   cluster: unknown;
+  /** Sorted list of QEMU virtual machines across all nodes. */
   vms: Workload[];
+  /** Sorted list of LXC containers across all nodes. */
   containers: Workload[];
+  /** Available LXC container templates found in storage. */
   lxcTemplates: LxcTemplate[];
-  recentTasks: {
-    id: string;
-    node: string;
-    starttime: number;
-    endtime?: number;
-    status?: string;
-    type: string;
-    user: string;
-    upid: string;
-  }[];
+  /** Most-recent task log entries from the cluster. */
+  recentTasks: RecentTask[];
 };
 
 // ---------------------------------------------------------------------------
@@ -470,6 +521,15 @@ const cloneLxcTemplate = async (templateVolid: string, templateNode: string, new
 // SvelteKit exports
 // ---------------------------------------------------------------------------
 
+/**
+ * SvelteKit page load function. Fetches all Proxmox data (nodes, VMs,
+ * containers, LXC templates, recent tasks) and returns it to the page.
+ * Times out after `PROXMOX_REQUEST_TIMEOUT_MS` ms. On error, returns an
+ * offline stub so the page can render an unavailable state.
+ *
+ * @returns An object with a {@link ProxmoxResults} `results` field and an
+ *   `error` string (or `null` when the load succeeded).
+ */
 export const load: PageServerLoad = async () => {
   try {
     const results = await withTimeout(
@@ -486,6 +546,20 @@ export const load: PageServerLoad = async () => {
   }
 };
 
+/**
+ * SvelteKit form actions for the Proxmox page.
+ *
+ * | Action | Form fields | Description |
+ * |---|---|---|
+ * | `start` | `workloadId`, `workloadType`, `node` | Powers on a VM or container. |
+ * | `stop` | `workloadId`, `workloadType`, `node` | Powers off a VM or container. |
+ * | `restart` | `workloadId`, `workloadType`, `node` | Reboots a VM or container. |
+ * | `cloneFromTemplate` | `templateId`, `templateNode`, `newName` | Clones a QEMU template to a new full VM. |
+ * | `cloneLxcTemplate` | `templateVolid`, `templateNode`, `newName` | Deploys a new LXC container from a storage template. |
+ *
+ * @returns A `{ status: 'ok' | 'error', message?, upid? }` object, or a
+ *   SvelteKit `fail` response on validation errors.
+ */
 export const actions: Actions = {
   // Workload power controls — all delegate to buildAction.
   start: buildAction('start'),
