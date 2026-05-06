@@ -101,4 +101,56 @@ describe('pve-client', () => {
 		await expect(client.api.version.version()).rejects.toThrow('HTTP 403 Forbidden: permission denied');
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
+
+	// Test that status control methods are accessible on nodes.get(node).qemu.vmid(id)
+	it('provides status.start/stop/reboot methods on nodes.get(node).qemu.vmid(id)', () => {
+		expect.assertions(6);
+
+		const fetchMock = vi.fn();
+		const client = new Client({
+			baseUrl: 'https://pve.example.com:8006',
+			apiToken: 'root@pam!token=abc123',
+			fetch: fetchMock as unknown as typeof fetch
+		});
+
+		const nodeApi = client.api.nodes.get('pve');
+		const vmApi = nodeApi.qemu.vmid(200);
+		const statusApi = vmApi.status as Record<string, unknown>;
+
+		// Verify that status object exists and has the required methods
+		expect(vmApi).toBeDefined();
+		expect(statusApi).toBeDefined();
+		expect(typeof statusApi.start).toBe('function');
+		expect(typeof statusApi.stop).toBe('function');
+		expect(typeof statusApi.reboot).toBe('function');
+
+		// Also verify the clone method is still there
+		expect(typeof vmApi.clone).toBe('function');
+	});
+
+	// Test that status control methods are accessible on nodes.get(node).lxc.id(id)
+	it('provides status.start/stop/reboot methods on nodes.get(node).lxc.id(vmid)', () => {
+		expect.assertions(6);
+
+		const fetchMock = vi.fn();
+		const client = new Client({
+			baseUrl: 'https://pve.example.com:8006',
+			apiToken: 'root@pam!token=abc123',
+			fetch: fetchMock as unknown as typeof fetch
+		});
+
+		const nodeApi = client.api.nodes.get('pve');
+		const ctApi = nodeApi.lxc.id(100);
+		const statusApi = ctApi.status as Record<string, unknown>;
+
+		// Verify that status object exists and has the required methods
+		expect(ctApi).toBeDefined();
+		expect(statusApi).toBeDefined();
+		expect(typeof statusApi.start).toBe('function');
+		expect(typeof statusApi.stop).toBe('function');
+		expect(typeof statusApi.reboot).toBe('function');
+
+		// Also verify the clone method is still there
+		expect(typeof ctApi.clone).toBe('function');
+	});
 });

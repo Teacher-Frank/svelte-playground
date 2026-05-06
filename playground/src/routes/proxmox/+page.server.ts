@@ -138,7 +138,7 @@ const resolveNodeContext = (nodes: ClusterNode[], preferredNode?: string): Resol
     return { configuredNodeExists, node: firstNode };
   }
 
-  throw new Error('Could not resolve any Proxmox node from the cluster node list.');
+  throw new Error(`Could not resolve any Proxmox node: found ${nodes.length} node(s) but none had a valid node name. First 3 nodes: ${JSON.stringify(nodes.slice(0, 3))}`);
 };
 
 const createClient = async (): Promise<Client> => {
@@ -363,20 +363,20 @@ const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: 
   const nodeValue = formData.get('node');
 
   if (type !== 'vm' && type !== 'container') {
-    throw new Error('Select a virtual machine or container first.');
+    throw new Error(`Select a virtual machine or container first. Got type=${JSON.stringify(type)}`);
   }
 
   if (typeof idValue !== 'string' || idValue.length === 0) {
-    throw new Error('Missing workload ID.');
+    throw new Error(`Missing workload ID. Form data id=${JSON.stringify(idValue)}, type=${JSON.stringify(type)}`);
   }
 
   const id = Number(idValue);
   if (!Number.isInteger(id)) {
-    throw new Error('Invalid workload ID.');
+    throw new Error(`Invalid workload ID: "${idValue}" is not an integer (parsed as ${id})`);
   }
 
   if (typeof nodeValue !== 'string' || nodeValue.trim().length === 0) {
-    throw new Error('Missing workload node.');
+    throw new Error(`Missing workload node: nodeValue=${JSON.stringify(nodeValue)}, type=${JSON.stringify(type)}, id=${idValue}`);
   }
 
   return {
