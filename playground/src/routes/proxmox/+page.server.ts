@@ -423,7 +423,7 @@ const buildAction = (action: WorkloadAction) => {
       const formData = await request.formData();
       selectedWorkload = parseWorkloadSubmission(formData);
       const upid = await executeWorkloadAction(selectedWorkload.type, selectedWorkload.id, selectedWorkload.node, action);
-      const actionLabel = action === 'restart' ? 'Restarted' : `${action.charAt(0).toUpperCase()}${action.slice(1)}ed`;
+      const actionLabel = action === 'restart' ? 'Restarted' : action === 'stop' ? 'Stopped' : `${action.charAt(0).toUpperCase()}${action.slice(1)}ed`;
       const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
 
       return {
