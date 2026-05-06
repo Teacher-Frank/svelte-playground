@@ -1,26 +1,17 @@
-const cloneLxcTemplate = async (templateVolid: string, templateNode: string, newName: string): Promise<string> => {
-  const client = await createClient();
-  const newid = await client.api.cluster.nextid() as number;
-  const nodeApi = client.api.nodes.get(templateNode);
-  const upid = await nodeApi.lxc.create(templateNode, {
-    $path: { node: templateNode },
-    $body: {
-      vmid: newid,
-      ostemplate: templateVolid,
-      hostname: newName,
-    },
-  }) as string;
-  return upid;
-};
 import { fail } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types.js';
 import { Client } from 'pve-client';
 import { Agent } from 'node:https';
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
 type WorkloadKind = 'vm' | 'container';
 type WorkloadAction = 'start' | 'stop' | 'restart';
 type AnyFn = (...args: unknown[]) => unknown;
+
 const PROXMOX_REQUEST_TIMEOUT_MS = 8000;
 
 type Workload = {
@@ -36,6 +27,7 @@ type ClusterNode = {
   status?: string;
 };
 
+/** Case-insensitive alphabetical comparator for workloads, used when sorting VM/container lists. */
 const compareByName = (left: Workload, right: Workload): number => {
   const leftName = (left.name ?? '').toString().toLowerCase();
   const rightName = (right.name ?? '').toString().toLowerCase();
@@ -58,7 +50,6 @@ type LxcTemplate = {
   ctime?: number;
   used?: number;
   vmid?: number;
-  // ...other fields from Proxmox API
 };
 
 type ProxmoxResults = {
@@ -86,40 +77,32 @@ type ProxmoxResults = {
   }[];
 };
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Races a promise against a timeout, rejecting with `message` if exceeded. */
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
   try {
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(new Error(message));
-      }, timeoutMs);
+      timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
     });
-
     return await Promise.race([promise, timeoutPromise]);
   } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
+    if (timeoutId) clearTimeout(timeoutId);
   }
 };
 
+/** Reads the preferred Proxmox node name from the PVE_NODE environment variable. */
 const getConfiguredNodeName = (): string | undefined => {
   const node = process.env.PVE_NODE?.trim();
   return node ? node : undefined;
 };
 
-type ResolvedNodeContext = {
-  configuredNodeExists: boolean;
-  node: string;
-};
-
-const getApiHost = (): string => {
+/** Extracts the hostname from PVE_BASE_URL for display purposes. */const getApiHost = (): string => {
   const baseUrl = process.env.PVE_BASE_URL;
-  if (!baseUrl) {
-    return 'unknown';
-  }
-
+  if (!baseUrl) return 'unknown';
   try {
     return new URL(baseUrl).host;
   } catch {
@@ -127,20 +110,11 @@ const getApiHost = (): string => {
   }
 };
 
-const resolveNodeContext = (nodes: ClusterNode[], preferredNode?: string): ResolvedNodeContext => {
-  const configuredNodeExists = !!preferredNode && nodes.some((entry) => entry.node === preferredNode);
-  if (configuredNodeExists && preferredNode) {
-    return { configuredNodeExists: true, node: preferredNode };
-  }
+// ---------------------------------------------------------------------------
+// Proxmox client
+// ---------------------------------------------------------------------------
 
-  const firstNode = nodes.find((entry) => typeof entry.node === 'string')?.node;
-  if (firstNode) {
-    return { configuredNodeExists, node: firstNode };
-  }
-
-  throw new Error(`Could not resolve any Proxmox node: found ${nodes.length} node(s) but none had a valid node name. First 3 nodes: ${JSON.stringify(nodes.slice(0, 3))}`);
-};
-
+/** Creates an authenticated pve-client instance from environment variables. */
 const createClient = async (): Promise<Client> => {
   const baseUrl = process.env.PVE_BASE_URL;
   const apiToken = process.env.PVE_API_TOKEN;
@@ -149,9 +123,7 @@ const createClient = async (): Promise<Client> => {
   const realm = process.env.PVE_REALM ?? 'pam';
   const insecureTls = process.env.PVE_INSECURE_TLS === 'true';
 
-  if (!baseUrl) {
-    throw new Error('Missing PVE_BASE_URL');
-  }
+  if (!baseUrl) throw new Error('Missing PVE_BASE_URL');
 
   const agent = insecureTls ? new Agent({ rejectUnauthorized: false }) : undefined;
 
@@ -168,10 +140,67 @@ const createClient = async (): Promise<Client> => {
   throw new Error('Provide PVE_API_TOKEN or PVE_USERNAME and PVE_PASSWORD');
 };
 
+// ---------------------------------------------------------------------------
+// Node resolution
+// ---------------------------------------------------------------------------
+
+type ResolvedNodeContext = {
+  configuredNodeExists: boolean;
+  node: string;
+};
+
+/**
+ * Resolves which cluster node to use. Prefers the configured node if it exists
+ * in the cluster; falls back to the first node with a valid name.
+ */
+const resolveNodeContext = (nodes: ClusterNode[], preferredNode?: string): ResolvedNodeContext => {
+  const configuredNodeExists = !!preferredNode && nodes.some((entry) => entry.node === preferredNode);
+  if (configuredNodeExists && preferredNode) {
+    return { configuredNodeExists: true, node: preferredNode };
+  }
+
+  const firstNode = nodes.find((entry) => typeof entry.node === 'string')?.node;
+  if (firstNode) {
+    return { configuredNodeExists, node: firstNode };
+  }
+
+  throw new Error(
+    `Could not resolve any Proxmox node: found ${nodes.length} node(s) but none had a valid node name. ` +
+    `First 3 nodes: ${JSON.stringify(nodes.slice(0, 3))}`
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Page data loading
+// ---------------------------------------------------------------------------
+
+/** Returns a stub result used when the Proxmox API is unreachable. */
+const buildUnavailableResults = (): ProxmoxResults => {
+  const configuredNode = getConfiguredNodeName();
+  return {
+    apiHost: getApiHost(),
+    configuredNode: configuredNode ?? 'unset',
+    configuredNodeExists: false,
+    serverNode: configuredNode ?? 'unknown',
+    serverStatus: 'offline',
+    lastSuccessfulRefresh: null,
+    nodes: [],
+    version: null,
+    cluster: null,
+    vms: [],
+    containers: [],
+    lxcTemplates: [],
+    recentTasks: []
+  };
+};
+
+/** Loads all Proxmox data needed by the page. Errors in individual sections are logged but do not abort the load. */
 const loadResults = async (): Promise<ProxmoxResults> => {
+  // --- Connect and fetch top-level cluster data ---
   let nodes, version, cluster;
+  let client: Client;
   try {
-    const client = await createClient();
+    client = await createClient();
     [nodes, version, cluster] = await Promise.all([
       client.api.nodes.list(),
       client.api.version.version(),
@@ -182,7 +211,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     return buildUnavailableResults();
   }
 
-  let clusterNodes: ClusterNode[] = [];
+  let clusterNodes: ClusterNode[];
   try {
     clusterNodes = (nodes as Array<Record<string, unknown>>).map((entry) => ({
       node: typeof entry.node === 'string' ? entry.node : undefined,
@@ -194,7 +223,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   }
 
   let node = '';
-  let configuredNodeExists = false;
+  let configuredNodeExists;
   try {
     const resolved = resolveNodeContext(clusterNodes, getConfiguredNodeName());
     node = resolved.node;
@@ -206,7 +235,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
 
   let nodeApi: unknown;
   try {
-    const client = await createClient();
+    // Reuse the existing authenticated client rather than creating a new one.
     nodeApi = client.api.nodes.get(node);
   } catch (err) {
     console.error('[proxmox] Failed to get node API:', err);
@@ -214,53 +243,52 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   }
 
   console.info(
-    `[proxmox] baseUrl=${process.env.PVE_BASE_URL ?? 'unset'} apiHost=${getApiHost()} configuredNode=${getConfiguredNodeName() ?? 'unset'} resolvedNode=${node}`
+    `[proxmox] baseUrl=${process.env.PVE_BASE_URL ?? 'unset'} apiHost=${getApiHost()} ` +
+    `configuredNode=${getConfiguredNodeName() ?? 'unset'} resolvedNode=${node}`
   );
 
-  // Try to load as much as possible, log errors but do not abort
+  // --- Load node-level data (errors are logged but do not abort the load) ---
   let storages: Array<Record<string, unknown>> = [];
-  let lxcTemplates: LxcTemplate[] = [];
+  const lxcTemplates: LxcTemplate[] = [];
   let vms: Workload[] = [];
   let containers: Workload[] = [];
   let tasks: Array<Record<string, unknown>> = [];
-  // Defensive: Check if nodeApi.storage exists before attempting to enumerate storages or LXC templates.
-  // This prevents a crash if the API client does not expose storage enumeration for this node.
+
+  // Enumerate LXC templates from all storages that expose vztmpl content
   const storageApiObj = (nodeApi as Record<string, unknown>).storage;
   if (!storageApiObj || typeof storageApiObj !== 'object') {
-    // Log a clear error for debugging if storage enumeration is not available.
     console.error('[proxmox] nodeApi.storage is missing or not an object. Cannot enumerate storages or LXC templates.');
   } else {
     try {
-      // Attempt to list storages for the node. If this fails, log the error but do not crash.
       storages = await (storageApiObj as Record<string, AnyFn>).list({ $path: { node } }) as Array<Record<string, unknown>>;
     } catch (err) {
-      // Log storage listing errors for troubleshooting.
       console.error('[proxmox] Failed to list storages:', err);
     }
+
     for (const storage of storages) {
       if (typeof storage.storage !== 'string') continue;
-      let storageApi: Record<string, any> | undefined;
+
+      let storageApi: Record<string, unknown> | undefined;
       try {
-        // Defensive: Try to get the storage API for each storage. Log and skip if not available.
-        storageApi = (storageApiObj as Record<string, AnyFn>).get(storage.storage) as Record<string, any>;
+        storageApi = (storageApiObj as Record<string, AnyFn>).get(storage.storage) as Record<string, unknown>;
       } catch (err) {
         console.error(`[proxmox] Failed to get storage API for ${storage.storage}:`, err);
         continue;
       }
-      if (!storageApi || typeof storageApi !== 'object') continue;
-      const contentApi = storageApi.content;
-      if (!contentApi || typeof contentApi !== 'object' || typeof contentApi.list !== 'function') continue;
+
+      const contentApi = (storageApi?.content) as { list: AnyFn } | undefined;
+      if (!contentApi || typeof contentApi.list !== 'function') continue;
+
       let contentList: unknown;
       try {
-        // Attempt to list LXC templates (content=vztmpl) for each storage. Log and skip on error.
         contentList = await contentApi.list({ $path: { node, storage: storage.storage }, $query: { content: 'vztmpl' } });
       } catch (err) {
         console.error(`[proxmox] Failed to list content for storage ${storage.storage}:`, err);
         continue;
       }
+
       if (Array.isArray(contentList)) {
         for (const tmpl of contentList as Array<Record<string, unknown>>) {
-          // Only add entries that are actually LXC templates.
           if (tmpl.content === 'vztmpl') {
             lxcTemplates.push({ ...tmpl, storage: storage.storage } as LxcTemplate);
           }
@@ -279,12 +307,8 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     console.error('[proxmox] Failed to list containers:', err);
   }
   try {
-    const loadRecentTasks = async (): Promise<Array<Record<string, unknown>>> => {
-      const typedNodeApi = nodeApi as { tasks: { list: (args: { $query?: { limit?: number; source?: 'archive' | 'active' | 'all' } }) => Promise<Array<Record<string, unknown>>> } };
-      const taskList = await typedNodeApi.tasks.list({ $query: { limit: 10, source: 'all' as const } });
-      return taskList;
-    };
-    tasks = await loadRecentTasks();
+    const typedNodeApi = nodeApi as { tasks: { list: (args: { $query?: { limit?: number; source?: 'archive' | 'active' | 'all' } }) => Promise<Array<Record<string, unknown>>> } };
+    tasks = await typedNodeApi.tasks.list({ $query: { limit: 10, source: 'all' } });
   } catch (err) {
     console.error('[proxmox] Failed to list tasks:', err);
   }
@@ -292,8 +316,6 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   const currentNode = clusterNodes.find((entry) => entry.node === node);
   const serverStatus = typeof currentNode?.status === 'string' ? currentNode.status : 'unknown';
 
-  // Debug: Log the final lxcTemplates array so the developer can see what is being returned to the UI.
-  // console.info('[proxmox] lxcTemplates returned:', JSON.stringify(lxcTemplates, null, 2));
   return {
     apiHost: getApiHost(),
     configuredNode: getConfiguredNodeName() ?? 'unset',
@@ -305,6 +327,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     version,
     cluster,
     vms: (vms as Array<Record<string, unknown>>)
+      // Ensure each VM has a node field and an id mapped from vmid.
       .map((vm) => ({
         ...vm,
         node: typeof vm.node === 'string' ? vm.node : node,
@@ -312,6 +335,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
       }))
       .sort(compareByName) as Workload[],
     containers: (containers as Array<Record<string, unknown>>)
+      // Ensure each container has a node field and an id mapped from vmid.
       .map((container) => ({
         ...container,
         node: typeof container.node === 'string' ? container.node : node,
@@ -320,6 +344,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
       .sort(compareByName) as Workload[],
     lxcTemplates,
     recentTasks: (tasks as Array<Record<string, unknown>>)
+      // Normalise the raw task objects into the typed recentTasks shape.
       .map((task) => ({
         id: String(task.id ?? ''),
         node: String(task.node ?? node),
@@ -330,32 +355,16 @@ const loadResults = async (): Promise<ProxmoxResults> => {
         user: String(task.user ?? ''),
         upid: String(task.upid ?? '')
       }))
-      .sort((a, b) => b.starttime - a.starttime)
+      .sort((a, b) => b.starttime - a.starttime) // most-recent first
       .slice(0, 10)
   };
 };
 
-const buildUnavailableResults = (): ProxmoxResults => {
-  const configuredNode = getConfiguredNodeName();
-  const fallbackNode = configuredNode ?? 'unknown';
+// ---------------------------------------------------------------------------
+// Form actions
+// ---------------------------------------------------------------------------
 
-  return {
-    apiHost: getApiHost(),
-    configuredNode: configuredNode ?? 'unset',
-    configuredNodeExists: false,
-    serverNode: fallbackNode,
-    serverStatus: 'offline',
-    lastSuccessfulRefresh: null,
-    nodes: [],
-    version: null,
-    cluster: null,
-    vms: [],
-    containers: [],
-    lxcTemplates: [],
-    recentTasks: []
-  };
-};
-
+/** Validates and parses a workload control form submission. */
 const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: number; name: string; node: string } => {
   const type = formData.get('type');
   const idValue = formData.get('id');
@@ -387,35 +396,28 @@ const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: 
   };
 };
 
+/** Sends a start/stop/restart command to a VM or container via the Proxmox API. */
 const executeWorkloadAction = async (type: WorkloadKind, id: number, node: string, action: WorkloadAction): Promise<string> => {
   const client = await createClient();
-  const nodeApi: unknown = client.api.nodes.get(node);
-  const typedNodeApi = nodeApi as Record<string, Record<string, unknown>>;
-    const qemuApi = (typedNodeApi.qemu as Record<string, AnyFn>).vmid as (id: number) => Record<string, unknown>;
-    const lxcApi = (typedNodeApi.lxc as Record<string, AnyFn>).id as (id: number) => Record<string, unknown>;
-    const guestApi = type === 'vm' ? qemuApi(id) : lxcApi(id);
+  const typedNodeApi = client.api.nodes.get(node) as unknown as Record<string, Record<string, unknown>>;
+  const qemuApi = (typedNodeApi.qemu as Record<string, AnyFn>).vmid as (id: number) => Record<string, unknown>;
+  const lxcApi = (typedNodeApi.lxc as Record<string, AnyFn>).id as (id: number) => Record<string, unknown>;
+  const guestApi = type === 'vm' ? qemuApi(id) : lxcApi(id);
   const status = guestApi.status as Record<string, unknown>;
 
   switch (action) {
-    case 'start':
-      return await ((status.start as AnyFn)()) as string;
-    case 'stop':
-      return await ((status.stop as AnyFn)()) as string;
-    case 'restart':
-      return await ((status.reboot as AnyFn)()) as string;
+    case 'start':   return await ((status.start as AnyFn)()) as string;
+    case 'stop':    return await ((status.stop as AnyFn)()) as string;
+    case 'restart': return await ((status.reboot as AnyFn)()) as string;
   }
 };
 
+/** Builds a SvelteKit form action handler for a given workload action. */
 const buildAction = (action: WorkloadAction) => {
+  // Returns a request handler that parses the form, runs the action, and
+  // returns a success or error result for the UI to display.
   return async ({ request }: RequestEvent) => {
-    let selectedWorkload:
-      | {
-          type: WorkloadKind;
-          id: number;
-          name?: string;
-          node: string;
-        }
-      | undefined;
+    let selectedWorkload: { type: WorkloadKind; id: number; name?: string; node: string } | undefined;
 
     try {
       const formData = await request.formData();
@@ -429,7 +431,7 @@ const buildAction = (action: WorkloadAction) => {
         message: `${actionLabel} ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''}.`,
         upid,
         workloadType: selectedWorkload.type,
-        formType: selectedWorkload.type // 'vm' or 'container'
+        formType: selectedWorkload.type
       };
     } catch (error) {
       return fail(500, {
@@ -442,6 +444,32 @@ const buildAction = (action: WorkloadAction) => {
   };
 };
 
+/** Clones a QEMU VM template to a new VM. Returns the task UPID. */
+const cloneVmFromTemplate = async (templateId: number, templateNode: string, newName: string): Promise<string> => {
+  const client = await createClient();
+  const newid = await (client.api.cluster as unknown as Record<string, AnyFn>).nextid({}) as number;
+  const nodeApi = client.api.nodes.get(templateNode);
+  const vmApi = (nodeApi as { qemu: { vmid: (id: number) => unknown } }).qemu.vmid(templateId);
+  return await (vmApi as { clone: (args: Record<string, unknown>) => Promise<string> }).clone({
+    $body: { newid, name: newName, full: 1 },
+  });
+};
+
+/** Deploys a new LXC container from a storage template. Returns the task UPID. */
+const cloneLxcTemplate = async (templateVolid: string, templateNode: string, newName: string): Promise<string> => {
+  const client = await createClient();
+  const newid = await client.api.cluster.nextid() as number;
+  const nodeApi = client.api.nodes.get(templateNode);
+  return await nodeApi.lxc.create(templateNode, {
+    $path: { node: templateNode },
+    $body: { vmid: newid, ostemplate: templateVolid, hostname: newName },
+  }) as string;
+};
+
+// ---------------------------------------------------------------------------
+// SvelteKit exports
+// ---------------------------------------------------------------------------
+
 export const load: PageServerLoad = async () => {
   try {
     const results = await withTimeout(
@@ -449,11 +477,7 @@ export const load: PageServerLoad = async () => {
       PROXMOX_REQUEST_TIMEOUT_MS,
       `Timed out after ${PROXMOX_REQUEST_TIMEOUT_MS}ms while loading Proxmox data.`
     );
-
-    return {
-      results,
-      error: null
-    };
+    return { results, error: null };
   } catch (e) {
     return {
       results: buildUnavailableResults(),
@@ -462,27 +486,13 @@ export const load: PageServerLoad = async () => {
   }
 };
 
-const cloneVmFromTemplate = async (templateId: number, templateNode: string, newName: string): Promise<string> => {
-  const client = await createClient();
-
-  const newid = await (client.api.cluster as unknown as Record<string, AnyFn>).nextid({}) as number;
-
-  const nodeApi = client.api.nodes.get(templateNode);
-  const vmApi = (nodeApi as { qemu: { vmid: (id: number) => unknown } }).qemu.vmid(templateId);
-  const upid = await (vmApi as { clone: (args: Record<string, unknown>) => Promise<string> }).clone({
-    $body: {
-      newid,
-      name: newName,
-      full: 1,
-    },
-  });
-  return upid;
-};
-
 export const actions: Actions = {
+  // Workload power controls — all delegate to buildAction.
   start: buildAction('start'),
   stop: buildAction('stop'),
   restart: buildAction('restart'),
+
+  /** Clones a QEMU VM template into a new full VM. */
   cloneFromTemplate: async ({ request }: RequestEvent) => {
     try {
       const formData = await request.formData();
@@ -524,6 +534,7 @@ export const actions: Actions = {
     }
   },
 
+  /** Deploys a new LXC container from a storage template. */
   cloneLxcTemplate: async ({ request }: RequestEvent) => {
     try {
       const formData = await request.formData();
