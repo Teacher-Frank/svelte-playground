@@ -21,9 +21,11 @@
   // Props: workloads is the array of LXC templates, form is for feedback messages (success/error).
   let {
     workloads,
-    form
+    form,
+    serverNode
   }: {
     workloads: LxcTemplate[];
+    serverNode: string;
     form?: {
       message?: string;
       status?: 'success' | 'error';
@@ -79,7 +81,7 @@
                 <!-- Deploy form for each template, posts to backend to clone template -->
                 <form method="POST" action="?/cloneLxcTemplate" class="deploy-form">
                   <input type="hidden" name="templateVolid" value={templateLxc.volid} />
-                  <input type="hidden" name="templateStorage" value={templateLxc.storage} />
+                  <input type="hidden" name="templateNode" value={serverNode} />
                   <input
                     type="text"
                     name="newName"

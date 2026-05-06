@@ -139,7 +139,7 @@
 
       <!-- Show VM template list and LXC template list, each with their own feedback form -->
       <PxMxVMTemplateList workloads={data.results.vms} form={templateForm} />
-      <PxMxLxcTemplateList workloads={data.results.lxcTemplates} form={lxcTemplateForm} />
+      <PxMxLxcTemplateList workloads={data.results.lxcTemplates} serverNode={data.results.serverNode} form={lxcTemplateForm} />
 
       <!-- Show lists of running VMs and containers -->
       <PxMxWorkloadList kind="vm" workloads={data.results.vms.filter((vm) => !vm.template && !vm.isTemplate)} form={vmForm} />

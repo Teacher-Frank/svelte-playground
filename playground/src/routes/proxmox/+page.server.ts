@@ -1,15 +1,15 @@
-const cloneLxcTemplate = async (templateId: number, templateNode: string, newName: string): Promise<string> => {
+const cloneLxcTemplate = async (templateVolid: string, templateNode: string, newName: string): Promise<string> => {
   const client = await createClient();
-  const newid = await (client.api.cluster as unknown as Record<string, AnyFn>).nextid({}) as number;
+  const newid = await client.api.cluster.nextid() as number;
   const nodeApi = client.api.nodes.get(templateNode);
-  const lxcApi = (nodeApi as { lxc: { id: (id: number) => unknown } }).lxc.id(templateId);
-  const upid = await (lxcApi as { clone: (args: Record<string, unknown>) => Promise<string> }).clone({
+  const upid = await nodeApi.lxc.create(templateNode, {
+    $path: { node: templateNode },
     $body: {
-      newid,
+      vmid: newid,
+      ostemplate: templateVolid,
       hostname: newName,
-      full: 1,
     },
-  });
+  }) as string;
   return upid;
 };
 import { fail } from '@sveltejs/kit';
@@ -280,26 +280,9 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   }
   try {
     const loadRecentTasks = async (): Promise<Array<Record<string, unknown>>> => {
-      const query = { limit: 10, source: 'all' as const };
-      const typedApi = nodeApi as Record<string, unknown>;
-      if ((typedApi.tasks as Record<string, unknown>)?.list) {
-        return (await ((typedApi.tasks as Record<string, AnyFn>).list({ $path: { node }, $query: query }))) as Array<Record<string, unknown>>;
-      }
-      if (typedApi.tasks && typeof typedApi.tasks === 'function') {
-        return (await ((typedApi.tasks as AnyFn)({ $path: { node }, $query: query }))) as Array<Record<string, unknown>>;
-      }
-      const client = await createClient();
-      const clusterApiObj = (client.api as Record<string, unknown>).cluster as Record<string, unknown> | undefined;
-      if (clusterApiObj && typeof clusterApiObj === 'object' && 'tasks' in clusterApiObj) {
-        const tasks = (clusterApiObj.tasks as AnyFn);
-        if (typeof tasks === 'function') {
-          const clusterTasks = await (tasks() as Promise<unknown>);
-          return Array.isArray(clusterTasks)
-            ? (clusterTasks.filter((task: Record<string, unknown>) => task.node === node) as Array<Record<string, unknown>>)
-            : [];
-        }
-      }
-      return [];
+      const typedNodeApi = nodeApi as { tasks: { list: (args: { $query?: { limit?: number; source?: 'archive' | 'active' | 'all' } }) => Promise<Array<Record<string, unknown>>> } };
+      const taskList = await typedNodeApi.tasks.list({ $query: { limit: 10, source: 'all' as const } });
+      return taskList;
     };
     tasks = await loadRecentTasks();
   } catch (err) {
@@ -310,7 +293,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   const serverStatus = typeof currentNode?.status === 'string' ? currentNode.status : 'unknown';
 
   // Debug: Log the final lxcTemplates array so the developer can see what is being returned to the UI.
-  console.info('[proxmox] lxcTemplates returned:', JSON.stringify(lxcTemplates, null, 2));
+  // console.info('[proxmox] lxcTemplates returned:', JSON.stringify(lxcTemplates, null, 2));
   return {
     apiHost: getApiHost(),
     configuredNode: getConfiguredNodeName() ?? 'unset',
@@ -545,17 +528,12 @@ export const actions: Actions = {
     try {
       const formData = await request.formData();
 
-      const templateIdValue = formData.get('templateId');
+      const templateVolid = formData.get('templateVolid');
       const templateNode = formData.get('templateNode');
       const newName = formData.get('newName');
 
-      if (typeof templateIdValue !== 'string' || templateIdValue.length === 0) {
-        return fail(400, { status: 'error' as const, message: 'Missing template ID.' , formType: 'lxc-template'});
-      }
-
-      const templateId = Number(templateIdValue);
-      if (!Number.isInteger(templateId) || templateId <= 0) {
-        return fail(400, { status: 'error' as const, message: 'Invalid template ID.' , formType: 'lxc-template'});
+      if (typeof templateVolid !== 'string' || templateVolid.length === 0) {
+        return fail(400, { status: 'error' as const, message: 'Missing template volume ID.' , formType: 'lxc-template'});
       }
 
       if (typeof templateNode !== 'string' || templateNode.trim().length === 0) {
@@ -566,11 +544,11 @@ export const actions: Actions = {
         return fail(400, { status: 'error' as const, message: 'New container name is required.' , formType: 'lxc-template'});
       }
 
-      const upid = await cloneLxcTemplate(templateId, templateNode.trim(), newName.trim());
+      const upid = await cloneLxcTemplate(templateVolid.trim(), templateNode.trim(), newName.trim());
 
       return {
         status: 'success' as const,
-        message: `Cloning LXC template ${templateId} as "${newName.trim()}" — task ${upid}.`,
+        message: `Deploying LXC template "${templateVolid}" as "${newName.trim()}" — task ${upid}.`,
         formType: 'lxc-template'
       };
     } catch (error) {
