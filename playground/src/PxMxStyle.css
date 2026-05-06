@@ -206,3 +206,79 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+
+/* PxMxWorkloadControls */
+
+.workload-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: #d7d7d7;
+  border: 1px solid #b8b8b8;
+  border-radius: 0.9rem;
+  padding: 0.35rem;
+  width: fit-content;
+}
+
+.workload-controls .selected-target {
+  color: #2f2f2f;
+  font-size: 0.95rem;
+  margin: 0 0.65rem 0 0.4rem;
+  min-width: 14rem;
+}
+
+.workload-controls .action-buttons {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.workload-controls button {
+  background: #efefef;
+  border: 1px solid #b3b3b3;
+  border-radius: 0.7rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.workload-controls button:hover {
+  border-color: #888;
+  background-color: #fafafa;
+}
+
+.workload-controls button:active {
+  transform: scale(0.95);
+}
+
+.workload-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.workload-controls img {
+  width: 1.25rem;
+  height: 1.25rem;
+  display: block;
+}
+
+.workload-controls.compact {
+  border-radius: 0.7rem;
+  padding: 0.2rem;
+}
+
+.workload-controls.compact button {
+  height: 2.1rem;
+  padding: 0.35rem;
+  width: 2.1rem;
+}
+
+.workload-controls.compact img {
+  height: 1rem;
+  width: 1rem;
+}

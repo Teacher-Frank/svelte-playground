@@ -1,6 +1,6 @@
 <script lang="ts">
   import './PxMxStyle.css';
-  import VMContainerControls from './VMContainerControls.svelte';
+  import PxMxWorkloadControls from './PxMxWorkloadControls.svelte';
 
   type WorkloadKind = 'vm' | 'container';
 
@@ -86,7 +86,7 @@
             <span>{formatUptime(workload.uptime)}</span>
           </button>
 
-          <VMContainerControls
+          <PxMxWorkloadControls
             compact={true}
             disabled={workload.id == null}
             selectedWorkload={{ type: kind, id: workload.id, name: workload.name, node: workload.node }}
