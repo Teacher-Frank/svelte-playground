@@ -2,17 +2,13 @@ import { fail } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types.js';
 import { Client } from 'pve-client';
+import type { NodeScopedAPI } from 'pve-client';
 import { Agent } from 'node:https';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 /** The kind of Proxmox guest workload: a QEMU virtual machine or an LXC container. */
 export type WorkloadKind = 'vm' | 'container';
 /** A power-control action that can be applied to a workload. */
 export type WorkloadAction = 'start' | 'stop' | 'restart';
-type AnyFn = (...args: unknown[]) => unknown;
 
 const PROXMOX_REQUEST_TIMEOUT_MS = 8000;
 
@@ -28,8 +24,6 @@ export type Workload = {
   status?: string;
   /** Seconds the workload has been running, or `0` when stopped. */
   uptime?: number;
-  /** Best-effort primary IP address for LXC containers. */
-  ipAddress?: string;
 };
 
 /** A Proxmox cluster node as returned by the `/nodes` API endpoint. */
@@ -144,109 +138,6 @@ const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, message: s
     return await Promise.race([promise, timeoutPromise]);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
-  }
-};
-
-type LxcInterfaceAddress = {
-  'ip-address'?: string;
-};
-
-type LxcInterface = {
-  inet?: string;
-  inet6?: string;
-  name?: string;
-  'ip-addresses'?: LxcInterfaceAddress[];
-};
-
-type LxcConfig = Record<string, unknown>;
-
-/** Picks the best display IP from a container interfaces payload. */
-const pickPrimaryIp = (interfaces: LxcInterface[]): string | undefined => {
-  const addresses: string[] = [];
-
-  for (const iface of interfaces) {
-    if (Array.isArray(iface['ip-addresses'])) {
-      for (const item of iface['ip-addresses']) {
-        if (typeof item?.['ip-address'] === 'string') {
-          addresses.push(item['ip-address']);
-        }
-      }
-    }
-
-    if (typeof iface.inet === 'string') addresses.push(iface.inet);
-    if (typeof iface.inet6 === 'string') addresses.push(iface.inet6);
-  }
-
-  const filtered = addresses.filter((ip) => {
-    const raw = ip.trim().toLowerCase();
-    const hostPart = raw.includes('/') ? raw.split('/')[0] : raw;
-    if (!hostPart) return false;
-    if (hostPart === '::1') return false;
-    if (hostPart.startsWith('127.')) return false;
-    return true;
-  });
-  const firstIPv4 = filtered.find((ip) => ip.includes('.'));
-  return firstIPv4 ?? filtered[0];
-};
-
-/** Extracts configured static IPs from LXC net* config strings (e.g. net0: "...,ip=10.0.0.10/24,..."). */
-const pickConfiguredLxcIp = (config: LxcConfig): string | undefined => {
-  const candidates: string[] = [];
-
-  for (const [key, value] of Object.entries(config)) {
-    if (!/^net\d+$/.test(key) || typeof value !== 'string') {
-      continue;
-    }
-
-    const parts = value.split(',');
-    for (const part of parts) {
-      const trimmed = part.trim();
-      if (!trimmed.startsWith('ip=')) continue;
-
-      const ipRaw = trimmed.slice(3).trim();
-      if (!ipRaw || ipRaw === 'dhcp' || ipRaw === 'manual') continue;
-
-      const hostPart = ipRaw.includes('/') ? ipRaw.split('/')[0] : ipRaw;
-      if (!hostPart || hostPart.startsWith('127.') || hostPart === '::1') continue;
-      candidates.push(ipRaw);
-    }
-  }
-
-  const firstIPv4 = candidates.find((ip) => ip.includes('.'));
-  return firstIPv4 ?? candidates[0];
-};
-
-/** Reads a container's primary IP through /lxc/{vmid}/interfaces. */
-const resolveLxcPrimaryIp = async (client: Client, node: string, vmid: number): Promise<string | undefined> => {
-  try {
-    const interfaces = await (client as unknown as {
-      request: (
-        path: '/nodes/{node}/lxc/{vmid}/interfaces',
-        method: 'GET',
-        args: { $path: { node: string; vmid: number } }
-      ) => Promise<LxcInterface[]>;
-    }).request('/nodes/{node}/lxc/{vmid}/interfaces', 'GET', { $path: { node, vmid } });
-
-    const runtimeIp = Array.isArray(interfaces) ? pickPrimaryIp(interfaces) : undefined;
-    if (runtimeIp) {
-      return runtimeIp;
-    }
-  } catch {
-    // Fall through to config-based lookup.
-  }
-
-  try {
-    const config = await (client as unknown as {
-      request: (
-        path: '/nodes/{node}/lxc/{vmid}/config',
-        method: 'GET',
-        args: { $path: { node: string; vmid: number } }
-      ) => Promise<LxcConfig>;
-    }).request('/nodes/{node}/lxc/{vmid}/config', 'GET', { $path: { node, vmid } });
-
-    return config && typeof config === 'object' ? pickConfiguredLxcIp(config) : undefined;
-  } catch {
-    return undefined;
   }
 };
 
@@ -391,7 +282,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     return buildUnavailableResults();
   }
 
-  let nodeApi: unknown;
+  let nodeApi: NodeScopedAPI;
   try {
     // Reuse the existing authenticated client rather than creating a new one.
     nodeApi = client.api.nodes.get(node);
@@ -416,33 +307,22 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   let tasks: Array<Record<string, unknown>> = [];
 
   // Enumerate LXC templates from all storages that expose vztmpl content
-  const storageApiObj = (nodeApi as Record<string, unknown>).storage;
-  if (!storageApiObj || typeof storageApiObj !== 'object') {
-    console.error('[proxmox] nodeApi.storage is missing or not an object. Cannot enumerate storages or LXC templates.');
-  } else {
-    try {
-      storages = await (storageApiObj as Record<string, AnyFn>).list({ $path: { node } }) as Array<Record<string, unknown>>;
-    } catch (err) {
-      console.error('[proxmox] Failed to list storages:', err);
-    }
+  try {
+    storages = await nodeApi.storage.list() as Array<Record<string, unknown>>;
+  } catch (err) {
+    console.error('[proxmox] Failed to list storages:', err);
+  }
 
+  if (storages.length > 0) {
     for (const storage of storages) {
       if (typeof storage.storage !== 'string') continue;
 
-      let storageApi: Record<string, unknown> | undefined;
-      try {
-        storageApi = (storageApiObj as Record<string, AnyFn>).get(storage.storage) as Record<string, unknown>;
-      } catch (err) {
-        console.error(`[proxmox] Failed to get storage API for ${storage.storage}:`, err);
-        continue;
-      }
-
-      const contentApi = (storageApi?.content) as { list: AnyFn } | undefined;
+      const contentApi = nodeApi.storage.get(storage.storage).content;
       if (!contentApi || typeof contentApi.list !== 'function') continue;
 
       let contentList: unknown;
       try {
-        contentList = await contentApi.list({ $path: { node, storage: storage.storage }, $query: { content: 'vztmpl' } });
+        contentList = await contentApi.list({ $query: { content: 'vztmpl' } });
       } catch (err) {
         console.error(`[proxmox] Failed to list content for storage ${storage.storage}:`, err);
         continue;
@@ -458,30 +338,17 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     }
   }
   try {
-    vms = await ((nodeApi as Record<string, unknown>).qemu as Record<string, AnyFn>).list({ $path: { node } }) as Workload[];
+    vms = await nodeApi.qemu.list() as Workload[];
   } catch (err) {
     console.error('[proxmox] Failed to list VMs:', err);
   }
   try {
-    containers = await ((nodeApi as Record<string, unknown>).lxc as Record<string, AnyFn>).list({ $path: { node } }) as Workload[];
+    containers = await nodeApi.lxc.list() as Workload[];
   } catch (err) {
     console.error('[proxmox] Failed to list containers:', err);
   }
-
-  const containersWithIp = await Promise.all(
-    (containers as Array<Record<string, unknown>>).map(async (container) => {
-      const vmid = Number(container.vmid);
-      if (!Number.isInteger(vmid)) {
-        return container;
-      }
-
-      const ipAddress = await resolveLxcPrimaryIp(client, node, vmid);
-      return { ...container, ipAddress };
-    })
-  );
   try {
-    const typedNodeApi = nodeApi as { tasks: { list: (args: { $query?: { limit?: number; source?: 'archive' | 'active' | 'all' } }) => Promise<Array<Record<string, unknown>>> } };
-    tasks = await typedNodeApi.tasks.list({ $query: { limit: 10, source: 'all' } });
+    tasks = await nodeApi.tasks.list({ $query: { limit: 10, source: 'all' } }) as Array<Record<string, unknown>>;
   } catch (err) {
     console.error('[proxmox] Failed to list tasks:', err);
   }
@@ -507,7 +374,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
         id: vm.vmid as number | string | undefined
       }))
       .sort(compareByName) as Workload[],
-    containers: containersWithIp
+    containers: (containers as Array<Record<string, unknown>>)
       // Ensure each container has a node field and an id mapped from vmid.
       .map((container) => ({
         ...container,
@@ -572,27 +439,25 @@ const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: 
 /** Permanently destroys a VM or LXC container via the Proxmox API. Returns the task UPID. */
 const executeDestroyAction = async (type: WorkloadKind, id: number, node: string): Promise<string> => {
   const client = await createClient();
-  const typedNodeApi = client.api.nodes.get(node) as unknown as Record<string, Record<string, unknown>>;
-  const qemuApi = (typedNodeApi.qemu as Record<string, AnyFn>).vmid as (id: number) => Record<string, AnyFn>;
-  const lxcApi = (typedNodeApi.lxc as Record<string, AnyFn>).id as (id: number) => Record<string, AnyFn>;
-  const guestApi = type === 'vm' ? qemuApi(id) : lxcApi(id);
-  // purge=1 tells Proxmox to clean up additional metadata (e.g. HA/replication references).
-  return await (guestApi.delete as AnyFn)({ $body: { purge: 1 } }) as string;
+  const nodeApi = client.api.nodes.get(node);
+  // Proxmox DELETE expects options in query params, not request body.
+  return await (type === 'vm'
+    ? nodeApi.qemu.vmid(id).delete({ $query: { purge: true } })
+    : nodeApi.lxc.id(id).delete({ $query: { purge: true, force: true } })) as string;
 };
 
 /** Sends a start/stop/restart command to a VM or container via the Proxmox API. */
 const executeWorkloadAction = async (type: WorkloadKind, id: number, node: string, action: WorkloadAction): Promise<string> => {
   const client = await createClient();
-  const typedNodeApi = client.api.nodes.get(node) as unknown as Record<string, Record<string, unknown>>;
-  const qemuApi = (typedNodeApi.qemu as Record<string, AnyFn>).vmid as (id: number) => Record<string, unknown>;
-  const lxcApi = (typedNodeApi.lxc as Record<string, AnyFn>).id as (id: number) => Record<string, unknown>;
-  const guestApi = type === 'vm' ? qemuApi(id) : lxcApi(id);
-  const status = guestApi.status as Record<string, unknown>;
+  const nodeApi: NodeScopedAPI = client.api.nodes.get(node);
+  const status = type === 'vm'
+    ? nodeApi.qemu.vmid(id).status
+    : nodeApi.lxc.id(id).status;
 
   switch (action) {
-    case 'start':   return await ((status.start as AnyFn)()) as string;
-    case 'stop':    return await ((status.stop as AnyFn)()) as string;
-    case 'restart': return await ((status.reboot as AnyFn)()) as string;
+    case 'start':   return await status.start() as string;
+    case 'stop':    return await status.stop() as string;
+    case 'restart': return await status.reboot() as string;
   }
 };
 
@@ -631,12 +496,11 @@ const buildAction = (action: WorkloadAction) => {
 /** Clones a QEMU VM template to a new VM. Returns the task UPID. */
 const cloneVmFromTemplate = async (templateId: number, templateNode: string, newName: string): Promise<string> => {
   const client = await createClient();
-  const newid = await (client.api.cluster as unknown as Record<string, AnyFn>).nextid({}) as number;
-  const nodeApi = client.api.nodes.get(templateNode);
-  const vmApi = (nodeApi as { qemu: { vmid: (id: number) => unknown } }).qemu.vmid(templateId);
-  return await (vmApi as { clone: (args: Record<string, unknown>) => Promise<string> }).clone({
-    $body: { newid, name: newName, full: 1 },
-  });
+  const newid = await client.api.cluster.nextid() as number;
+  const nodeApi: NodeScopedAPI = client.api.nodes.get(templateNode);
+  return await nodeApi.qemu.vmid(templateId).clone({
+    $body: { newid, name: newName, full: true },
+  }) as string;
 };
 
 /**

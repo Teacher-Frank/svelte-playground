@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const vitestTempDir = 'C:\\temp';
+const vitestTempDir = resolve('.vitest', 'tmp');
 const vitestEntrypoint = resolve('node_modules', 'vitest', 'vitest.mjs');
 
 mkdirSync(vitestTempDir, { recursive: true });
