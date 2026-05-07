@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import { sveltekit } from '@sveltejs/kit/vite';
+import mkcert from 'vite-plugin-mkcert';
 import type { Plugin } from 'vite';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
@@ -148,8 +149,9 @@ function proxmoxTerminalPlugin(): Plugin {
 }
 
 export default defineConfig({
-	plugins: [sveltekit(), proxmoxTerminalPlugin()],
+	plugins: [sveltekit(), proxmoxTerminalPlugin(), mkcert()],
 	server: {
+		https: true,
 		port: 8000
 	},
 	test: {
