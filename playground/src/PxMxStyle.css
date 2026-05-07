@@ -1,5 +1,6 @@
 :root {
-  --actions-col-width: 7.6rem;
+  /* Reserve enough width for all 5 compact control buttons (start/stop/restart/terminal/delete). */
+  --actions-col-width: 13rem;
 }
 
 .pxmx-admin {
@@ -112,7 +113,7 @@
   align-items: center;
   display: grid;
   gap: 0.75rem;
-  grid-template-columns: minmax(20rem, 1fr) var(--actions-col-width);
+  grid-template-columns: minmax(0, 1fr) var(--actions-col-width);
 }
 
 .pxmx-admin .actions-header {
@@ -128,7 +129,7 @@
   align-items: center;
   display: grid;
   gap: 0.75rem;
-  grid-template-columns: minmax(20rem, 1fr) var(--actions-col-width);
+  grid-template-columns: minmax(0, 1fr) var(--actions-col-width);
 }
 
 .pxmx-admin .workload-header {
@@ -220,7 +221,7 @@
   --control-btn-padding: 0.5rem;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.25rem;
   background: #d7d7d7;
   border: 1px solid #b8b8b8;
@@ -228,6 +229,8 @@
   padding: 0.35rem;
   width: fit-content;
   max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .workload-controls .selected-target {
@@ -256,19 +259,28 @@
   background: #efefef;
   border: 1px solid #b3b3b3;
   border-radius: 0.7rem;
+  box-sizing: border-box;
   cursor: pointer;
+  flex: 0 0 auto;
   padding: var(--control-btn-padding);
   width: var(--control-btn-size);
   height: var(--control-btn-size);
   display: flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
   transition: all 0.2s;
 }
 
 .workload-controls .terminal-btn {
   text-decoration: none;
   color: inherit;
+}
+
+/* Terminal icon artwork has more fill than play/stop/restart, so scale it down a touch. */
+.workload-controls .terminal-btn img {
+  width: 1.05rem;
+  height: 1.05rem;
 }
 
 .workload-controls .terminal-btn:hover:not([aria-disabled='true']) {
@@ -435,6 +447,11 @@
 .workload-controls.compact img {
   height: 1rem;
   width: 1rem;
+}
+
+.workload-controls.compact .terminal-btn img {
+  width: 0.9rem;
+  height: 0.9rem;
 }
 
 /* Workload tabs */
