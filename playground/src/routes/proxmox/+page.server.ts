@@ -28,6 +28,8 @@ export type Workload = {
   status?: string;
   /** Seconds the workload has been running, or `0` when stopped. */
   uptime?: number;
+  /** Best-effort primary IP address for LXC containers. */
+  ipAddress?: string;
 };
 
 /** A Proxmox cluster node as returned by the `/nodes` API endpoint. */
@@ -142,6 +144,109 @@ const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, message: s
     return await Promise.race([promise, timeoutPromise]);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
+  }
+};
+
+type LxcInterfaceAddress = {
+  'ip-address'?: string;
+};
+
+type LxcInterface = {
+  inet?: string;
+  inet6?: string;
+  name?: string;
+  'ip-addresses'?: LxcInterfaceAddress[];
+};
+
+type LxcConfig = Record<string, unknown>;
+
+/** Picks the best display IP from a container interfaces payload. */
+const pickPrimaryIp = (interfaces: LxcInterface[]): string | undefined => {
+  const addresses: string[] = [];
+
+  for (const iface of interfaces) {
+    if (Array.isArray(iface['ip-addresses'])) {
+      for (const item of iface['ip-addresses']) {
+        if (typeof item?.['ip-address'] === 'string') {
+          addresses.push(item['ip-address']);
+        }
+      }
+    }
+
+    if (typeof iface.inet === 'string') addresses.push(iface.inet);
+    if (typeof iface.inet6 === 'string') addresses.push(iface.inet6);
+  }
+
+  const filtered = addresses.filter((ip) => {
+    const raw = ip.trim().toLowerCase();
+    const hostPart = raw.includes('/') ? raw.split('/')[0] : raw;
+    if (!hostPart) return false;
+    if (hostPart === '::1') return false;
+    if (hostPart.startsWith('127.')) return false;
+    return true;
+  });
+  const firstIPv4 = filtered.find((ip) => ip.includes('.'));
+  return firstIPv4 ?? filtered[0];
+};
+
+/** Extracts configured static IPs from LXC net* config strings (e.g. net0: "...,ip=10.0.0.10/24,..."). */
+const pickConfiguredLxcIp = (config: LxcConfig): string | undefined => {
+  const candidates: string[] = [];
+
+  for (const [key, value] of Object.entries(config)) {
+    if (!/^net\d+$/.test(key) || typeof value !== 'string') {
+      continue;
+    }
+
+    const parts = value.split(',');
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed.startsWith('ip=')) continue;
+
+      const ipRaw = trimmed.slice(3).trim();
+      if (!ipRaw || ipRaw === 'dhcp' || ipRaw === 'manual') continue;
+
+      const hostPart = ipRaw.includes('/') ? ipRaw.split('/')[0] : ipRaw;
+      if (!hostPart || hostPart.startsWith('127.') || hostPart === '::1') continue;
+      candidates.push(ipRaw);
+    }
+  }
+
+  const firstIPv4 = candidates.find((ip) => ip.includes('.'));
+  return firstIPv4 ?? candidates[0];
+};
+
+/** Reads a container's primary IP through /lxc/{vmid}/interfaces. */
+const resolveLxcPrimaryIp = async (client: Client, node: string, vmid: number): Promise<string | undefined> => {
+  try {
+    const interfaces = await (client as unknown as {
+      request: (
+        path: '/nodes/{node}/lxc/{vmid}/interfaces',
+        method: 'GET',
+        args: { $path: { node: string; vmid: number } }
+      ) => Promise<LxcInterface[]>;
+    }).request('/nodes/{node}/lxc/{vmid}/interfaces', 'GET', { $path: { node, vmid } });
+
+    const runtimeIp = Array.isArray(interfaces) ? pickPrimaryIp(interfaces) : undefined;
+    if (runtimeIp) {
+      return runtimeIp;
+    }
+  } catch {
+    // Fall through to config-based lookup.
+  }
+
+  try {
+    const config = await (client as unknown as {
+      request: (
+        path: '/nodes/{node}/lxc/{vmid}/config',
+        method: 'GET',
+        args: { $path: { node: string; vmid: number } }
+      ) => Promise<LxcConfig>;
+    }).request('/nodes/{node}/lxc/{vmid}/config', 'GET', { $path: { node, vmid } });
+
+    return config && typeof config === 'object' ? pickConfiguredLxcIp(config) : undefined;
+  } catch {
+    return undefined;
   }
 };
 
@@ -357,6 +462,18 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   } catch (err) {
     console.error('[proxmox] Failed to list containers:', err);
   }
+
+  const containersWithIp = await Promise.all(
+    (containers as Array<Record<string, unknown>>).map(async (container) => {
+      const vmid = Number(container.vmid);
+      if (!Number.isInteger(vmid)) {
+        return container;
+      }
+
+      const ipAddress = await resolveLxcPrimaryIp(client, node, vmid);
+      return { ...container, ipAddress };
+    })
+  );
   try {
     const typedNodeApi = nodeApi as { tasks: { list: (args: { $query?: { limit?: number; source?: 'archive' | 'active' | 'all' } }) => Promise<Array<Record<string, unknown>>> } };
     tasks = await typedNodeApi.tasks.list({ $query: { limit: 10, source: 'all' } });
@@ -385,7 +502,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
         id: vm.vmid as number | string | undefined
       }))
       .sort(compareByName) as Workload[],
-    containers: (containers as Array<Record<string, unknown>>)
+    containers: containersWithIp
       // Ensure each container has a node field and an id mapped from vmid.
       .map((container) => ({
         ...container,

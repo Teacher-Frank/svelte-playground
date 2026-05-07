@@ -104,6 +104,29 @@
       clearInterval(intervalId);
     };
   });
+
+  type WorkloadTab = 'vms' | 'lxc';
+
+  const TAB_COOKIE = 'pxmx_active_tab';
+  const TAB_COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
+
+  function readTabCookie(): WorkloadTab {
+    if (typeof document === 'undefined') return 'vms';
+    const match = document.cookie.split('; ').find((c) => c.startsWith(`${TAB_COOKIE}=`));
+    const value = match?.split('=')[1];
+    return value === 'lxc' ? 'lxc' : 'vms';
+  }
+
+  function writeTabCookie(tab: WorkloadTab): void {
+    document.cookie = `${TAB_COOKIE}=${tab}; path=/; max-age=${TAB_COOKIE_MAX_AGE}; SameSite=Strict`;
+  }
+
+  let activeTab = $state<WorkloadTab>(readTabCookie());
+
+  function setActiveTab(tab: WorkloadTab): void {
+    activeTab = tab;
+    writeTabCookie(tab);
+  }
 </script>
 
   <main class="pxmx-admin">
@@ -138,12 +161,46 @@
       <PxMxServerStatus results={data.results} />
 
       <!-- Show VM template list and LXC template list, each with their own feedback form -->
-      <PxMxVMTemplateList workloads={data.results.vms} form={templateForm} />
-      <PxMxLxcTemplateList workloads={data.results.lxcTemplates} serverNode={data.results.serverNode} form={lxcTemplateForm} />
+      <div class="pxmx-tabs">
+        <div class="pxmx-tab-bar" role="tablist">
+          <button
+            role="tab"
+            aria-selected={activeTab === 'vms'}
+            aria-controls="tab-panel-vms"
+            id="tab-vms"
+            class:active={activeTab === 'vms'}
+            onclick={() => { setActiveTab('vms'); }}
+          >Virtual Machines</button>
+          <button
+            role="tab"
+            aria-selected={activeTab === 'lxc'}
+            aria-controls="tab-panel-lxc"
+            id="tab-lxc"
+            class:active={activeTab === 'lxc'}
+            onclick={() => { setActiveTab('lxc'); }}
+          >LXC Containers</button>
+        </div>
 
-      <!-- Show lists of running VMs and containers -->
-      <PxMxWorkloadList kind="vm" workloads={data.results.vms.filter((vm) => !vm.template && !vm.isTemplate)} form={vmForm} />
-      <PxMxWorkloadList kind="container" workloads={data.results.containers} form={containerForm} />
+        <div
+          id="tab-panel-vms"
+          role="tabpanel"
+          aria-labelledby="tab-vms"
+          hidden={activeTab !== 'vms'}
+        >
+          <PxMxVMTemplateList workloads={data.results.vms} form={templateForm} />
+          <PxMxWorkloadList kind="vm" workloads={data.results.vms.filter((vm) => !vm.template && !vm.isTemplate)} form={vmForm} />
+        </div>
+
+        <div
+          id="tab-panel-lxc"
+          role="tabpanel"
+          aria-labelledby="tab-lxc"
+          hidden={activeTab !== 'lxc'}
+        >
+          <PxMxLxcTemplateList workloads={data.results.lxcTemplates} serverNode={data.results.serverNode} form={lxcTemplateForm} />
+          <PxMxWorkloadList kind="container" workloads={data.results.containers} form={containerForm} />
+        </div>
+      </div>
 
       <!-- Show recent Proxmox tasks -->
       <PxMxTasklist tasks={data.results.recentTasks} />
