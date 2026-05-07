@@ -215,41 +215,58 @@
 /* PxMxWorkloadControls */
 
 .workload-controls {
+  /* Shared button sizing variables so all control buttons remain identical. */
+  --control-btn-size: 2.5rem;
+  --control-btn-padding: 0.5rem;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.25rem;
   background: #d7d7d7;
   border: 1px solid #b8b8b8;
   border-radius: 0.9rem;
   padding: 0.35rem;
   width: fit-content;
+  max-width: 100%;
 }
 
 .workload-controls .selected-target {
+  /* Let the label shrink first so action buttons stay visible on narrow screens. */
   color: #2f2f2f;
   font-size: 0.95rem;
+  flex: 1 1 12rem;
   margin: 0 0.65rem 0 0.4rem;
-  min-width: 14rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workload-controls .action-buttons {
+  /* Keep action group width stable; wrapping happens at the parent level when needed. */
   display: flex;
+  flex: 0 0 auto;
   gap: 0.25rem;
   margin: 0;
 }
 
-.workload-controls .terminal-btn {
+.workload-controls .action-buttons button,
+.workload-controls .terminal-btn,
+.workload-controls .delete-btn {
   background: #efefef;
   border: 1px solid #b3b3b3;
   border-radius: 0.7rem;
   cursor: pointer;
-  padding: 0.5rem;
-  width: 2.5rem;
-  height: 2.5rem;
+  padding: var(--control-btn-padding);
+  width: var(--control-btn-size);
+  height: var(--control-btn-size);
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
+}
+
+.workload-controls .terminal-btn {
   text-decoration: none;
   color: inherit;
 }
@@ -269,30 +286,134 @@
   pointer-events: none;
 }
 
-.workload-controls button {
-  background: #efefef;
-  border: 1px solid #b3b3b3;
-  border-radius: 0.7rem;
-  cursor: pointer;
-  padding: 0.5rem;
-  width: 2.5rem;
-  height: 2.5rem;
+.workload-controls .delete-btn {
+  /* Red styling is intentionally separated from shared sizing above. */
+  background: #c0392b;
+  border: 1px solid #96281b;
+}
+
+.workload-controls .delete-btn img {
+  filter: invert(1);
+}
+
+.workload-controls .delete-btn:hover:not(:disabled) {
+  background: #e74c3c;
+  border-color: #c0392b;
+}
+
+.workload-controls .delete-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.workload-controls .delete-btn:disabled {
+  background: #e0a09a;
+  border-color: #c9908a;
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Delete confirmation dialog */
+.delete-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  z-index: 1000;
 }
 
-.workload-controls button:hover {
+.delete-confirm-box {
+  background: #b22222;
+  color: #fff;
+  border: 3px solid #ff4444;
+  border-radius: 0.8rem;
+  padding: 2rem 2.5rem;
+  max-width: 28rem;
+  width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.delete-confirm-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  margin: 0 0 1rem;
+  letter-spacing: 0.03em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.delete-confirm-body {
+  margin: 0 0 1.5rem;
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+
+.delete-confirm-body strong {
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+.delete-confirm-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.delete-confirm-yes {
+  background: #ff1a1a;
+  border: 2px solid #fff;
+  border-radius: 0.5rem;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 0.6rem 1.2rem;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.delete-confirm-yes:hover {
+  background: #e60000;
+  transform: scale(1.04);
+}
+
+.delete-confirm-yes:active {
+  transform: scale(0.97);
+}
+
+.delete-confirm-cancel {
+  background: #fff;
+  border: 2px solid #fff;
+  border-radius: 0.5rem;
+  color: #b22222;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 0.6rem 1.2rem;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.delete-confirm-cancel:hover {
+  background: #f5f5f5;
+  transform: scale(1.04);
+}
+
+.delete-confirm-cancel:active {
+  transform: scale(0.97);
+}
+
+.workload-controls .action-buttons button:hover {
   border-color: #888;
   background-color: #fafafa;
 }
 
-.workload-controls button:active {
+.workload-controls .action-buttons button:active {
   transform: scale(0.95);
 }
 
-.workload-controls button:disabled {
+.workload-controls .action-buttons button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -304,20 +425,11 @@
 }
 
 .workload-controls.compact {
+  /* Compact mode overrides shared sizing variables instead of duplicating rules. */
+  --control-btn-size: 2.1rem;
+  --control-btn-padding: 0.35rem;
   border-radius: 0.7rem;
   padding: 0.2rem;
-}
-
-.workload-controls.compact button {
-  height: 2.1rem;
-  padding: 0.35rem;
-  width: 2.1rem;
-}
-
-.workload-controls.compact .terminal-btn {
-  height: 2.1rem;
-  padding: 0.35rem;
-  width: 2.1rem;
 }
 
 .workload-controls.compact img {

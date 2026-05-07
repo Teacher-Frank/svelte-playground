@@ -85,8 +85,18 @@
                   <input
                     type="text"
                     name="newName"
-                    placeholder="New container name"
+                    placeholder="Container name"
                     required
+                    class="deploy-name-input"
+                  />
+                  <input
+                    type="password"
+                    name="rootPassword"
+                    placeholder="Root password"
+                    required
+                    minlength="12"
+                    pattern={String.raw`(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{12,}`}
+                    title="At least 12 characters with uppercase, lowercase, digit, and special character"
                     class="deploy-name-input"
                   />
                   <button type="submit" class="deploy-btn">Deploy</button>

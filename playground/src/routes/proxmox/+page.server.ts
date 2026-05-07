@@ -569,6 +569,17 @@ const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: 
   };
 };
 
+/** Permanently destroys a VM or LXC container via the Proxmox API. Returns the task UPID. */
+const executeDestroyAction = async (type: WorkloadKind, id: number, node: string): Promise<string> => {
+  const client = await createClient();
+  const typedNodeApi = client.api.nodes.get(node) as unknown as Record<string, Record<string, unknown>>;
+  const qemuApi = (typedNodeApi.qemu as Record<string, AnyFn>).vmid as (id: number) => Record<string, AnyFn>;
+  const lxcApi = (typedNodeApi.lxc as Record<string, AnyFn>).id as (id: number) => Record<string, AnyFn>;
+  const guestApi = type === 'vm' ? qemuApi(id) : lxcApi(id);
+  // purge=1 tells Proxmox to clean up additional metadata (e.g. HA/replication references).
+  return await (guestApi.delete as AnyFn)({ $body: { purge: 1 } }) as string;
+};
+
 /** Sends a start/stop/restart command to a VM or container via the Proxmox API. */
 const executeWorkloadAction = async (type: WorkloadKind, id: number, node: string, action: WorkloadAction): Promise<string> => {
   const client = await createClient();
@@ -628,14 +639,28 @@ const cloneVmFromTemplate = async (templateId: number, templateNode: string, new
   });
 };
 
+/**
+ * Returns an error message if the password is not strong enough, or `null` if it passes.
+ * Rules: ≥12 chars, at least one uppercase, one lowercase, one digit, one special character.
+ */
+const validateStrongPassword = (value: unknown): string | null => {
+  if (typeof value !== 'string' || value.length === 0) return 'Root password is required.';
+  if (value.length < 12) return 'Root password must be at least 12 characters.';
+  if (!/[A-Z]/.test(value)) return 'Root password must contain at least one uppercase letter.';
+  if (!/[a-z]/.test(value)) return 'Root password must contain at least one lowercase letter.';
+  if (!/[0-9]/.test(value)) return 'Root password must contain at least one digit.';
+  if (!/[^A-Za-z0-9]/.test(value)) return 'Root password must contain at least one special character.';
+  return null;
+};
+
 /** Deploys a new LXC container from a storage template. Returns the task UPID. */
-const cloneLxcTemplate = async (templateVolid: string, templateNode: string, newName: string): Promise<string> => {
+const cloneLxcTemplate = async (templateVolid: string, templateNode: string, newName: string, rootPassword: string): Promise<string> => {
   const client = await createClient();
   const newid = await client.api.cluster.nextid() as number;
   const nodeApi = client.api.nodes.get(templateNode);
   return await nodeApi.lxc.create(templateNode, {
     $path: { node: templateNode },
-    $body: { vmid: newid, ostemplate: templateVolid, hostname: newName },
+    $body: { vmid: newid, ostemplate: templateVolid, hostname: newName, password: rootPassword },
   }) as string;
 };
 
@@ -730,6 +755,31 @@ export const actions: Actions = {
     }
   },
 
+  /** Permanently destroys a VM or LXC container. */
+  destroy: async ({ request }: RequestEvent) => {
+    let selectedWorkload: { type: WorkloadKind; id: number; name?: string; node: string } | undefined;
+    try {
+      const formData = await request.formData();
+      // Reuse the same parser as power actions so all workload actions validate consistently.
+      selectedWorkload = parseWorkloadSubmission(formData);
+      const upid = await executeDestroyAction(selectedWorkload.type, selectedWorkload.id, selectedWorkload.node);
+      const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
+      return {
+        status: 'success' as const,
+        message: `Destroyed ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''} — task ${upid}.`,
+        workloadType: selectedWorkload.type,
+        formType: selectedWorkload.type
+      };
+    } catch (error) {
+      return fail(500, {
+        status: 'error' as const,
+        message: error instanceof Error ? error.message : String(error),
+        workloadType: selectedWorkload?.type,
+        formType: selectedWorkload?.type
+      });
+    }
+  },
+
   /** Deploys a new LXC container from a storage template. */
   cloneLxcTemplate: async ({ request }: RequestEvent) => {
     try {
@@ -738,6 +788,7 @@ export const actions: Actions = {
       const templateVolid = formData.get('templateVolid');
       const templateNode = formData.get('templateNode');
       const newName = formData.get('newName');
+      const rootPassword = formData.get('rootPassword');
 
       if (typeof templateVolid !== 'string' || templateVolid.length === 0) {
         return fail(400, { status: 'error' as const, message: 'Missing template volume ID.' , formType: 'lxc-template'});
@@ -751,7 +802,12 @@ export const actions: Actions = {
         return fail(400, { status: 'error' as const, message: 'New container name is required.' , formType: 'lxc-template'});
       }
 
-      const upid = await cloneLxcTemplate(templateVolid.trim(), templateNode.trim(), newName.trim());
+      const passwordError = validateStrongPassword(rootPassword);
+      if (passwordError) {
+        return fail(400, { status: 'error' as const, message: passwordError, formType: 'lxc-template' });
+      }
+
+      const upid = await cloneLxcTemplate(templateVolid.trim(), templateNode.trim(), newName.trim(), rootPassword as string);
 
       return {
         status: 'success' as const,
