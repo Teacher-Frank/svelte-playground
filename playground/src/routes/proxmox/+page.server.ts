@@ -330,6 +330,8 @@ const resolveNodeContext = (nodes: ClusterNode[], preferredNode?: string): Resol
 // Page data loading
 // ---------------------------------------------------------------------------
 
+let hasLoggedHost = false;
+
 /** Returns a stub result used when the Proxmox API is unreachable. */
 const buildUnavailableResults = (): ProxmoxResults => {
   const configuredNode = getConfiguredNodeName();
@@ -398,10 +400,13 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     return buildUnavailableResults();
   }
 
-  console.info(
-    `[proxmox] baseUrl=${process.env.PVE_BASE_URL ?? 'unset'} apiHost=${getApiHost()} ` +
-    `configuredNode=${getConfiguredNodeName() ?? 'unset'} resolvedNode=${node}`
-  );
+  if (!hasLoggedHost) {
+    hasLoggedHost = true;
+    console.info(
+      `[proxmox] baseUrl=${process.env.PVE_BASE_URL ?? 'unset'} apiHost=${getApiHost()} ` +
+      `configuredNode=${getConfiguredNodeName() ?? 'unset'} resolvedNode=${node}`
+    );
+  }
 
   // --- Load node-level data (errors are logged but do not abort the load) ---
   let storages: Array<Record<string, unknown>> = [];

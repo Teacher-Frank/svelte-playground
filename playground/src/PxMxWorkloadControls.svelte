@@ -6,6 +6,7 @@
     id?: number | string;
     name?: string;
     node?: string;
+    status?: string;
   };
 
   let {
@@ -19,6 +20,13 @@
     selectedWorkload?: SelectedWorkload | null;
     compact?: boolean;
   } = $props();
+
+  const terminalEnabled = $derived(
+    !disabled &&
+    selectedWorkload?.status === 'running' &&
+    selectedWorkload?.id != null &&
+    selectedWorkload?.node != null
+  );
 </script>
 
 <div class="workload-controls" class:compact>
@@ -44,4 +52,17 @@
       <img src="/restart.svg" alt="" aria-hidden="true" />
     </button>
   </form>
+
+  <a
+    class="terminal-btn"
+    href={terminalEnabled
+      ? `/proxmox/terminal?vmid=${encodeURIComponent(selectedWorkload!.id!)}&node=${encodeURIComponent(selectedWorkload!.node!)}&type=${encodeURIComponent(selectedWorkload!.type)}`
+      : undefined}
+    title="Open terminal"
+    aria-label="Open terminal"
+    aria-disabled={!terminalEnabled}
+    tabindex={terminalEnabled ? 0 : -1}
+  >
+    <img src="/terminal.svg" alt="" aria-hidden="true" />
+  </a>
 </div>

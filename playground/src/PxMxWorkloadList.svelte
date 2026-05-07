@@ -139,7 +139,7 @@
           <PxMxWorkloadControls
             compact={true}
             disabled={workload.id == null}
-            selectedWorkload={{ type: kind, id: workload.id, name: workload.name, node: workload.node }}
+            selectedWorkload={{ type: kind, id: workload.id, name: workload.name, node: workload.node, status: workload.status }}
           />
         </li>
       {/each}
