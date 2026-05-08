@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import './PxMxStyle.css';
 
   type Workload = {
@@ -30,6 +31,18 @@
     // Reset dismissed state whenever a new form result arrives
     if (form?.message) dismissed = false;
   });
+
+  const preserveScrollOnSubmit = () => {
+    if (typeof window === 'undefined') return;
+
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+
+    return async ({ update }: { update: () => Promise<void> }) => {
+      await update();
+      window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
+    };
+  };
 </script>
 
 <section>
@@ -64,7 +77,7 @@
               <td>{templateVm.node ?? '-'}</td>
               <td>{templateVm.status ?? '-'}</td>
               <td>
-                <form method="POST" action="?/cloneFromTemplate" class="deploy-form">
+                <form method="POST" action="?/cloneFromTemplate" class="deploy-form" autocomplete="off" use:enhance={preserveScrollOnSubmit}>
                   <input type="hidden" name="templateId" value={templateVm.id?.toString() ?? ''} />
                   <input type="hidden" name="templateNode" value={templateVm.node ?? ''} />
                   <input
@@ -72,6 +85,7 @@
                     name="newName"
                     placeholder="New VM name"
                     required
+                    autocomplete="off"
                     class="deploy-name-input"
                   />
                   <button type="submit" class="deploy-btn">Deploy</button>

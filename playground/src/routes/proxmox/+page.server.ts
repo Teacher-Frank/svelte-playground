@@ -405,11 +405,12 @@ const loadResults = async (): Promise<ProxmoxResults> => {
 // ---------------------------------------------------------------------------
 
 /** Validates and parses a workload control form submission. */
-const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: number; name: string; node: string } => {
+const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: number; name: string; node: string; status?: string } => {
   const type = formData.get('type');
   const idValue = formData.get('id');
   const name = formData.get('name');
   const nodeValue = formData.get('node');
+  const status = formData.get('status');
 
   if (type !== 'vm' && type !== 'container') {
     throw new Error(`Select a virtual machine or container first. Got type=${JSON.stringify(type)}`);
@@ -432,7 +433,8 @@ const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: 
     type,
     id,
     name: typeof name === 'string' ? name : '',
-    node: nodeValue.trim()
+    node: nodeValue.trim(),
+    status: typeof status === 'string' && status.trim().length > 0 ? status.trim() : undefined
   };
 };
 
@@ -447,7 +449,13 @@ const executeDestroyAction = async (type: WorkloadKind, id: number, node: string
 };
 
 /** Sends a start/stop/restart command to a VM or container via the Proxmox API. */
-const executeWorkloadAction = async (type: WorkloadKind, id: number, node: string, action: WorkloadAction): Promise<string> => {
+const executeWorkloadAction = async (
+  type: WorkloadKind,
+  id: number,
+  node: string,
+  action: WorkloadAction,
+  workloadStatus?: string
+): Promise<{ upid: string; effectiveAction: WorkloadAction | 'start' }> => {
   const client = await createClient();
   const nodeApi: NodeScopedAPI = client.api.nodes.get(node);
   const status = type === 'vm'
@@ -455,9 +463,16 @@ const executeWorkloadAction = async (type: WorkloadKind, id: number, node: strin
     : nodeApi.lxc.id(id).status;
 
   switch (action) {
-    case 'start':   return await status.start() as string;
-    case 'stop':    return await status.stop() as string;
-    case 'restart': return await status.reboot() as string;
+    case 'start':
+      return { upid: await status.start() as string, effectiveAction: 'start' };
+    case 'stop':
+      return { upid: await status.stop() as string, effectiveAction: 'stop' };
+    case 'restart': {
+      if (type === 'container' && workloadStatus !== 'running') {
+        return { upid: await status.start() as string, effectiveAction: 'start' };
+      }
+      return { upid: await status.reboot() as string, effectiveAction: 'restart' };
+    }
   }
 };
 
@@ -466,13 +481,23 @@ const buildAction = (action: WorkloadAction) => {
   // Returns a request handler that parses the form, runs the action, and
   // returns a success or error result for the UI to display.
   return async ({ request }: RequestEvent) => {
-    let selectedWorkload: { type: WorkloadKind; id: number; name?: string; node: string } | undefined;
+    let selectedWorkload: { type: WorkloadKind; id: number; name?: string; node: string; status?: string } | undefined;
 
     try {
       const formData = await request.formData();
       selectedWorkload = parseWorkloadSubmission(formData);
-      const upid = await executeWorkloadAction(selectedWorkload.type, selectedWorkload.id, selectedWorkload.node, action);
-      const actionLabel = action === 'restart' ? 'Restarted' : action === 'stop' ? 'Stopped' : `${action.charAt(0).toUpperCase()}${action.slice(1)}ed`;
+      const { upid, effectiveAction } = await executeWorkloadAction(
+        selectedWorkload.type,
+        selectedWorkload.id,
+        selectedWorkload.node,
+        action,
+        selectedWorkload.status
+      );
+      const actionLabel = effectiveAction === 'restart'
+        ? 'Restarted'
+        : effectiveAction === 'stop'
+          ? 'Stopped'
+          : 'Started';
       const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
 
       return {
@@ -518,13 +543,37 @@ const validateStrongPassword = (value: unknown): string | null => {
 };
 
 /** Deploys a new LXC container from a storage template. Returns the task UPID. */
+const isUbuntu2404Template = (templateVolid: string): boolean =>
+  /(?:^|:)vztmpl\/ubuntu-24\.04-standard_/i.test(templateVolid);
+
 const cloneLxcTemplate = async (templateVolid: string, templateNode: string, newName: string, rootPassword: string): Promise<string> => {
   const client = await createClient();
   const newid = await client.api.cluster.nextid() as number;
   const nodeApi = client.api.nodes.get(templateNode);
+
+  // See IssueUbuntuTemplate.md for the Proxmox Ubuntu 24.04 console/network issue
+  // and why this deployment path forces unprivileged+nested containers.
+  const createBody = isUbuntu2404Template(templateVolid)
+    ? {
+        vmid: newid,
+        ostemplate: templateVolid,
+        hostname: newName,
+        password: rootPassword,
+        unprivileged: true,
+        features: 'nesting=1',
+        'net0': 'name=eth0,bridge=vmbr0,ip=dhcp,type=veth',
+      }
+    : {
+        vmid: newid,
+        ostemplate: templateVolid,
+        hostname: newName,
+        password: rootPassword,
+        'net0': 'name=eth0,bridge=vmbr0,ip=dhcp,type=veth',
+      };
+
   return await nodeApi.lxc.create(templateNode, {
     $path: { node: templateNode },
-    $body: { vmid: newid, ostemplate: templateVolid, hostname: newName, password: rootPassword },
+    $body: createBody,
   }) as string;
 };
 

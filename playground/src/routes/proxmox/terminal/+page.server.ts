@@ -5,6 +5,7 @@ export const load: PageServerLoad = ({ url }) => {
   const vmidStr = url.searchParams.get('vmid');
   const node = url.searchParams.get('node');
   const type = url.searchParams.get('type');
+  const name = url.searchParams.get('name');
 
   if (!vmidStr || !node || (type !== 'vm' && type !== 'container')) {
     error(400, 'Missing or invalid vmid, node, or type query parameters');
@@ -19,5 +20,6 @@ export const load: PageServerLoad = ({ url }) => {
     vmid,
     node,
     type,
+    name: name?.trim() || null,
   };
 };

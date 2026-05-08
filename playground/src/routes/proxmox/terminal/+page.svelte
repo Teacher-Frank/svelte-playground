@@ -6,8 +6,12 @@
 
   let containerEl: HTMLDivElement | undefined = $state();
 
+  const workloadIdentity = $derived(
+    data.name ? `${data.name} (${data.vmid})` : `${data.vmid}`,
+  );
+
   const workloadLabel = $derived(
-    `${data.type === 'vm' ? 'VM' : 'Container'} ${data.vmid} on ${data.node}`,
+    `${data.type === 'vm' ? 'VM' : 'Container'} ${workloadIdentity} on ${data.node}`,
   );
 
   onMount(() => {
@@ -31,10 +35,16 @@
 
       if (disposed || !containerEl) return;
 
-      term = new Terminal({ cursorBlink: true, fontFamily: 'monospace, "Courier New"' });
+      term = new Terminal({
+        cursorBlink: true,
+        fontFamily: 'monospace, "Courier New"',
+        scrollback: 5000,
+      });
       fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.open(containerEl);
+      term.focus();
+      term.writeln('\x1b[90mConnecting to terminal...\x1b[0m');
       fitAddon.fit();
 
       const wsUrl =
@@ -47,7 +57,10 @@
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
+        term?.focus();
         ws!.send(`R:${term!.cols}:${term!.rows}`);
+        // Trigger an immediate shell prompt for guests that only render it after input.
+        ws!.send('\r');
       };
 
       ws.onmessage = ({ data: payload }) => {
@@ -88,7 +101,6 @@
 
 <div class="terminal-page">
   <header class="terminal-header">
-    <a class="back-link" href="/proxmox" aria-label="Back to Proxmox dashboard">&larr; Back</a>
     <span class="workload-label">{workloadLabel}</span>
   </header>
 
@@ -100,40 +112,31 @@
 
   :global(body) {
     margin: 0;
-    overflow: hidden;
+    height: 100%;
+  }
+
+  :global(html) {
+    height: 100%;
   }
 
   .terminal-page {
     display: flex;
     flex-direction: column;
-    height: 100dvh;
+    position: fixed;
+    inset: 0;
     background: #1e1e1e;
     color: #ccc;
+    min-height: 0;
   }
 
   .terminal-header {
     display: flex;
     align-items: center;
-    gap: 1rem;
     padding: 0.5rem 1rem;
     background: #2d2d2d;
     border-bottom: 1px solid #444;
     flex-shrink: 0;
     font-size: 0.9rem;
-  }
-
-  .back-link {
-    color: #aaa;
-    text-decoration: none;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    border: 1px solid #555;
-    white-space: nowrap;
-  }
-
-  .back-link:hover {
-    background: #3a3a3a;
-    color: #fff;
   }
 
   .workload-label {
@@ -143,16 +146,20 @@
 
   .terminal-container {
     flex: 1;
-    padding: 0.25rem;
+    padding: 0;
     overflow: hidden;
     /* xterm.js needs a sized container to initialise correctly */
     min-height: 0;
   }
 
-  /* Let xterm fill the container */
+  /* Let xterm fill the container and keep viewport scrollable for scrollback. */
   .terminal-container :global(.xterm),
-  .terminal-container :global(.xterm-viewport),
-  .terminal-container :global(.xterm-screen) {
+  .terminal-container :global(.xterm-viewport) {
     height: 100% !important;
+  }
+
+  .terminal-container :global(.xterm-viewport) {
+    overflow-y: auto !important;
+    scrollbar-gutter: stable;
   }
 </style>

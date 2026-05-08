@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import './PxMxStyle.css';
 
   type SelectedWorkload = {
@@ -38,6 +39,18 @@
 
   // Controls visibility of the high-friction delete confirmation dialog.
   let showDeleteConfirm = $state(false);
+
+  const preserveScrollOnSubmit = () => {
+    if (typeof window === 'undefined') return;
+
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+
+    return async ({ update }: { update: () => Promise<void> }) => {
+      await update();
+      window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
+    };
+  };
 </script>
 
 <div class="workload-controls" class:compact>
@@ -46,11 +59,12 @@
   {/if}
 
   <!-- Shared payload for start/stop/restart form actions. -->
-  <form class="action-buttons" method="POST">
+  <form class="action-buttons" method="POST" use:enhance={preserveScrollOnSubmit}>
     <input name="type" type="hidden" value={selectedWorkload?.type ?? ''} />
     <input name="id" type="hidden" value={selectedWorkload?.id?.toString() ?? ''} />
     <input name="name" type="hidden" value={selectedWorkload?.name ?? ''} />
     <input name="node" type="hidden" value={selectedWorkload?.node ?? ''} />
+    <input name="status" type="hidden" value={selectedWorkload?.status ?? ''} />
 
     <button formaction="?/start" title="Start" aria-label="Start" disabled={disabled}>
       <img src="/play.svg" alt="" aria-hidden="true" />
@@ -69,8 +83,10 @@
   <a
     class="terminal-btn"
     href={terminalEnabled
-      ? `/proxmox/terminal?vmid=${encodeURIComponent(selectedWorkload!.id!)}&node=${encodeURIComponent(selectedWorkload!.node!)}&type=${encodeURIComponent(selectedWorkload!.type)}`
+      ? `/proxmox/terminal?vmid=${encodeURIComponent(selectedWorkload!.id!)}&node=${encodeURIComponent(selectedWorkload!.node!)}&type=${encodeURIComponent(selectedWorkload!.type)}${selectedWorkload!.name ? `&name=${encodeURIComponent(selectedWorkload!.name)}` : ''}`
       : undefined}
+    target={terminalEnabled ? '_blank' : undefined}
+    rel={terminalEnabled ? 'noopener noreferrer' : undefined}
     title="Open terminal"
     aria-label="Open terminal"
     aria-disabled={!terminalEnabled}
@@ -106,7 +122,7 @@
         </p>
         <div class="delete-confirm-actions">
           <!-- Destroy action receives the same workload identifiers as the power actions. -->
-          <form method="POST" action="?/destroy">
+          <form method="POST" action="?/destroy" use:enhance={preserveScrollOnSubmit}>
             <input name="type" type="hidden" value={selectedWorkload?.type ?? ''} />
             <input name="id" type="hidden" value={selectedWorkload?.id?.toString() ?? ''} />
             <input name="name" type="hidden" value={selectedWorkload?.name ?? ''} />

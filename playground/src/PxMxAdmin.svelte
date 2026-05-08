@@ -181,25 +181,25 @@
           >LXC Containers</button>
         </div>
 
-        <div
-          id="tab-panel-vms"
-          role="tabpanel"
-          aria-labelledby="tab-vms"
-          hidden={activeTab !== 'vms'}
-        >
-          <PxMxVMTemplateList workloads={data.results.vms} form={templateForm} />
-          <PxMxWorkloadList kind="vm" workloads={data.results.vms.filter((vm) => !vm.template && !vm.isTemplate)} form={vmForm} />
-        </div>
-
-        <div
-          id="tab-panel-lxc"
-          role="tabpanel"
-          aria-labelledby="tab-lxc"
-          hidden={activeTab !== 'lxc'}
-        >
-          <PxMxLxcTemplateList workloads={data.results.lxcTemplates} serverNode={data.results.serverNode} form={lxcTemplateForm} />
-          <PxMxWorkloadList kind="container" workloads={data.results.containers} form={containerForm} />
-        </div>
+        {#if activeTab === 'vms'}
+          <div
+            id="tab-panel-vms"
+            role="tabpanel"
+            aria-labelledby="tab-vms"
+          >
+            <PxMxVMTemplateList workloads={data.results.vms} form={templateForm} />
+            <PxMxWorkloadList kind="vm" workloads={data.results.vms.filter((vm) => !vm.template && !vm.isTemplate)} form={vmForm} />
+          </div>
+        {:else}
+          <div
+            id="tab-panel-lxc"
+            role="tabpanel"
+            aria-labelledby="tab-lxc"
+          >
+            <PxMxLxcTemplateList workloads={data.results.lxcTemplates} serverNode={data.results.serverNode} form={lxcTemplateForm} />
+            <PxMxWorkloadList kind="container" workloads={data.results.containers} form={containerForm} />
+          </div>
+        {/if}
       </div>
 
       <!-- Show recent Proxmox tasks -->

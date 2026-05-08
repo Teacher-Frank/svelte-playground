@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import './PxMxStyle.css';
 
 
@@ -35,19 +36,42 @@
   // For storage-based LXC templates, just use the array as-is.
   // This allows the UI to always reflect the backend result, even if empty.
   const templates = $derived(workloads);
+  const hasUbuntu2404Template = $derived(
+    templates.some((template) => /(?:^|:)vztmpl\/ubuntu-24\.04-standard_/i.test(template.volid))
+  );
 
   // Controls whether the feedback message is visible.
   let dismissed = $state(false);
+  let ubuntuNoticeDismissed = $state(false);
   $effect(() => {
     // Reset dismissal when a new message arrives.
     if (form?.message) dismissed = false;
   });
+
+  const preserveScrollOnSubmit = () => {
+    if (typeof window === 'undefined') return;
+
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+
+    return async ({ update }: { update: () => Promise<void> }) => {
+      await update();
+      window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
+    };
+  };
 </script>
 
 <section>
   <div class="tasklist-header">
     <h2>LXC Templates</h2>
   </div>
+
+  {#if hasUbuntu2404Template && !ubuntuNoticeDismissed}
+    <p class="action-warning">
+      Ubuntu 24.04 template note: Proxmox reports console and networking issues for some deployments unless the CT is created as unprivileged with nesting enabled. This app applies that workaround automatically. See IssueUbuntuTemplate.md.
+      <button class="dismiss-btn" onclick={() => ubuntuNoticeDismissed = true} aria-label="Dismiss">✕</button>
+    </p>
+  {/if}
 
   {#if form?.message && !dismissed}
     <!-- Show feedback message for deploy actions, dismissible by user -->
@@ -79,7 +103,7 @@
               <td>{Math.round(templateLxc.size / (1024 * 1024))}</td>
               <td>
                 <!-- Deploy form for each template, posts to backend to clone template -->
-                <form method="POST" action="?/cloneLxcTemplate" class="deploy-form">
+                <form method="POST" action="?/cloneLxcTemplate" class="deploy-form" autocomplete="off" use:enhance={preserveScrollOnSubmit}>
                   <input type="hidden" name="templateVolid" value={templateLxc.volid} />
                   <input type="hidden" name="templateNode" value={serverNode} />
                   <input
@@ -87,6 +111,7 @@
                     name="newName"
                     placeholder="Container name"
                     required
+                    autocomplete="off"
                     class="deploy-name-input"
                   />
                   <input
@@ -94,6 +119,7 @@
                     name="rootPassword"
                     placeholder="Root password"
                     required
+                    autocomplete="new-password"
                     minlength="12"
                     pattern={String.raw`(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{12,}`}
                     title="At least 12 characters with uppercase, lowercase, digit, and special character"
@@ -164,6 +190,19 @@
     color: #991b1b;
     background: #fee2e2;
     border: 1px solid #fca5a5;
+    border-radius: 0.4rem;
+    padding: 0.4rem 0.75rem;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .action-warning {
+    color: #854d0e;
+    background: #fef3c7;
+    border: 1px solid #fbbf24;
     border-radius: 0.4rem;
     padding: 0.4rem 0.75rem;
     margin-bottom: 0.5rem;
