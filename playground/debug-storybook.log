@@ -1,0 +1,116 @@
+[15:33:42.747] [INFO] Running addon-a11y-addon-test automigration
+[15:33:42.747] [DEBUG] Extracting storybook data...
+[15:33:42.747] [DEBUG] Getting Storybook info...
+[15:33:42.823] [DEBUG] Loading main config...
+[15:33:42.823] [DEBUG] Getting stories paths...
+[15:33:42.837] [DEBUG] Getting package manager...
+[15:33:42.842] [DEBUG] Getting package.json info for C:/hrgit/svelte-playground/playground/package.json...
+[15:33:42.842] [DEBUG] Getting Storybook version...
+[15:33:42.842] [DEBUG] Detecting CSF factory usage...
+[15:33:42.868] [INFO] Checking possible migrations..
+[15:33:42.869] [DEBUG] Running [36maddon-a11y-addon-test[39m migration checks
+[15:33:42.871] [DEBUG] End of [36maddon-a11y-addon-test[39m migration checks
+[15:33:42.871] [INFO] 🔎 found a '[36maddon-a11y-addon-test[39m' migration:
+[15:33:42.871] [INFO] ✅ ran [36maddon-a11y-addon-test[39m migration
+[15:33:42.872] [INFO] [32mMigration check ran successfully[39m
+[15:33:42.872] [INFO] [1mSuccessful migrations:[22m
+
+[32maddon-a11y-addon-test[39m
+
+─────────────────────────────────────────────────
+
+If you'd like to run the migrations again, you can do so by running 
+[36mnpx storybook automigrate[39m
+
+The automigrations try to migrate common patterns in your project, but might not contain everything needed to migrate to the latest version of Storybook.
+
+Please check the changelog and migration guide for manual migrations and more information: 
+https://storybook.js.org/docs/releases/migration-guide?ref=upgrade
+And reach out on Discord if you need help: https://discord.gg/storybook
+[15:33:42.872] [INFO] Installing dependencies...
+[15:33:42.872] [DEBUG] Executing command: npm install
+[15:33:44.625] [ERROR] Installation of dependencies failed! {"error":"ExecaError: Command failed with exit code 1: npm.cmd install\n\nnpm error code ERESOLVE\nnpm error ERESOLVE could not resolve\nnpm error\nnpm error While resolving: playground@0.0.1\nnpm error Found: vitest@4.1.1\nnpm error node_modules/vitest\nnpm error   dev vitest@\"^4.1.0\" from the root project\nnpm error   peer vitest@\"4.1.1\" from @vitest/browser@4.1.1\nnpm error   node_modules/@vitest/browser\nnpm error     @vitest/browser@\"4.1.1\" from @vitest/browser-playwright@4.1.1\nnpm error     node_modules/@vitest/browser-playwright\nnpm error       dev @vitest/browser-playwright@\"^4.1.0\" from the root project\nnpm error       2 more (vitest, @storybook/addon-vitest)\nnpm error     peerOptional @vitest/browser@\"^3.0.0 || ^4.0.0\" from @storybook/addon-vitest@10.3.6\nnpm error     node_modules/@storybook/addon-vitest\nnpm error       dev @storybook/addon-vitest@\"^10.3.6\" from the root project\nnpm error   3 more (@vitest/browser-playwright, vitest-browser-svelte, @storybook/addon-vitest)\nnpm error\nnpm error Could not resolve dependency:\nnpm error dev @vitest/coverage-v8@\"^4.1.0\" from the root project\nnpm error\nnpm error Conflicting peer dependency: vitest@4.1.5\nnpm error node_modules/vitest\nnpm error   peer vitest@\"4.1.5\" from @vitest/coverage-v8@4.1.5\nnpm error   node_modules/@vitest/coverage-v8\nnpm error     dev @vitest/coverage-v8@\"^4.1.0\" from the root project\nnpm error\nnpm error Fix the upstream dependency conflict, or retry\nnpm error this command with --force or --legacy-peer-deps\nnpm error to accept an incorrect (and potentially broken) dependency resolution.\nnpm error\nnpm error\nnpm error For a full report see:\nnpm error C:\\Users\\Bugbear\\AppData\\Local\\npm-cache\\_logs\\2026-05-08T13_33_43_082Z-eresolve-report.txt\nnpm error A complete log of this run can be found in: C:\\Users\\Bugbear\\AppData\\Local\\npm-cache\\_logs\\2026-05-08T13_33_43_082Z-debug-0.log\n    at getFinalError (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-H4PWFMMO.js:13134:10)\n    at makeError (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-H4PWFMMO.js:14670:15)\n    at getAsyncResult (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-H4PWFMMO.js:17316:158)\n    at handlePromise (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-H4PWFMMO.js:17302:162)\n    at async Object.executeTaskWithSpinner (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-O2B7U3US.js:3683:11)\n    at async NPMProxy.installDependencies (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-H4PWFMMO.js:11279:5)\n    at async doAutomigrate (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/@storybook/cli/dist/_node-chunks/run-7LEO2IWT.js:7784:32)\n    at async file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/@storybook/cli/dist/_node-chunks/run-7LEO2IWT.js:9727:90\n    at async withTelemetry (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-UYONHJJP.js:225:12)"}
+[15:33:44.625] [ERROR] [38;2;241;97;97mExecaError: Command failed with exit code 1: npm.cmd install
+
+npm error code ERESOLVE
+npm error ERESOLVE could not resolve
+npm error
+npm error While resolving: playground@0.0.1
+npm error Found: vitest@4.1.1
+npm error node_modules/vitest
+npm error   dev vitest@"^4.1.0" from the root project
+npm error   peer vitest@"4.1.1" from @vitest/browser@4.1.1
+npm error   node_modules/@vitest/browser
+npm error     @vitest/browser@"4.1.1" from @vitest/browser-playwright@4.1.1
+npm error     node_modules/@vitest/browser-playwright
+npm error       dev @vitest/browser-playwright@"^4.1.0" from the root project
+npm error       2 more (vitest, @storybook/addon-vitest)
+npm error     peerOptional @vitest/browser@"^3.0.0 || ^4.0.0" from @storybook/addon-vitest@10.3.6
+npm error     node_modules/@storybook/addon-vitest
+npm error       dev @storybook/addon-vitest@"^10.3.6" from the root project
+npm error   3 more (@vitest/browser-playwright, vitest-browser-svelte, @storybook/addon-vitest)
+npm error
+npm error Could not resolve dependency:
+npm error dev @vitest/coverage-v8@"^4.1.0" from the root project
+npm error
+npm error Conflicting peer dependency: vitest@4.1.5
+npm error node_modules/vitest
+npm error   peer vitest@"4.1.5" from @vitest/coverage-v8@4.1.5
+npm error   node_modules/@vitest/coverage-v8
+npm error     dev @vitest/coverage-v8@"^4.1.0" from the root project
+npm error
+npm error Fix the upstream dependency conflict, or retry
+npm error this command with --force or --legacy-peer-deps
+npm error to accept an incorrect (and potentially broken) dependency resolution.
+npm error
+npm error
+npm error For a full report see:
+npm error C:\Users\Bugbear\AppData\Local\npm-cache\_logs\2026-05-08T13_33_43_082Z-eresolve-report.txt
+npm error A complete log of this run can be found in: C:\Users\Bugbear\AppData\Local\npm-cache\_logs\2026-05-08T13_33_43_082Z-debug-0.log[39m
+    at getFinalError (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-H4PWFMMO.js:13134:10)
+    at makeError (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-H4PWFMMO.js:14670:15)
+    at getAsyncResult (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-H4PWFMMO.js:17316:158)
+    at handlePromise (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-H4PWFMMO.js:17302:162)
+    at async Object.executeTaskWithSpinner (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-O2B7U3US.js:3683:11)
+    at async NPMProxy.installDependencies (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-H4PWFMMO.js:11279:5)
+    at async doAutomigrate (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/@storybook/cli/dist/_node-chunks/run-7LEO2IWT.js:7784:32)
+    at async file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/@storybook/cli/dist/_node-chunks/run-7LEO2IWT.js:9727:90
+    at async withTelemetry (file:///C:/Users/Bugbear/AppData/Local/npm-cache/_npx/3ae731e0fbcbedd1/node_modules/storybook/dist/_node-chunks/chunk-UYONHJJP.js:225:12)
+[15:33:44.625] [INFO] Storybook collects completely anonymous usage telemetry. We use it to shape Storybook's roadmap and prioritize features. You can learn more, including how to opt out, at https://storybook.js.org/telemetry
+[15:33:45.283] [ERROR] ExecaError: Command failed with exit code 1: npm.cmd install
+
+npm error code ERESOLVE
+npm error ERESOLVE could not resolve
+npm error
+npm error While resolving: playground@0.0.1
+npm error Found: vitest@4.1.1
+npm error node_modules/vitest
+npm error   dev vitest@"^4.1.0" from the root project
+npm error   peer vitest@"4.1.1" from @vitest/browser@4.1.1
+npm error   node_modules/@vitest/browser
+npm error     @vitest/browser@"4.1.1" from @vitest/browser-playwright@4.1.1
+npm error     node_modules/@vitest/browser-playwright
+npm error       dev @vitest/browser-playwright@"^4.1.0" from the root project
+npm error       2 more (vitest, @storybook/addon-vitest)
+npm error     peerOptional @vitest/browser@"^3.0.0 || ^4.0.0" from @storybook/addon-vitest@10.3.6
+npm error     node_modules/@storybook/addon-vitest
+npm error       dev @storybook/addon-vitest@"^10.3.6" from the root project
+npm error   3 more (@vitest/browser-playwright, vitest-browser-svelte, @storybook/addon-vitest)
+npm error
+npm error Could not resolve dependency:
+npm error dev @vitest/coverage-v8@"^4.1.0" from the root project
+npm error
+npm error Conflicting peer dependency: vitest@4.1.5
+npm error node_modules/vitest
+npm error   peer vitest@"4.1.5" from @vitest/coverage-v8@4.1.5
+npm error   node_modules/@vitest/coverage-v8
+npm error     dev @vitest/coverage-v8@"^4.1.0" from the root project
+npm error
+npm error Fix the upstream dependency conflict, or retry
+npm error this command with --force or --legacy-peer-deps
+npm error to accept an incorrect (and potentially broken) dependency resolution.
+npm error
+npm error
+npm error For a full report see:
+npm error C:\Users\Bugbear\AppData\Local\npm-cache\_logs\2026-05-08T13_33_43_082Z-eresolve-report.txt
+npm error A complete log of this run can be found in: C:\Users\Bugbear\AppData\Local\npm-cache\_logs\2026-05-08T13_33_43_082Z-debug-0.log
