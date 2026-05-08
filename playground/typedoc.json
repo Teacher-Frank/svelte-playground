@@ -8,7 +8,11 @@
   "excludeExternals": true,
   "excludePrivate": true,
   "excludeInternal": true,
+  "gitRevision": "main",
   "skipErrorChecking": true,
+  "validation": {
+    "notExported": false
+  },
   "includeVersion": true,
   "categorizeByGroup": true,
   "searchInComments": true,
