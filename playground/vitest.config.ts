@@ -1,4 +1,3 @@
-/// <reference types="vitest/config" />
 import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
@@ -41,7 +40,7 @@ export default defineConfig({
         }
       },
       {
-        extends: true,
+        extends: './vite.config.ts',
         plugins: [
           storybookTest({
             configDir: path.join(dirname, '.storybook')

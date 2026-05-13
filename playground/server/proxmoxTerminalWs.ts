@@ -74,10 +74,7 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
     }
 
     bridgeTerminalSessionToSocket(session, browserWs, {
-      onErrorFrame: (err) => {
-        console.error('[proxmox-terminal-ws] Terminal session error:', err);
-        return Buffer.from(`\r\n\x1b[31mProxmox error: ${err.message}\x1b[0m\r\n`);
-      },
+      onErrorFrame: (err) => Buffer.from(`\r\n\x1b[31mProxmox error: ${err.message}\x1b[0m\r\n`),
       closeReasonOnSessionClose: 'Proxmox terminal closed'
     });
   } catch (err) {

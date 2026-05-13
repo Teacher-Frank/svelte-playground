@@ -1,6 +1,3 @@
-// For more info, see https://github.com/storybookjs/eslint-plugin-storybook#configuration-flat-config-format
-import storybook from "eslint-plugin-storybook";
-
 import path from 'node:path';
 import { includeIgnoreFile } from '@eslint/compat';
 import js from '@eslint/js';
@@ -18,7 +15,14 @@ export default defineConfig(
 	ts.configs.recommended,
 	svelte.configs.recommended,
 	{
-		ignores: ['docs/**', 'dist/**', 'build/**']
+		ignores: [
+			'docs/**',
+			'dist/**',
+			'build/**',
+			'storybook-static/**',
+			'coverage/**',
+			'.svelte-kit/**'
+		]
 	},
 	{
 		languageOptions: { globals: { ...globals.browser, ...globals.node } },
