@@ -82,6 +82,8 @@ Notes:
 
 - GUI and terminal actions are only enabled for running workloads with known `vmid` and `node`.
 - In production, prefer valid TLS certificates and keep `PVE_INSECURE_TLS` unset.
+- **VM VNC**: Proxmox's native framebuffer console, works out-of-the-box for QEMU VMs.
+- **Container GUI**: LXC containers do not expose a native framebuffer. See [LXC-VNC-Button-Guide.md](./LXC-VNC-Button-Guide.md) for how to wire a desktop + VNC service inside a container to the VNC button.
 
 ## Publishing
 
