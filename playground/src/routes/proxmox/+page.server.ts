@@ -147,7 +147,11 @@ const getConfiguredNodeName = (): string | undefined => {
   return node ? node : undefined;
 };
 
-/** Extracts the hostname from PVE_BASE_URL for display purposes. */const getApiHost = (): string => {
+/**
+ * Extracts the hostname from PVE_BASE_URL for display.
+ * We keep this tolerant because operators often use non-URL placeholders in local dev.
+ */
+const getApiHost = (): string => {
   const baseUrl = process.env.PVE_BASE_URL;
   if (!baseUrl) return 'unknown';
   try {

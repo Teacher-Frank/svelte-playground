@@ -4,6 +4,8 @@ import type { Duplex } from 'node:stream';
 import type { WebSocket as WsWebSocket, WebSocketServer } from 'ws';
 
 async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams): Promise<void> {
+  // Lazy imports keep SSR/startup lightweight and avoid loading terminal
+  // dependencies until the upgrade route is actually used.
   const { Client, openTerminalBridge } = await import('pve-client');
   const { Agent } = await import('node:https');
 
@@ -59,6 +61,8 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
     const terminal = client.helpers.terminal(vmid);
     await openTerminalBridge(terminal, browserWs, {
       rejectUnauthorized: !insecureTls,
+      // Browser terminals are often long-lived. Infinite retries keep the bridge
+      // resilient to transient websocket/proxy restarts without forcing a refresh.
       reconnect: true,
       reconnectIntervalMs: 1500,
       reconnectMaxAttempts: Number.POSITIVE_INFINITY
@@ -92,6 +96,7 @@ export function attachProxmoxTerminalWsProxy(httpServer: HttpServer): void {
     if (!req.url) return;
 
     const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
+    // Scope upgrades explicitly so other websocket routes can coexist.
     if (url.pathname !== '/proxmox/terminal/ws') return;
 
     void getWss().then((wssInstance) => {

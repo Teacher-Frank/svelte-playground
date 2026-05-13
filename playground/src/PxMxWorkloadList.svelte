@@ -52,7 +52,8 @@
 
   let dismissed = $state(false);
   $effect(() => {
-    // Reset dismissed state whenever a new form result arrives
+    // Reset dismissal when server action feedback changes so each new result is
+    // visible at least once and cannot be hidden by a previous dismiss click.
     if (form?.message) dismissed = false;
   });
 </script>
@@ -73,6 +74,7 @@
       <span class="actions-header">Actions</span>
     </div>
     <ul class="workload-list">
+      <!-- Key rows by workload id to preserve control state predictably during refreshes. -->
       {#each workloads as workload (workload.id)}
         <li class="vm-row">
           <button
@@ -87,6 +89,7 @@
             <span>{formatUptime(workload.uptime)}</span>
           </button>
 
+          <!-- Forward row context directly so action forms submit authoritative node/type/id values. -->
           <PxMxWorkloadControls
             compact={true}
             disabled={workload.id == null}
