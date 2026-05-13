@@ -19,12 +19,35 @@
     let term: import('@xterm/xterm').Terminal | undefined;
     let ws: WebSocket | undefined;
     let fitAddon: import('@xterm/addon-fit').FitAddon | undefined;
+    let resizeObserver: ResizeObserver | undefined;
+    let fitFrame = 0;
+    let lastSentSize = '';
 
-    const onResize = () => {
+    const sendResizeFrame = () => {
+      if (!term || ws?.readyState !== WebSocket.OPEN) return;
+
+      const sizeFrame = `${term.cols}:${term.rows}`;
+      if (sizeFrame === lastSentSize) return;
+
+      // Send structured control frames instead of prefix-encoded text.
+      // This avoids collisions where user input could look like a resize frame.
+      ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      lastSentSize = sizeFrame;
+    };
+
+    const syncTerminalSize = () => {
       fitAddon?.fit();
-      if (ws?.readyState === WebSocket.OPEN && term) {
-        ws.send(`R:${term.cols}:${term.rows}`);
-      }
+      term?.scrollToBottom();
+      sendResizeFrame();
+    };
+
+    const scheduleTerminalSizeSync = () => {
+      if (disposed) return;
+
+      cancelAnimationFrame(fitFrame);
+      fitFrame = requestAnimationFrame(() => {
+        if (!disposed) syncTerminalSize();
+      });
     };
 
     void (async () => {
@@ -45,8 +68,18 @@
       term.loadAddon(fitAddon);
       term.open(containerEl);
       term.focus();
-      term.writeln('\x1b[90mConnecting to terminal...\x1b[0m');
-      fitAddon.fit();
+      scheduleTerminalSizeSync();
+
+      if ('fonts' in document && document.fonts?.ready) {
+        void document.fonts.ready.then(() => {
+          if (!disposed) scheduleTerminalSizeSync();
+        });
+      }
+
+      resizeObserver = new ResizeObserver(() => {
+        scheduleTerminalSizeSync();
+      });
+      resizeObserver.observe(containerEl);
 
       const wsUrl =
         `/proxmox/terminal/ws` +
@@ -58,10 +91,9 @@
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
+        lastSentSize = '';
         term?.focus();
-        ws!.send(`R:${term!.cols}:${term!.rows}`);
-        // Trigger an immediate shell prompt for guests that only render it after input.
-        ws!.send('\r');
+        syncTerminalSize();
       };
 
       ws.onmessage = ({ data: payload }) => {
@@ -85,16 +117,23 @@
       };
 
       term.onData((input) => {
+        if (!term) return;
         term?.scrollToBottom();
-        if (ws?.readyState === WebSocket.OPEN) ws.send(input);
-      });
 
-      window.addEventListener('resize', onResize);
+        // Keep backend PTY geometry in sync at the moment of user input.
+        // This was added to prevent cursor relocation after large output bursts.
+        sendResizeFrame();
+        if (ws?.readyState === WebSocket.OPEN) {
+          // Include cols/rows with input so bridge can apply geometry before stdin write.
+          ws.send(JSON.stringify({ type: 'input', data: input, cols: term.cols, rows: term.rows }));
+        }
+      });
     })();
 
     return () => {
       disposed = true;
-      window.removeEventListener('resize', onResize);
+      cancelAnimationFrame(fitFrame);
+      resizeObserver?.disconnect();
       ws?.close();
       term?.dispose();
     };

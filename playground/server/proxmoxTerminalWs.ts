@@ -4,13 +4,8 @@ import type { Duplex } from 'node:stream';
 import type { WebSocket as WsWebSocket, WebSocketServer } from 'ws';
 
 async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams): Promise<void> {
-  const { Client, bridgeTerminalSessionToSocket } = await import('pve-client');
+  const { Client, openTerminalBridge } = await import('pve-client');
   const { Agent } = await import('node:https');
-  let browserClosed = false;
-
-  browserWs.on('close', () => {
-    browserClosed = true;
-  });
 
   const vmidStr = params.get('vmid');
   if (!vmidStr) {
@@ -31,6 +26,7 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
     const password = process.env.PVE_PASSWORD?.trim() || undefined;
     const realm = process.env.PVE_REALM?.trim() || 'pam';
     const insecureTls = process.env.PVE_INSECURE_TLS === 'true';
+    const traceTerminal = process.env.PVE_TERMINAL_TRACE === 'true';
 
     if (!baseUrl) {
       browserWs.close(1011, 'PVE_BASE_URL not configured');
@@ -61,21 +57,16 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
     }
 
     const terminal = client.helpers.terminal(vmid);
-    const session = await terminal.open({
+    await openTerminalBridge(terminal, browserWs, {
       rejectUnauthorized: !insecureTls,
       reconnect: true,
       reconnectIntervalMs: 1500,
       reconnectMaxAttempts: Number.POSITIVE_INFINITY
-    });
-
-    if (browserClosed) {
-      session.close();
-      return;
-    }
-
-    bridgeTerminalSessionToSocket(session, browserWs, {
+    }, {
       onErrorFrame: (err) => Buffer.from(`\r\n\x1b[31mProxmox error: ${err.message}\x1b[0m\r\n`),
-      closeReasonOnSessionClose: 'Proxmox terminal closed'
+      closeReasonOnSessionClose: 'Proxmox terminal closed',
+      trace: traceTerminal,
+      traceLabel: `vmid:${vmid}`
     });
   } catch (err) {
     console.error('[proxmox-terminal-ws] Setup error:', err);

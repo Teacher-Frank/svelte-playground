@@ -14,6 +14,9 @@ $env:PVE_USERNAME = "root"
 $env:PVE_PASSWORD = "Defcon54!"
 $env:PVE_REALM = "pam"
 
+#debugging
+$env:PVE_TERMINAL_TRACE = "true"
+
 # Optional: allow self-signed TLS certs
 $env:PVE_INSECURE_TLS = "true"
 
