@@ -39,6 +39,7 @@
         cursorBlink: true,
         fontFamily: 'monospace, "Courier New"',
         scrollback: 5000,
+        scrollOnUserInput: true,
       });
       fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
@@ -65,9 +66,13 @@
 
       ws.onmessage = ({ data: payload }) => {
         if (payload instanceof ArrayBuffer) {
-          term?.write(new Uint8Array(payload));
+          term?.write(new Uint8Array(payload), () => {
+            term?.scrollToBottom();
+          });
         } else {
-          term?.write(String(payload));
+          term?.write(String(payload), () => {
+            term?.scrollToBottom();
+          });
         }
       };
 
@@ -80,6 +85,7 @@
       };
 
       term.onData((input) => {
+        term?.scrollToBottom();
         if (ws?.readyState === WebSocket.OPEN) ws.send(input);
       });
 
@@ -152,14 +158,8 @@
     min-height: 0;
   }
 
-  /* Let xterm fill the container and keep viewport scrollable for scrollback. */
-  .terminal-container :global(.xterm),
-  .terminal-container :global(.xterm-viewport) {
+  /* Let xterm fill the container; viewport geometry is managed by xterm itself. */
+  .terminal-container :global(.xterm) {
     height: 100% !important;
-  }
-
-  .terminal-container :global(.xterm-viewport) {
-    overflow-y: auto !important;
-    scrollbar-gutter: stable;
   }
 </style>
