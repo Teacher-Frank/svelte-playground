@@ -1,6 +1,6 @@
 :root {
-  /* Reserve enough width for all 5 compact control buttons (start/stop/restart/terminal/delete). */
-  --actions-col-width: 13rem;
+  /* Reserve enough width for all 6 compact control buttons (start/stop/restart/terminal/vnc/delete). */
+  --actions-col-width: 15.5rem;
 }
 
 /* Top-level page spacing and generic vertical rhythm. */
@@ -264,6 +264,7 @@
 
 .workload-controls .action-buttons button,
 .workload-controls .terminal-btn,
+.workload-controls .vnc-btn,
 .workload-controls .delete-btn {
   background: #efefef;
   border: 1px solid #b3b3b3;
@@ -286,6 +287,14 @@
   color: inherit;
 }
 
+.workload-controls .vnc-btn {
+  text-decoration: none;
+  color: inherit;
+  /* Keep GUI action visually distinct from shell terminal action for quick scanning. */
+  background: #dbeafe;
+  border-color: #60a5fa;
+}
+
 /* Terminal icon artwork has more fill than play/stop/restart, so scale it down a touch. */
 .workload-controls .terminal-btn img {
   width: 1.05rem;
@@ -297,7 +306,16 @@
   background-color: #fafafa;
 }
 
+.workload-controls .vnc-btn:hover:not([aria-disabled='true']) {
+  border-color: #3b82f6;
+  background-color: #bfdbfe;
+}
+
 .workload-controls .terminal-btn:active:not([aria-disabled='true']) {
+  transform: scale(0.95);
+}
+
+.workload-controls .vnc-btn:active:not([aria-disabled='true']) {
   transform: scale(0.95);
 }
 
@@ -305,6 +323,17 @@
   cursor: not-allowed;
   opacity: 0.55;
   pointer-events: none;
+}
+
+.workload-controls .vnc-btn[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.workload-controls .vnc-btn img {
+  width: 1.1rem;
+  height: 1.1rem;
 }
 
 .workload-controls .delete-btn {

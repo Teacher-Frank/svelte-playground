@@ -3,6 +3,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import mkcert from 'vite-plugin-mkcert';
 import type { Plugin } from 'vite';
 import { attachProxmoxTerminalWsProxy } from './server/proxmoxTerminalWs.ts';
+import { attachProxmoxVncWsProxy } from './server/proxmoxVncWs.ts';
 
 function proxmoxTerminalPlugin(): Plugin {
   return {
@@ -14,8 +15,19 @@ function proxmoxTerminalPlugin(): Plugin {
     }
   };
 }
+
+function proxmoxVncPlugin(): Plugin {
+  return {
+    name: 'proxmox-vnc-ws',
+    apply: 'serve',
+    configureServer(server) {
+      if (!server.httpServer) return;
+      attachProxmoxVncWsProxy(server.httpServer);
+    }
+  };
+}
 export default defineConfig({
-  plugins: [sveltekit(), proxmoxTerminalPlugin(), mkcert()],
+  plugins: [sveltekit(), proxmoxTerminalPlugin(), proxmoxVncPlugin(), mkcert()],
   server: {
     https: true,
     port: 8000

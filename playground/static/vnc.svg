@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="VNC GUI">
+  <rect x="3" y="4" width="18" height="12" rx="1.8" fill="#2f3b4b"/>
+  <rect x="4.6" y="5.6" width="14.8" height="8.8" rx="0.9" fill="#8fd1ff"/>
+  <path d="M10.8 8.5h5.7v5.7" fill="none" stroke="#0b2f4a" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m16.5 8.5-6.3 6.3" fill="none" stroke="#0b2f4a" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="9.2" y="17.5" width="5.6" height="1.4" rx="0.6" fill="#2f3b4b"/>
+  <rect x="7" y="19.2" width="10" height="1.2" rx="0.6" fill="#4c5d73"/>
+</svg>

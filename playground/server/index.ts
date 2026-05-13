@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { env } from 'node:process';
 import { handler } from '../build/handler.js';
 import { attachProxmoxTerminalWsProxy } from './proxmoxTerminalWs.ts';
+import { attachProxmoxVncWsProxy } from './proxmoxVncWs.ts';
 
 const port = Number(env.PORT ?? 3000);
 const host = env.HOST ?? '0.0.0.0';
@@ -11,6 +12,7 @@ const server = createServer((req, res) => {
 });
 
 attachProxmoxTerminalWsProxy(server);
+attachProxmoxVncWsProxy(server);
 
 server.listen(port, host, () => {
   console.log(`[server] listening on http://${host}:${port}`);

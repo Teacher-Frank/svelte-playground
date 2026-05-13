@@ -54,6 +54,35 @@ You can preview the production build with `npm run preview`.
 
 > To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
 
+## Proxmox Console Routes
+
+The Proxmox admin page exposes two browser consoles for running workloads:
+
+- Terminal route: `/proxmox/terminal?vmid=<id>&node=<node>&type=<vm|container>&name=<optional>`
+- GUI route (noVNC): `/proxmox/vnc?vmid=<id>&node=<node>&type=<vm|container>&name=<optional>`
+
+Both routes open websocket bridges on the same origin:
+
+- Terminal websocket: `/proxmox/terminal/ws`
+- VNC websocket: `/proxmox/vnc/ws`
+
+Why the bridge exists: browser clients cannot safely attach Proxmox auth headers/cookies to arbitrary websocket targets. The server bridge keeps credentials and short-lived tickets server-side and forwards only terminal/RFB frames.
+
+## Required Environment Variables
+
+Set these variables before running the playground when Proxmox integration is enabled:
+
+- `PVE_BASE_URL`: Proxmox API base URL (example: `https://pve.example.com:8006`)
+- Authentication (choose one):
+- `PVE_API_TOKEN`: API token in `PVEAPIToken=user@realm!token=secret` format (or shorthand supported by pve-client)
+- `PVE_USERNAME`, `PVE_PASSWORD`, optional `PVE_REALM` (defaults to `pam`)
+- Optional TLS override for local/self-signed labs: `PVE_INSECURE_TLS=true`
+
+Notes:
+
+- GUI and terminal actions are only enabled for running workloads with known `vmid` and `node`.
+- In production, prefer valid TLS certificates and keep `PVE_INSECURE_TLS` unset.
+
 ## Publishing
 
 Go into the `package.json` and give your package the desired name through the `"name"` option. Also consider adding a `"license"` field and point it to a `LICENSE` file which you can create from a template (one popular option is the [MIT license](https://opensource.org/license/mit/)).

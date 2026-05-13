@@ -30,6 +30,15 @@
     selectedWorkload?.node != null
   );
 
+  // GUI/VNC access has the same preconditions as terminal: only useful for a
+  // running, addressable workload with concrete id/node context.
+  const vncEnabled = $derived(
+    !disabled &&
+    selectedWorkload?.status === 'running' &&
+    selectedWorkload?.id != null &&
+    selectedWorkload?.node != null
+  );
+
   // Destructive actions are allowed whenever a concrete workload is selected.
   const deleteEnabled = $derived(
     !disabled &&
@@ -93,6 +102,22 @@
     tabindex={terminalEnabled ? 0 : -1}
   >
     <img src="/terminal.svg" alt="" aria-hidden="true" />
+  </a>
+
+  <!-- Opens the in-browser noVNC route for GUI access to the selected workload. -->
+  <a
+    class="vnc-btn"
+    href={vncEnabled
+      ? `/proxmox/vnc?vmid=${encodeURIComponent(selectedWorkload!.id!)}&node=${encodeURIComponent(selectedWorkload!.node!)}&type=${encodeURIComponent(selectedWorkload!.type)}${selectedWorkload!.name ? `&name=${encodeURIComponent(selectedWorkload!.name)}` : ''}`
+      : undefined}
+    target={vncEnabled ? '_blank' : undefined}
+    rel={vncEnabled ? 'noopener noreferrer' : undefined}
+    title="Open GUI (VNC)"
+    aria-label="Open GUI (VNC)"
+    aria-disabled={!vncEnabled}
+    tabindex={vncEnabled ? 0 : -1}
+  >
+    <img src="/vnc.svg" alt="" aria-hidden="true" />
   </a>
 
   <!-- Triggers an explicit confirmation overlay before submitting destroy. -->
