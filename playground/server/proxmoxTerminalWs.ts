@@ -35,7 +35,8 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
     const password = process.env.PVE_PASSWORD?.trim() || undefined;
     const realm = process.env.PVE_REALM?.trim() || 'pam';
     const insecureTls = process.env.PVE_INSECURE_TLS === 'true';
-    const traceTerminal = process.env.PVE_TERMINAL_TRACE === 'true';
+    // Handy for debugging terminal frame/order issues; keep disabled by default.
+    // const traceTerminal = process.env.PVE_TERMINAL_TRACE === 'true';
 
     if (!baseUrl) {
       browserWs.close(1011, 'PVE_BASE_URL not configured');
@@ -85,8 +86,9 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
       coalesceNavigationRepeats: false,
       normalizeSs3CursorKeys: false,
       simplifyModifiedCursorKeys: false,
-      trace: traceTerminal,
-      traceLabel: `vmid:${vmid}`
+      // Handy for debugging: uncomment to enable per-session bridge traces.
+      // trace: traceTerminal,
+      // traceLabel: `vmid:${vmid}`
     });
   } catch (err) {
     console.error('[proxmox-terminal-ws] Setup error:', err);

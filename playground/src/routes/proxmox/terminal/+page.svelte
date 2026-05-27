@@ -24,14 +24,56 @@
     let lastSentSize = '';
     let resizeSyncAttempts = 0;
     let sizeResendTimer: ReturnType<typeof setTimeout> | undefined;
+    const convergenceTimers: Array<ReturnType<typeof setTimeout>> = [];
 
-    const sendResizeFrame = () => {
+    // Fallback: If xterm fit underestimates initial size, compute rows/cols from cell metrics and force resize.
+    // This is critical for correct PTY geometry on first open, especially in browser layouts with late sizing.
+    // Safe to remove if upstream xterm.js or layout always reports correct size on first paint.
+    const maybeApplyFallbackGeometry = () => {
+      if (!term || !containerEl) return;
+
+      // On some startup paths xterm fit can stick at conservative defaults
+      // (for example 80x20) until an actual viewport resize event occurs.
+      // Derive cols/rows from container pixels + measured cell metrics to
+      // force the initial PTY geometry to converge without manual resize.
+      const metrics = (term as unknown as {
+        _core?: {
+          _renderService?: {
+            dimensions?: {
+              css?: {
+                cell?: {
+                  width?: number;
+                  height?: number;
+                };
+              };
+            };
+          };
+        };
+      })._core?._renderService?.dimensions?.css?.cell;
+
+      const cellWidth = metrics?.width ?? 0;
+      const cellHeight = metrics?.height ?? 0;
+      if (!(cellWidth > 0) || !(cellHeight > 0)) return;
+
+      const estimatedCols = Math.floor(containerEl.clientWidth / cellWidth);
+      const estimatedRows = Math.floor(containerEl.clientHeight / cellHeight);
+      if (!(estimatedCols > 0) || !(estimatedRows > 0)) return;
+
+      if (estimatedCols === term.cols && estimatedRows === term.rows) return;
+
+      // Apply and forward a deterministic fallback size when xterm fit lags.
+      term.resize(estimatedCols, estimatedRows);
+    };
+
+    // Sends a resize control frame to the backend. If 'force' is true, always sends even if cols/rows are unchanged.
+    // This is essential for startup convergence: early frames can be dropped or deduped, so retries must be sent.
+    const sendResizeFrame = (force = false) => {
       if (!term || ws?.readyState !== WebSocket.OPEN) return;
 
       if (term.cols <= 0 || term.rows <= 0) return;
 
       const sizeFrame = `${term.cols}:${term.rows}`;
-      if (sizeFrame === lastSentSize) return;
+      if (!force && sizeFrame === lastSentSize) return;
 
       // Send structured control frames instead of prefix-encoded text.
       // This avoids collisions where user input could look like a resize frame.
@@ -39,10 +81,11 @@
       lastSentSize = sizeFrame;
     };
 
-    const syncTerminalSize = () => {
+    // Syncs xterm fit, applies fallback, and sends resize. 'forceResizeFrame' ensures backend always receives frame.
+    const syncTerminalSize = (forceResizeFrame = false) => {
       fitAddon?.fit();
-      term?.scrollToBottom();
-      sendResizeFrame();
+      maybeApplyFallbackGeometry();
+      sendResizeFrame(forceResizeFrame);
     };
 
     const scheduleTerminalSizeSync = () => {
@@ -54,16 +97,47 @@
       });
     };
 
+    // On open, repeatedly force-send resize frames to backend to guarantee PTY geometry converges.
+    // This is needed because some browser/WS/Proxmox paths drop or ignore early control frames.
     const scheduleInitialResizeResends = () => {
       if (disposed) return;
-      if (resizeSyncAttempts >= 3) return;
+      if (resizeSyncAttempts >= 8) return;
 
       resizeSyncAttempts += 1;
       sizeResendTimer = setTimeout(() => {
         if (disposed) return;
-        scheduleTerminalSizeSync();
+        // Force-send startup resize retries even if cols/rows are unchanged.
+        // This protects against early dropped control frames.
+        syncTerminalSize(true);
         scheduleInitialResizeResends();
       }, 250);
+    };
+
+    const scheduleConvergenceResync = () => {
+      // Some host/layout combinations report a conservative initial fit.
+      // Recheck geometry over a short startup window without user resizing.
+      const delaysMs = [50, 150, 300, 600, 1000, 1600, 2400];
+      for (const delayMs of delaysMs) {
+        const timer = setTimeout(() => {
+          if (disposed) return;
+          scheduleTerminalSizeSync();
+        }, delayMs);
+        convergenceTimers.push(timer);
+      }
+    };
+
+    const onWindowResize = () => {
+      scheduleTerminalSizeSync();
+    };
+
+    const onWindowFocus = () => {
+      scheduleTerminalSizeSync();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      scheduleTerminalSizeSync();
+      scheduleConvergenceResync();
     };
 
     void (async () => {
@@ -85,6 +159,7 @@
       term.open(containerEl);
       term.focus();
       scheduleTerminalSizeSync();
+      scheduleConvergenceResync();
 
       if ('fonts' in document && document.fonts?.ready) {
         void document.fonts.ready.then(() => {
@@ -96,6 +171,9 @@
         scheduleTerminalSizeSync();
       });
       resizeObserver.observe(containerEl);
+      window.addEventListener('resize', onWindowResize);
+      window.addEventListener('focus', onWindowFocus);
+      document.addEventListener('visibilitychange', onVisibilityChange);
 
       const wsUrl =
         `/proxmox/terminal/ws` +
@@ -106,23 +184,24 @@
       ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
 
+      // On websocket open, force an initial resize frame and start convergence retries.
+      // This ensures the guest PTY is sized correctly even if the first frame is dropped or ignored.
       ws.onopen = () => {
         lastSentSize = '';
         resizeSyncAttempts = 0;
         term?.focus();
-        syncTerminalSize();
+        // Force the first open-time resize frame in case early sizing races.
+        syncTerminalSize(true);
         scheduleInitialResizeResends();
       };
 
       ws.onmessage = ({ data: payload }) => {
         if (payload instanceof ArrayBuffer) {
-          term?.write(new Uint8Array(payload), () => {
-            term?.scrollToBottom();
-          });
+          // Do not force viewport scroll on terminal output.
+          // Full-screen apps (e.g. vi/vim) manage cursor/viewport themselves.
+          term?.write(new Uint8Array(payload));
         } else {
-          term?.write(String(payload), () => {
-            term?.scrollToBottom();
-          });
+          term?.write(String(payload));
         }
 
         // Keep geometry converged when output starts before final layout settles.
@@ -146,7 +225,6 @@
 
       term.onData((input) => {
         if (!term) return;
-        term?.scrollToBottom();
         sendBinaryInput(input);
       });
     })();
@@ -154,8 +232,12 @@
     return () => {
       disposed = true;
       if (sizeResendTimer) clearTimeout(sizeResendTimer);
+      for (const timer of convergenceTimers) clearTimeout(timer);
       cancelAnimationFrame(fitFrame);
       resizeObserver?.disconnect();
+      window.removeEventListener('resize', onWindowResize);
+      window.removeEventListener('focus', onWindowFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       ws?.close();
       term?.dispose();
     };
