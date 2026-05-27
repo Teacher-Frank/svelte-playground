@@ -1,6 +1,8 @@
 # Fail fast on setup or command errors.
 $ErrorActionPreference = "Stop"
 
+Clear-Host
+
 # Set environment variables for Proxmox authentication
 # Required
 $env:PVE_BASE_URL = "https://testpxmx.dev.datalabrotterdam.nl:8006"

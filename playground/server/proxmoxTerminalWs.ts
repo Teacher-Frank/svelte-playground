@@ -3,6 +3,12 @@ import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { WebSocket as WsWebSocket, WebSocketServer } from 'ws';
 
+// Proxmox terminal proxy flow:
+// 1) Intercept HTTP upgrade requests for /proxmox/terminal/ws.
+// 2) Validate VM target and build an authenticated Proxmox client.
+// 3) Open a terminal helper session and bridge browser WS <-> termproxy WS.
+// 4) Apply bridge safety/normalization options used by runtime diagnostics.
+
 async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams): Promise<void> {
   // Lazy imports keep SSR/startup lightweight and avoid loading terminal
   // dependencies until the upgrade route is actually used.
@@ -23,6 +29,7 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
 
   try {
     const baseUrl = process.env.PVE_BASE_URL;
+    // Prefer token auth when configured; fall back to username/password login.
     const apiToken = process.env.PVE_API_TOKEN?.trim() || undefined;
     const username = process.env.PVE_USERNAME?.trim() || undefined;
     const password = process.env.PVE_PASSWORD?.trim() || undefined;
@@ -35,6 +42,7 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
       return;
     }
 
+    // Match runtime TLS policy for both API and terminal websocket traffic.
     const agent = insecureTls ? new Agent({ rejectUnauthorized: false }) : undefined;
 
     let client: InstanceType<typeof Client>;
@@ -60,15 +68,23 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
 
     const terminal = client.helpers.terminal(vmid);
     await openTerminalBridge(terminal, browserWs, {
+      // Keep reconnecting so brief termproxy/socket interruptions recover automatically.
       rejectUnauthorized: !insecureTls,
-      // Browser terminals are often long-lived. Infinite retries keep the bridge
-      // resilient to transient websocket/proxy restarts without forcing a refresh.
       reconnect: true,
       reconnectIntervalMs: 1500,
       reconnectMaxAttempts: Number.POSITIVE_INFINITY
     }, {
       onErrorFrame: (err) => Buffer.from(`\r\n\x1b[31mProxmox error: ${err.message}\x1b[0m\r\n`),
       closeReasonOnSessionClose: 'Proxmox terminal closed',
+      // Keep a one-time Enter nudge so shells like pwsh render prompt on open.
+      enablePromptNudge: true,
+      // Force stdin through binary lane so control sequences are preserved.
+      allowTextInputFrames: false,
+      // Keep a single stable raw-leaning bridge policy.
+      enableInputRepairCompatibility: false,
+      coalesceNavigationRepeats: false,
+      normalizeSs3CursorKeys: false,
+      simplifyModifiedCursorKeys: false,
       trace: traceTerminal,
       traceLabel: `vmid:${vmid}`
     });

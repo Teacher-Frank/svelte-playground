@@ -22,9 +22,13 @@
     let resizeObserver: ResizeObserver | undefined;
     let fitFrame = 0;
     let lastSentSize = '';
+    let resizeSyncAttempts = 0;
+    let sizeResendTimer: ReturnType<typeof setTimeout> | undefined;
 
     const sendResizeFrame = () => {
       if (!term || ws?.readyState !== WebSocket.OPEN) return;
+
+      if (term.cols <= 0 || term.rows <= 0) return;
 
       const sizeFrame = `${term.cols}:${term.rows}`;
       if (sizeFrame === lastSentSize) return;
@@ -48,6 +52,18 @@
       fitFrame = requestAnimationFrame(() => {
         if (!disposed) syncTerminalSize();
       });
+    };
+
+    const scheduleInitialResizeResends = () => {
+      if (disposed) return;
+      if (resizeSyncAttempts >= 3) return;
+
+      resizeSyncAttempts += 1;
+      sizeResendTimer = setTimeout(() => {
+        if (disposed) return;
+        scheduleTerminalSizeSync();
+        scheduleInitialResizeResends();
+      }, 250);
     };
 
     void (async () => {
@@ -92,8 +108,10 @@
 
       ws.onopen = () => {
         lastSentSize = '';
+        resizeSyncAttempts = 0;
         term?.focus();
         syncTerminalSize();
+        scheduleInitialResizeResends();
       };
 
       ws.onmessage = ({ data: payload }) => {
@@ -106,6 +124,9 @@
             term?.scrollToBottom();
           });
         }
+
+        // Keep geometry converged when output starts before final layout settles.
+        if (resizeSyncAttempts < 3) scheduleTerminalSizeSync();
       };
 
       ws.onerror = () => {
@@ -116,22 +137,23 @@
         term?.writeln(`\r\n\x1b[33mConnection closed (${ev.code})\x1b[0m`);
       };
 
+      const inputEncoder = new TextEncoder();
+
+      const sendBinaryInput = (input: string) => {
+        if (ws?.readyState !== WebSocket.OPEN) return;
+        ws.send(inputEncoder.encode(input));
+      };
+
       term.onData((input) => {
         if (!term) return;
         term?.scrollToBottom();
-
-        // Keep backend PTY geometry in sync at the moment of user input.
-        // This was added to prevent cursor relocation after large output bursts.
-        sendResizeFrame();
-        if (ws?.readyState === WebSocket.OPEN) {
-          // Include cols/rows with input so bridge can apply geometry before stdin write.
-          ws.send(JSON.stringify({ type: 'input', data: input, cols: term.cols, rows: term.rows }));
-        }
+        sendBinaryInput(input);
       });
     })();
 
     return () => {
       disposed = true;
+      if (sizeResendTimer) clearTimeout(sizeResendTimer);
       cancelAnimationFrame(fitFrame);
       resizeObserver?.disconnect();
       ws?.close();
