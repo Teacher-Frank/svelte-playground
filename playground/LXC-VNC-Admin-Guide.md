@@ -24,9 +24,11 @@ lxc.cgroup2.devices.allow: c 226:* rwm
 lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir
 ```
 
-## 3. Automate with a Hook Script
+## 3. Mandatory: Create the LXC Post-Create Hook Script
 
-Create a script (e.g. `/root/lxc-post-create-hook.sh`):
+You must create the following script on every Proxmox host where LXC containers will be deployed. This is required for all LXC container deployments, not optional.
+
+Create the script at `/root/lxc-post-create-hook.sh`:
 ```bash
 #!/bin/bash
 if [ "$2" = "post-create" ]; then
@@ -41,10 +43,7 @@ Make it executable:
 chmod +x /root/lxc-post-create-hook.sh
 ```
 
-Specify the hook script at container creation:
-```
-pct create <VMID> ... --hookscript /root/lxc-post-create-hook.sh
-```
+This script will be automatically invoked for every new LXC container created via the API or UI, as the deployment process always specifies it with the `hookscript` parameter. Do not skip this step.
 
 ## 4. Troubleshooting
 - If Xorg fails with 'no screens found', ensure the dummy video driver is installed and the config is correct.
