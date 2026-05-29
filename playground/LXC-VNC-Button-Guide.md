@@ -1,48 +1,27 @@
-# LXC GUI Over VNC via the VNC Button
+# How to Create an LXC Container Ready for VNC Connection
 
-## Goal
+This guide explains how to set up an LXC container so it is ready for GUI access via the VNC button in the playground. It covers installing a desktop, configuring a persistent VNC server, and connecting through a websocket bridge.
 
-Make the existing `VNC` button open a usable GUI for LXC containers. Follow the steps below exactly when you test the flow.
+## Why is this needed?
 
-## Why It Does Not Work Out-of-the-Box
+Proxmox's built-in VNC is for VM consoles, not LXC containers. To get a GUI in an LXC, you must run a desktop and VNC server inside the container, then connect to it via a websocket bridge.
 
-Proxmox `vncwebsocket` is designed for QEMU VM framebuffer consoles. LXC containers do not expose a VM-style virtual GPU/framebuffer by default, so pointing noVNC at Proxmox's VM VNC path for an LXC often results in a black screen.
-
-The fix is to run a GUI + VNC server inside the container, then have the button connect to that VNC service (preferably through a websocket proxy).
-
-## Recommended Architecture
-
-Use this flow:
-
-1. Run a desktop session inside the LXC container.
-2. Run a VNC server inside the same container on a port in the 8000–9000 range.
-3. Put a websocket bridge in front of that VNC server.
-4. Point the playground `VNC` button at the bridge for the container row.
-
-Do not reuse Proxmox's VM framebuffer VNC path for an LXC container. That is the wrong backend and it usually produces a black screen.
-
-## Container Setup Example (Ubuntu LXC)
-
-Run these steps inside the container as the desktop user you want to log in with.
-
-These steps are shown in Bash and PowerShell Core. Use the PowerShell Core blocks if that is the shell you run inside the container. When the command is the same in both shells, it appears only once.
-
-1. Install the desktop and VNC packages.
+## Step 1: Install Desktop and VNC Server (inside container)
 
 **Bash and PowerShell Core**
 ```bash
 apt update
-apt install -y xfce4 xfce4-goodies tigervnc-standalone-server dbus-x11
+apt install -y xfce4 xfce4-goodies tigervnc-standalone-server dbus-x11 python3-websockify xterm
 ```
 
-2. Create the VNC password as that same user.
+## Step 2: Set VNC Password (inside container)
 
 **Bash and PowerShell Core**
 ```bash
 vncpasswd
 ```
 
-3. Create the VNC startup script so the desktop starts inside the VNC session.
+## Step 3: Create VNC Startup Script (inside container)
 
 **Bash**
 ```bash
@@ -68,154 +47,237 @@ exec startxfce4
 chmod +x ~/.vnc/xstartup
 ```
 
-4. Start a persistent VNC server that creates its own display.
+## Step 4: Make VNC Server Persistent (Survive Restarts)
+
+Create a systemd user service so the VNC server starts on boot:
 
 **Bash and PowerShell Core**
 ```bash
-vncserver :1 -geometry 1920x1080 -depth 24
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/vncserver@:1.service <<'EOF'
+[Unit]
+Description=Start TigerVNC server at display :1
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/vncserver :1 -geometry 1920x1080 -depth 24
+ExecStop=/usr/bin/vncserver -kill :1
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+EOF
 ```
 
-5. Leave that command running. It creates display `:1` and listens on TCP `5901` inside the container.
-
-If the VNC command exits, stop and fix that before testing the browser flow. The session must stay alive.
-
-**Important:**
-- The websocket bridge port **must** be in the range 8000–9000 for the playground VNC button to work.
-- Use a non-root runtime user for desktop sessions when possible.
-- Do not attach `x11vnc` to `:0` unless you already have a real X session running in the container.
-
-If you need to stop the desktop later, run:
-
-**Bash and PowerShell Core**
-```bash
-vncserver -kill :1
-```
-
-## Websocket Bridge
-
-Use host-side `websockify` first. That is the simplest path to test and the one you should verify before trying anything more complex.
-
-Run on the playground host (or a secured gateway):
-
-**Bash and PowerShell Core**
-```bash
-websockify 8001 <container-ip>:5901
-```
-
-Then noVNC connects to `ws(s)://<host>:8001`.
-
-### Finding the Container IP
-
-To find `<container-ip>`, run one of these commands on the Proxmox host:
-
-**PowerShell Core (Windows and Linux)**
+**PowerShell Core**
 ```powershell
-# List all IPv4 addresses on the host (cross-platform)
-[System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | 
-  Where-Object { $_.OperationalStatus -eq 'Up' } | 
-  ForEach-Object { $_.GetIPProperties().UnicastAddresses } | 
-  Where-Object { $_.Address.AddressFamily -eq 'InterNetwork' } | 
-  Select-Object -ExpandProperty Address
+New-Item -ItemType Directory -Force ~/.config/systemd/user | Out-Null
+@'
+[Unit]
+Description=Start TigerVNC server at display :1
+After=network.target
 
-# Or query the container from Proxmox API using curl (replace placeholders)
-# Requires: curl and a valid Proxmox API token
-curl -s -k -H "Authorization: PVEAPIToken=user@pam!token_name:token_secret" `
-  https://proxmox-host:8006/api2/json/nodes/node-name/lxc/VMID/status/current | ConvertFrom-Json | Select-Object -ExpandProperty data | Select-Object -ExpandProperty ips
+[Service]
+Type=forking
+ExecStart=/usr/bin/vncserver :1 -geometry 1920x1080 -depth 24
+ExecStop=/usr/bin/vncserver -kill :1
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+'@ | Set-Content -NoNewline ~/.config/systemd/user/vncserver@:1.service
 ```
 
-**Bash on Linux**
+Enable and start the service:
+
+**Bash and PowerShell Core**
 ```bash
-# List all IP addresses
+systemctl --user daemon-reload
+systemctl --user enable vncserver@:1.service
+systemctl --user start vncserver@:1.service
+```
+
+(Optional, as root):
+```bash
+loginctl enable-linger <your-username>
+```
+
+## Alternative: Start VNC Server on Boot Without systemd
+
+If `systemctl --user` fails with “Failed to connect to bus: No medium found”, your container does not support systemd user services. Use a crontab entry to start the VNC server at boot:
+
+**Bash and PowerShell Core**
+```bash
+crontab -e
+```
+Add this line at the end (replace `<user>` with your username if needed):
+```
+@reboot vncserver :1 -geometry 1920x1080 -depth 24
+```
+- Save and exit the editor. The VNC server will now start automatically on container boot.
+
+If you want to ensure the desktop session is always running, you can also add a check to your crontab or use a wrapper script.
+
+## Step 5: Find the Container IP
+
+**Inside the container:**
+```bash
 hostname -I
-
-# Or query the container from Proxmox API
-curl -s -H "Authorization: PVEAPIToken=user@pam!token_name:token_secret" \
-  https://proxmox-host:8006/api2/json/nodes/node-name/lxc/VMID/status/current | jq '.data.ips'
 ```
 
-If you run the bridge from PowerShell Core, use the same arguments. On Windows PowerShell Core, prefix the command with `&` if `websockify` is not already resolved as a direct command.
+**From the Proxmox host:**
+```bash
+pct exec <VMID> -- hostname -I
+```
 
-If you later replace `websockify` with the Node server bridge, keep the container VNC port the same and change only the websocket hop. Do not move the container port while you are still troubleshooting.
+Use the IP address that is reachable from the host running the websocket bridge.
 
-## Security Hardening Requirements
+## Step 6: Start the Websocket Bridge (on host)
 
-1. Never allow arbitrary `host:port` from browser query params.
-- Use a server-side allowlist keyed by container ID.
+### Running websockify in the Background (Recommended)
 
-2. Prefer private networking.
-- Expose VNC only to trusted networks or localhost + proxy.
+To keep websockify running after you close the terminal, use `nohup` (recommended) or `&` in Bash, or `Start-Process` in PowerShell Core:
 
-3. Require authentication.
+**Bash (recommended)**
+```bash
+nohup websockify 8001 <container-ip>:5901 > websockify.log 2>&1 &
+```
+- This will run websockify in the background and redirect output to `websockify.log`.
+- The process will keep running even if you close the terminal.
+
+**Bash (simple, not persistent if terminal closes)**
+```bash
+websockify 8001 <container-ip>:5901 &
+```
+
+**PowerShell Core**
+```powershell
+Start-Process websockify -ArgumentList '8001', '<container-ip>:5901'
+```
+
+- To stop websockify, find its process ID (`ps aux | grep websockify` or `Get-Process websockify`) and kill it as needed.
+
+- The websocket bridge port (8001 above) must be in the range 8000–9000 for the playground VNC button to work.
+- Then connect using the VNC button or point noVNC at `ws(s)://<host>:8001`.
+
+### Starting the Desktop from a VNC Prompt
+
+If you see a shell prompt in your VNC session, you can start the desktop manually:
+
+**Recommended:**
+```bash
+nohup startxfce4 > xfce4.log 2>&1 &
+```
+- This runs XFCE in the background and saves all output to xfce4.log for troubleshooting.
+- Your shell prompt remains usable for other commands.
+
+**Simple:**
+```bash
+startxfce4 &
+```
+- This also runs XFCE in the background, but you won’t have a log file.
+
+If you run `startxfce4` without `&` or `nohup`, your shell will be blocked by the desktop process.
+
+## Troubleshooting: VNC Server Only Listening on Localhost
+
+If your VNC server is only listening on 127.0.0.1 (localhost), websockify running on the Proxmox host cannot connect to it. You must start the VNC server so it listens on all interfaces:
+
+**Bash and PowerShell Core (inside container)**
+```bash
+vncserver -localhost no :1 -geometry 1920x1080 -depth 24
+```
+- This makes the VNC server listen on the container’s external IP, so websockify (running on the host) can connect.
+- You can check the listening address with:
+```bash
+ss -tlnp | grep 5901
+```
+- You should see `0.0.0.0:5901` or `<container-ip>:5901` in the output.
+
+If you want this to be persistent, update your systemd service, crontab, or startup script to include `-localhost no` in the VNC server command.
+
+## Troubleshooting: XFCE Desktop Does Not Start in VNC (But xterm Works)
+
+If you see a working xterm window in your VNC session but not the XFCE desktop, update your `~/.vnc/xstartup` script to the following minimal version:
+
+```sh
+#!/bin/sh
+xrdb $HOME/.Xresources
+startxfce4 &
+```
+
+Then make it executable and restart the VNC server:
+
+```bash
+chmod +x ~/.vnc/xstartup
+vncserver -kill :1
+vncserver -localhost no :1 -geometry 1920x1080 -depth 24
+```
+
+This should launch the XFCE desktop automatically in your VNC session. If you still only see a prompt, try running `DISPLAY=:1 startxfce4 &` manually inside the container to check for errors.
+
+## Troubleshooting: Xorg Fails with 'no screens found' or 'Fatal server error'
+
+If your VNC log shows errors like:
+
+```
+Fatal server error:
+(EE) no screens found(EE)
+```
+
+This means your LXC container does not have a virtual GPU or framebuffer device, so Xorg cannot start a graphical session. To fix this:
+
+1. **Enable nesting and device passthrough in the container config** (on the Proxmox host):
+   - Edit `/etc/pve/lxc/<VMID>.conf` and add:
+     ```
+     features: nesting=1
+     lxc.cgroup2.devices.allow: c 226:* rwm
+     lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir
+     ```
+   - Restart the container.
+
+2. **Install the dummy video driver:**
+   ```bash
+   apt install -y xserver-xorg-video-dummy
+   ```
+
+3. **Create or edit `/etc/X11/xorg.conf` with a dummy device section:**
+   ```
+   Section "Device"
+       Identifier  "Configured Video Device"
+       Driver      "dummy"
+   EndSection
+
+   Section "Monitor"
+       Identifier  "Configured Monitor"
+       HorizSync   31.5-48.5
+       VertRefresh 50-70
+   EndSection
+
+   Section "Screen"
+       Identifier  "Default Screen"
+       Monitor     "Configured Monitor"
+       Device      "Configured Video Device"
+       DefaultDepth 24
+       SubSection "Display"
+           Depth 24
+           Modes "1920x1080"
+       EndSubSection
+   EndSection
+   ```
+   - Restart the VNC server after this.
+
+This should allow Xorg to start in an LXC container without a real GPU, and your desktop environment should appear in the VNC session.
+
+## Security Tips
+- Use a non-root user for the desktop session.
 - Keep strong VNC passwords.
-- Prefer TLS (`wss`) in transit.
+- Expose VNC only to trusted networks or localhost + proxy.
+- Never allow arbitrary host:port from browser query params; use a server-side allowlist.
 
-4. Audit and timebox access.
-- Log who opened GUI sessions and for which container.
+---
 
-## App Changes Needed for the VNC Button
+This is all you need to create an LXC container that is ready for VNC GUI access via the playground VNC button.
 
-Current app logic is VM-only by design. To support LXC, do this in order:
 
-1. In workload controls
-- Re-enable VNC button for containers when container GUI metadata is available.
-- Keep VM behavior unchanged.
-
-2. In VNC page/server load
-- Branch by workload type:
-  - `vm`: current Proxmox ticket flow
-  - `container`: resolve container VNC target (IP/port or bridge endpoint)
-
-3. In websocket proxy
-- Keep strict route validation.
-- Add container route with allowlisted targets only.
-- Do not mix VM ticket logic with container direct VNC logic.
-
-Reason: VM and LXC GUI backends are different protocols and should not share the same connection path.
-
-## Data Model Suggestion
-
-Add optional GUI metadata per container row:
-
-```ts
-type ContainerGuiConfig = {
-  enabled: boolean;
-  wsPath: string;      // e.g. /proxmox/lxc-vnc/ws?id=123
-  authMode: 'vnc' | 'none';
-};
-```
-
-Populate this server-side from trusted config (not from client input).
-
-## Minimal Rollout Plan
-
-1. Pilot one Ubuntu container with GUI and VNC installed.
-2. Start the VNC server on port `8001` and leave it running.
-3. Add one allowlisted websocket bridge for that container.
-4. Enable the VNC button for that one container row.
-5. Verify connect, disconnect, reconnect, and auth failure behavior.
-6. Expand to more containers only after the first one works.
-
-## Troubleshooting Checklist
-
-1. Black screen after connect:
-- Desktop session is not running in the container.
-- VNC started on the wrong display (`:1` vs `:2`).
-- The websocket bridge is not bound to a port in the 8000–9000 range.
-
-2. Immediate disconnect:
-- Wrong VNC password.
-- Bridge cannot reach the container IP and port.
-- Firewall rules are blocking the container VNC port or websocket port.
-
-3. Button opens but no session:
-- Route is still forced to VM-only.
-- Container target is not present in the server allowlist.
-
-4. VNC command exits right away:
-- The server was started without `-forever`.
-- The command was launched in a shell that closed as soon as it returned.
-- The command tried to attach to `:0` before any X display existed.
-
-## Summary
-
-To make the VNC button work for LXC, treat container GUI as "desktop-in-container + VNC service + websocket bridge", not as Proxmox VM framebuffer VNC. This separation is the key to both reliability and security.
