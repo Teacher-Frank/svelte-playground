@@ -566,6 +566,7 @@ const cloneLxcTemplate = async (templateVolid: string, templateNode: string, new
         unprivileged: true,
         features: 'nesting=1',
         'net0': 'name=eth0,bridge=vmbr0,ip=dhcp,type=veth',
+        hookscript: '/root/lxc-post-create-hook.sh',
       }
     : {
         vmid: newid,
@@ -573,6 +574,7 @@ const cloneLxcTemplate = async (templateVolid: string, templateNode: string, new
         hostname: newName,
         password: rootPassword,
         'net0': 'name=eth0,bridge=vmbr0,ip=dhcp,type=veth',
+        hookscript: '/root/lxc-post-create-hook.sh',
       };
 
   return await nodeApi.lxc.create(templateNode, {
