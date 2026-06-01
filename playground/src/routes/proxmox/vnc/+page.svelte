@@ -75,15 +75,21 @@
       // multiple RFB instances racing to update the same DOM container.
       rfbSession?.disconnect();
 
-      const rfb = new RFB(containerEl, wsUrl, {
-        shared: true,
-        // Use vncproxy ticket credentials first so most sessions connect without
-        // prompting operators for account/root credentials.
-        credentials: {
-          username: data.vncUsername ?? undefined,
-          password: data.vncPassword,
-        },
-      });
+      // Do not send empty credentials during initial handshake. In bridge mode,
+      // an empty password can trigger immediate target-side disconnects.
+      const initialCredentials: RFBCredentials = {};
+      if (typeof data.vncUsername === 'string' && data.vncUsername.trim().length > 0) {
+        initialCredentials.username = data.vncUsername.trim();
+      }
+      if (typeof data.vncPassword === 'string' && data.vncPassword.length > 0) {
+        initialCredentials.password = data.vncPassword;
+      }
+
+      const rfbOptions = Object.keys(initialCredentials).length > 0
+        ? { shared: true, credentials: initialCredentials }
+        : { shared: true };
+
+      const rfb = new RFB(containerEl, wsUrl, rfbOptions);
       rfbSession = rfb;
       facade = {
         disconnect: () => rfb.disconnect(),
@@ -106,6 +112,9 @@
       rfb.addEventListener('disconnect', (event: Event) => {
         if (disposed) return;
         if (reconnectInProgress) return;
+        // Preserve more specific credential/security states instead of
+        // overwriting them with a generic disconnect warning.
+        if (statusState === 'credentials' || statusState === 'error') return;
         const detail = (event as CustomEvent<{ clean?: boolean }>).detail;
         statusText = detail?.clean ? 'Disconnected. Refresh to reconnect.' : 'Connection dropped unexpectedly.';
         statusState = 'warning';
@@ -128,7 +137,8 @@
 
         // Force explicit operator retry after security failure because continuing
         // with a half-negotiated session can create ambiguous auth loops.
-        requestedCredentialTypes = ['username', 'password'];
+        // Bridge-backed containers are usually password-only auth.
+        requestedCredentialTypes = data.type === 'container' ? ['password'] : ['username', 'password'];
         credentialError = statusText;
         statusState = 'credentials';
       });
@@ -191,11 +201,6 @@
     }
     if (requiresTarget && credentialTarget.trim().length > 0) {
       credentials.target = credentialTarget.trim();
-    }
-
-    if (!credentials.username) {
-      credentialError = 'Username is required.';
-      return;
     }
 
     if (requiresPassword && !credentials.password) {

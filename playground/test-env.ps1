@@ -22,6 +22,12 @@ $env:PVE_TERMINAL_TRACE = "true"
 # Optional: allow self-signed TLS certs
 $env:PVE_INSECURE_TLS = "true"
 
+#optional: VNC configuration
+# $env:LXC_VNC_BRIDGE_WS_URL=ws://<your-host>:8001
+# $env:LXC_VNC_BRIDGE_ALLOWED_HOSTS=<your-host>:8001,<other-host>:9001
+$env:LXC_VNC_BRIDGE_WS_URL='ws://145.24.223.209:8001'
+$env:LXC_VNC_BRIDGE_ALLOWED_HOSTS='145.24.223.209:8001'
+
 # Optional: Set Node.js environment
 $env:NODE_ENV = "development"
 

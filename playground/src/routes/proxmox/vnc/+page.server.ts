@@ -3,6 +3,19 @@ import type { PageServerLoad } from './$types.js';
 import { Client } from 'pve-client';
 import { Agent } from 'node:https';
 
+// Build a bridge websocket URL for LXC sessions from an operator-provided
+// template. We support {node} and {vmid} placeholders for flexible routing.
+const resolveLxcBridgeWsUrl = (template: string, node: string, vmid: number): string => {
+  const replaced = template
+    .replaceAll('{node}', encodeURIComponent(node))
+    .replaceAll('{vmid}', encodeURIComponent(vmid.toString()));
+  const parsed = new URL(replaced);
+  if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+    throw new Error('LXC_VNC_BRIDGE_WS_URL must use ws:// or wss:// protocol');
+  }
+  return parsed.toString();
+};
+
 const createClient = async (): Promise<Client> => {
   const baseUrl = process.env.PVE_BASE_URL;
   const apiToken = process.env.PVE_API_TOKEN?.trim() || undefined;
@@ -41,6 +54,29 @@ export const load: PageServerLoad = async ({ url }) => {
   const vmid = parseInt(vmidStr, 10);
   if (!Number.isInteger(vmid) || vmid <= 0) {
     error(400, `Invalid vmid: ${JSON.stringify(vmidStr)}`);
+  }
+
+  const bridgeTemplate = process.env.LXC_VNC_BRIDGE_WS_URL?.trim();
+  // When LXC bridge mode is configured, bypass Proxmox vncproxy for containers
+  // and connect noVNC to the operator-managed websockify endpoint instead.
+  if (type === 'container' && bridgeTemplate) {
+    let bridgeWsUrl: string;
+    try {
+      bridgeWsUrl = resolveLxcBridgeWsUrl(bridgeTemplate, node, vmid);
+    } catch (err) {
+      console.error('[vnc-page] Invalid LXC_VNC_BRIDGE_WS_URL:', err);
+      error(500, 'Invalid LXC_VNC_BRIDGE_WS_URL configuration.');
+    }
+
+    return {
+      vmid,
+      node,
+      type,
+      name: name?.trim() || null,
+      upstreamWsUrl: bridgeWsUrl,
+      vncPassword: '',
+      vncUsername: null,
+    };
   }
 
   let info: Awaited<ReturnType<ReturnType<Client['helpers']['display']>['getConnectionInfo']>>;

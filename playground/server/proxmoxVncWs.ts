@@ -6,6 +6,30 @@ import WS from 'ws';
 
 const ALLOWED_VNC_PATH = /^\/api2\/json\/nodes\/[^/]+\/(qemu|lxc)\/\d+\/vncwebsocket$/;
 
+function getAllowedBridgeHosts(): Set<string> {
+  const allowlist = new Set<string>();
+  const envHosts = process.env.LXC_VNC_BRIDGE_ALLOWED_HOSTS
+    ?.split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean) ?? [];
+
+  for (const host of envHosts) {
+    allowlist.add(host);
+  }
+
+  const bridgeUrl = process.env.LXC_VNC_BRIDGE_WS_URL?.trim();
+  if (bridgeUrl) {
+    try {
+      allowlist.add(new URL(bridgeUrl).host);
+    } catch {
+      // Ignore invalid bridge URL here; the page loader validates it and
+      // reports a clear configuration error to operators.
+    }
+  }
+
+  return allowlist;
+}
+
 function toBuffer(data: RawData): Buffer {
   if (typeof data === 'string') return Buffer.from(data);
   if (Buffer.isBuffer(data)) return data;
@@ -46,65 +70,79 @@ async function handleVncWs(browserWs: WsWebSocket, params: URLSearchParams): Pro
 
   try {
     const baseUrl = process.env.PVE_BASE_URL;
+    const baseHost = baseUrl ? new URL(baseUrl).host : undefined;
     const apiToken = process.env.PVE_API_TOKEN?.trim() || undefined;
     const username = process.env.PVE_USERNAME?.trim() || undefined;
     const password = process.env.PVE_PASSWORD?.trim() || undefined;
     const realm = process.env.PVE_REALM?.trim() || 'pam';
     const insecureTls = process.env.PVE_INSECURE_TLS === 'true';
+    const allowedBridgeHosts = getAllowedBridgeHosts();
 
-    if (!baseUrl) {
-      browserWs.close(1011, 'PVE_BASE_URL not configured');
+    if (upstreamUrl.protocol !== 'ws:' && upstreamUrl.protocol !== 'wss:') {
+      browserWs.close(1008, 'Upstream websocket protocol is not allowed');
       return;
     }
 
-    const baseHost = new URL(baseUrl).host;
-    if ((upstreamUrl.protocol !== 'ws:' && upstreamUrl.protocol !== 'wss:') || upstreamUrl.host !== baseHost) {
-      browserWs.close(1008, 'Upstream websocket host is not allowed');
-      return;
-    }
+    const isProxmoxUpstream =
+      !!baseHost &&
+      upstreamUrl.host === baseHost &&
+      ALLOWED_VNC_PATH.test(upstreamUrl.pathname) &&
+      !!upstreamUrl.searchParams.get('vncticket');
 
-    // Restrict proxy targets to the expected Proxmox VNC websocket endpoint.
-    if (!ALLOWED_VNC_PATH.test(upstreamUrl.pathname) || !upstreamUrl.searchParams.get('vncticket')) {
-      browserWs.close(1008, 'Upstream websocket path is not allowed');
+    // Bridge targets are explicitly allowlisted and are intended for LXC GUI
+    // sessions backed by operator-managed websockify endpoints.
+    const isAllowedBridgeUpstream = allowedBridgeHosts.has(upstreamUrl.host);
+
+    if (!isProxmoxUpstream && !isAllowedBridgeUpstream) {
+      browserWs.close(1008, 'Upstream websocket target is not allowed');
       return;
     }
 
     const agent = insecureTls ? new Agent({ rejectUnauthorized: false }) : undefined;
 
-    let client: InstanceType<typeof Client>;
-    if (apiToken) {
-      client = new Client({
-        baseUrl,
-        apiToken,
-        agent
-      });
-    } else if (username && password) {
-      client = new Client({
-        baseUrl,
-        username,
-        password,
-        realm,
-        agent
-      });
-      await client.login();
-    } else {
-      browserWs.close(1011, 'No Proxmox credentials configured');
-      return;
-    }
+    // For bridge targets, no Proxmox auth headers are needed. For native
+    // Proxmox VNC websocket targets, we must attach cookie/token auth.
+    const headers: Record<string, string> = {};
 
-    const headers: Record<string, string> = {
-      Origin: `${upstreamUrl.protocol === 'wss:' ? 'https:' : 'http:'}//${upstreamUrl.host}`,
-    };
+    if (isProxmoxUpstream) {
+      if (!baseUrl) {
+        browserWs.close(1011, 'PVE_BASE_URL not configured');
+        return;
+      }
 
-    const cookie = client.sessionCookie();
-    if (cookie) headers.Cookie = cookie;
+      let client: InstanceType<typeof Client>;
+      if (apiToken) {
+        client = new Client({
+          baseUrl,
+          apiToken,
+          agent
+        });
+      } else if (username && password) {
+        client = new Client({
+          baseUrl,
+          username,
+          password,
+          realm,
+          agent
+        });
+        await client.login();
+      } else {
+        browserWs.close(1011, 'No Proxmox credentials configured');
+        return;
+      }
 
-    const token = client.tokenAuthorizationHeader();
-    if (token) headers.Authorization = token;
+      headers.Origin = `${upstreamUrl.protocol === 'wss:' ? 'https:' : 'http:'}//${upstreamUrl.host}`;
 
-    if (!headers.Cookie && !headers.Authorization) {
-      browserWs.close(1011, 'Missing websocket authentication headers');
-      return;
+      const cookie = client.sessionCookie();
+      if (cookie) headers.Cookie = cookie;
+
+      const token = client.tokenAuthorizationHeader();
+      if (token) headers.Authorization = token;
+
+      if (!headers.Cookie && !headers.Authorization) {
+        browserWs.close(1011, 'Missing websocket authentication headers');
+        return;
+      }
     }
 
     const upstreamWs = new WS(upstreamUrl.toString(), {
