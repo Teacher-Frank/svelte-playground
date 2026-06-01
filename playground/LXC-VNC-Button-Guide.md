@@ -45,6 +45,27 @@ apt update
 apt install -y xfce4 xfce4-goodies tigervnc-standalone-server dbus-x11 python3-websockify xterm
 ```
 
+## Student Section: Create a Non-Root VNC User (Recommended)
+
+When students deploy a container from the playground, they start in a root shell. For safer desktop usage, create a dedicated user and run the VNC desktop session as that user.
+
+**Bash and PowerShell Core**
+```bash
+adduser student
+```
+
+- Set a strong password when prompted.
+- Accept the default profile details (press Enter).
+
+Switch to that user before continuing:
+
+**Bash and PowerShell Core**
+```bash
+su - student
+```
+
+From this point onward, run the remaining guide steps as `student` (especially `vncpasswd`, `~/.vnc/xstartup`, and user crontab entries).
+
 ## Step 2: Set VNC Password (inside container)
 
 **Bash and PowerShell Core**
@@ -86,7 +107,8 @@ Create a wrapper script that cleans stale locks and starts VNC in a stable way:
 
 **Bash and PowerShell Core**
 ```bash
-cat > /usr/local/bin/vnc-boot.sh <<'EOF'
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/vnc-boot.sh <<'EOF'
 #!/bin/sh
 set -eu
 
@@ -98,7 +120,7 @@ pkill -f Xtigervnc >/dev/null 2>&1 || true
 
 exec /usr/bin/vncserver -localhost no -noreset :1 -geometry 1920x1080 -depth 24
 EOF
-chmod +x /usr/local/bin/vnc-boot.sh
+chmod +x ~/.local/bin/vnc-boot.sh
 ```
 
 Add the reboot job:
@@ -109,7 +131,7 @@ crontab -e
 ```
 Add this line:
 ```
-@reboot /usr/local/bin/vnc-boot.sh >> /root/vnc-boot.log 2>&1
+@reboot ~/.local/bin/vnc-boot.sh >> ~/vnc-boot.log 2>&1
 ```
 
 This is the primary startup path for this guide.
@@ -145,7 +167,7 @@ You can run websockify either inside the LXC container or on the Proxmox host. W
     ```
 2. Add this line at the end (adjust the port and VNC target as needed):
     ```
-    @reboot /usr/bin/websockify 8001 127.0.0.1:5901 >> /root/websockify.log 2>&1
+    @reboot /usr/bin/websockify 8001 127.0.0.1:5901 >> ~/websockify.log 2>&1
     ```
 3. Save and exit the editor. Now, websockify will start automatically every time the container boots.
 
@@ -184,7 +206,7 @@ Start-Process websockify -ArgumentList '8001', '<container-ip>:5901'
 If you see a shell prompt in your VNC session, restart VNC through the boot wrapper. Do not launch `startxfce4` manually from a shell.
 
 ```bash
-/usr/local/bin/vnc-boot.sh
+~/.local/bin/vnc-boot.sh
 ```
 
 This ensures `DISPLAY` is correct and launches XFCE via `~/.vnc/xstartup`.
@@ -221,10 +243,10 @@ Then make it executable and restart the VNC server:
 
 ```bash
 chmod +x ~/.vnc/xstartup
-/usr/local/bin/vnc-boot.sh
+~/.local/bin/vnc-boot.sh
 ```
 
-This should launch the XFCE desktop automatically in your VNC session. If it still fails, check `~/.vnc/*.log` and `/root/vnc-boot.log`.
+This should launch the XFCE desktop automatically in your VNC session. If it still fails, check `~/.vnc/*.log` and `~/vnc-boot.log`.
 
 ## Troubleshooting: Xorg Fails with 'no screens found' or 'Fatal server error'
 
@@ -309,7 +331,7 @@ If the VNC page stays on "Submitting credentials...":
     websockify --verbose 8001 127.0.0.1:5901
     ```
 
-If verbose output shows `Target closed connection` immediately, the backend VNC auth handshake is failing. Restart VNC via `/usr/local/bin/vnc-boot.sh` and retry.
+If verbose output shows `Target closed connection` immediately, the backend VNC auth handshake is failing. Restart VNC via `~/.local/bin/vnc-boot.sh` and retry.
 
 ## Security Tips
 - Use a non-root user for the desktop session.
