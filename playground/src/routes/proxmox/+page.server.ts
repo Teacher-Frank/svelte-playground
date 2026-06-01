@@ -617,13 +617,13 @@ export const load: PageServerLoad = async () => {
  *
  * | Action | Form fields | Description |
  * |---|---|---|
- * | `start` | `workloadId`, `workloadType`, `node` | Powers on a VM or container. |
- * | `stop` | `workloadId`, `workloadType`, `node` | Powers off a VM or container. |
- * | `restart` | `workloadId`, `workloadType`, `node` | Reboots a VM or container. |
+ * | `start` | `type`, `id`, `node`, `name?`, `status?` | Powers on a VM or container. |
+ * | `stop` | `type`, `id`, `node`, `name?`, `status?` | Powers off a VM or container. |
+ * | `restart` | `type`, `id`, `node`, `name?`, `status?` | Reboots a VM or container. |
  * | `cloneFromTemplate` | `templateId`, `templateNode`, `newName` | Clones a QEMU template to a new full VM. |
- * | `cloneLxcTemplate` | `templateVolid`, `templateNode`, `newName` | Deploys a new LXC container from a storage template. |
+ * | `cloneLxcTemplate` | `templateVolid`, `templateNode`, `newName`, `rootPassword` | Deploys a new LXC container from a storage template. |
  *
- * @returns A `{ status: 'ok' | 'error', message?, upid? }` object, or a
+ * @returns A `{ status: 'success' | 'error', message?, upid? }` object, or a
  *   SvelteKit `fail` response on validation errors.
  */
 export const actions: Actions = {
@@ -660,17 +660,17 @@ export const actions: Actions = {
 
       const upid = await cloneVmFromTemplate(templateId, templateNode.trim(), newName.trim());
 
-       return {
-         status: 'success' as const,
-         message: `Cloning template ${templateId} as "${newName.trim()}" — task ${upid}.`,
-         formType: 'vm-template'
-       };
+      return {
+        status: 'success' as const,
+        message: `Cloning template ${templateId} as "${newName.trim()}" — task ${upid}.`,
+        formType: 'vm-template'
+      };
     } catch (error) {
-       return fail(500, {
-         status: 'error' as const,
-         message: error instanceof Error ? error.message : String(error),
-         formType: 'vm-template'
-       });
+      return fail(500, {
+        status: 'error' as const,
+        message: error instanceof Error ? error.message : String(error),
+        formType: 'vm-template'
+      });
     }
   },
 
