@@ -27,6 +27,14 @@
     node: 'pve1',
     status: 'stopped',
   };
+
+  const runningContainer = {
+    type: 'container',
+    id: 201,
+    name: 'api-container',
+    node: 'pve1',
+    status: 'running',
+  };
 </script>
 
 <Story name="No selection" args={{ selectedWorkload: null, selectedLabel: 'No workload selected' }} />
@@ -36,6 +44,11 @@
 <Story
   name="Stopped container selected"
   args={{ selectedWorkload: stoppedContainer, selectedLabel: 'db-container (CT 200)' }}
+/>
+
+<Story
+  name="Running container selected"
+  args={{ selectedWorkload: runningContainer, selectedLabel: 'api-container (CT 201)' }}
 />
 
 <Story

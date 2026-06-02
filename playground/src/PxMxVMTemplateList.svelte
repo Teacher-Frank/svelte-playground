@@ -88,7 +88,25 @@
                     autocomplete="off"
                     class="deploy-name-input"
                   />
-                  <button type="submit" class="deploy-btn">Deploy</button>
+                  <div class="template-actions">
+                    <button
+                      type="submit"
+                      class="deploy-btn"
+                      title="Deploy VM from template"
+                      aria-label="Deploy VM from template"
+                    >
+                      <img src="/deploy.svg" alt="" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="submit"
+                      formaction="?/renameVmTemplate"
+                      class="rename-btn"
+                      title="Rename template to input name"
+                      aria-label="Rename template to input name"
+                    >
+                      <img src="/rename.svg" alt="" aria-hidden="true" />
+                    </button>
+                  </div>
                 </form>
               </td>
             </tr>
@@ -108,6 +126,12 @@
     align-items: center;
   }
 
+  .template-actions {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+  }
+
   .deploy-name-input {
     border: 1px solid #b3b3b3;
     border-radius: 0.4rem;
@@ -123,8 +147,47 @@
     color: #fff;
     cursor: pointer;
     font-size: 0.9rem;
-    padding: 0.25rem 0.75rem;
-    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.35rem;
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .deploy-btn img {
+    width: 1.05rem;
+    height: 1.05rem;
+    display: block;
+  }
+
+  .rename-btn {
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    border-radius: 0.4rem;
+    color: #7c2d12;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.35rem;
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .rename-btn img {
+    width: 1.05rem;
+    height: 1.05rem;
+    display: block;
+  }
+
+  .rename-btn:hover {
+    background: #fde68a;
+    border-color: #d97706;
+  }
+
+  .rename-btn:active {
+    transform: scale(0.97);
   }
 
   .deploy-btn:hover {

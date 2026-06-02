@@ -101,18 +101,6 @@
     <button formaction="?/restart" title="Restart" aria-label="Restart" disabled={disabled}>
       <img src="/restart.svg" alt="" aria-hidden="true" />
     </button>
-
-    {#if selectedWorkload?.type === 'container'}
-      <button
-        formaction="?/convertToTemplate"
-        title={convertToTemplateTooltip}
-        aria-label={convertToTemplateTooltip}
-        class="template-btn"
-        disabled={!convertToTemplateEnabled}
-      >
-        <img src="/template.svg" alt="" aria-hidden="true" />
-      </button>
-    {/if}
   </form>
 
   <!-- Opens the in-browser terminal route for the selected workload. -->
@@ -146,6 +134,25 @@
   >
     <img src="/vnc.svg" alt="" aria-hidden="true" />
   </a>
+
+  {#if selectedWorkload?.type === 'container'}
+    <form class="convert-form" method="POST" action="?/convertToTemplate" use:enhance={preserveScrollOnSubmit}>
+      <input name="type" type="hidden" value={selectedWorkload?.type ?? ''} />
+      <input name="id" type="hidden" value={selectedWorkload?.id?.toString() ?? ''} />
+      <input name="name" type="hidden" value={selectedWorkload?.name ?? ''} />
+      <input name="node" type="hidden" value={selectedWorkload?.node ?? ''} />
+      <input name="status" type="hidden" value={selectedWorkload?.status ?? ''} />
+      <button
+        type="submit"
+        title={convertToTemplateTooltip}
+        aria-label={convertToTemplateTooltip}
+        class="template-btn"
+        disabled={!convertToTemplateEnabled}
+      >
+        <img src="/template.svg" alt="" aria-hidden="true" />
+      </button>
+    </form>
+  {/if}
 
   <!-- Triggers an explicit confirmation overlay before submitting destroy. -->
   <button

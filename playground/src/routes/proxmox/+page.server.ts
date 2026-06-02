@@ -559,6 +559,15 @@ const cloneVmFromTemplate = async (templateId: number, templateNode: string, new
   }) as string;
 };
 
+/** Renames a QEMU template (or VM) by updating its config name. */
+const renameVmTemplate = async (templateId: number, templateNode: string, newName: string): Promise<string | unknown> => {
+  const client = await createClient();
+  return await client.request('/nodes/{node}/qemu/{vmid}/config', 'POST', {
+    $path: { node: templateNode, vmid: templateId },
+    $body: { name: newName },
+  });
+};
+
 /**
  * Returns an error message if the password is not strong enough, or `null` if it passes.
  * Rules: ≥12 chars, at least one uppercase, one lowercase, one digit, one special character.
@@ -649,6 +658,7 @@ export const load: PageServerLoad = async () => {
  * | `restart` | `type`, `id`, `node`, `name?`, `status?` | Reboots a VM or container. |
  * | `convertToTemplate` | `type`, `id`, `node`, `name?`, `status?` | Stops a running LXC (if needed) and converts it into a template. |
  * | `cloneFromTemplate` | `templateId`, `templateNode`, `newName` | Clones a QEMU template to a new full VM. |
+ * | `renameVmTemplate` | `templateId`, `templateNode`, `newName` | Renames a QEMU template. |
  * | `cloneLxcTemplate` | `templateVolid`, `templateNode`, `newName`, `rootPassword` | Deploys a new LXC container from a storage template. |
  *
  * @returns A `{ status: 'success' | 'error', message?, upid? }` object, or a
@@ -732,6 +742,51 @@ export const actions: Actions = {
       return {
         status: 'success' as const,
         message: `Cloning template ${templateId} as "${newName.trim()}" — task ${upid}.`,
+        formType: 'vm-template'
+      };
+    } catch (error) {
+      return fail(500, {
+        status: 'error' as const,
+        message: error instanceof Error ? error.message : String(error),
+        formType: 'vm-template'
+      });
+    }
+  },
+
+  /** Renames a QEMU template using the entered newName value. */
+  renameVmTemplate: async ({ request }: RequestEvent) => {
+    try {
+      const formData = await request.formData();
+
+      const templateIdValue = formData.get('templateId');
+      const templateNode = formData.get('templateNode');
+      const newName = formData.get('newName');
+
+      if (typeof templateIdValue !== 'string' || templateIdValue.length === 0) {
+        return fail(400, { status: 'error' as const, message: 'Missing template ID.' });
+      }
+
+      const templateId = Number(templateIdValue);
+      if (!Number.isInteger(templateId) || templateId <= 0) {
+        return fail(400, { status: 'error' as const, message: 'Invalid template ID.' });
+      }
+
+      if (typeof templateNode !== 'string' || templateNode.trim().length === 0) {
+        return fail(400, { status: 'error' as const, message: 'Missing template node.' });
+      }
+
+      if (typeof newName !== 'string' || newName.trim().length === 0) {
+        return fail(400, { status: 'error' as const, message: 'Template name is required.' });
+      }
+
+      const result = await renameVmTemplate(templateId, templateNode.trim(), newName.trim());
+      const maybeTask = typeof result === 'string' ? result : undefined;
+
+      return {
+        status: 'success' as const,
+        message: maybeTask
+          ? `Renaming template ${templateId} to "${newName.trim()}" — task ${maybeTask}.`
+          : `Renamed template ${templateId} to "${newName.trim()}".`,
         formType: 'vm-template'
       };
     } catch (error) {

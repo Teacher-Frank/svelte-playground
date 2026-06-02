@@ -49,3 +49,12 @@
     form: { message: 'Failed to create container: disk full', status: 'error' },
   }}
 />
+
+<Story
+  name="Rename unavailable"
+  args={{
+    workloads: templates,
+    serverNode: 'pve1',
+    form: { message: 'Rename is disabled for storage templates.', status: 'error' },
+  }}
+/>

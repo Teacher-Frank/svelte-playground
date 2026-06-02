@@ -32,3 +32,11 @@
     form: { message: 'VM cloned successfully', status: 'success' },
   }}
 />
+
+<Story
+  name="Rename action visible"
+  args={{
+    workloads: templates,
+    form: { message: 'Renamed template 900 to "ubuntu-base".', status: 'success' },
+  }}
+/>
