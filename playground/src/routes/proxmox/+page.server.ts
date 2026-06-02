@@ -452,6 +452,33 @@ const executeDestroyAction = async (type: WorkloadKind, id: number, node: string
     : nodeApi.lxc.id(id).delete({ $query: { purge: true, force: true } })) as string;
 };
 
+/**
+ * Converts an LXC container into a template. If currently running, the
+ * container is stopped first and the stop task is awaited.
+ */
+const executeConvertToTemplateAction = async (
+  id: number,
+  node: string,
+  workloadStatus?: string
+): Promise<{ convertUpid: string; stopUpid?: string }> => {
+  const client = await createClient();
+  const nodeApi = client.api.nodes.get(node);
+
+  const shouldStop = workloadStatus === 'running';
+
+  let stopUpid: string | undefined;
+  if (shouldStop) {
+    stopUpid = await nodeApi.lxc.id(id).status.stop() as string;
+    await client.task.wait(stopUpid);
+  }
+
+  const convertUpid = await client.request('/nodes/{node}/lxc/{vmid}/template', 'POST', {
+    $path: { node, vmid: id },
+  }) as string;
+
+  return { convertUpid, stopUpid };
+};
+
 /** Sends a start/stop/restart command to a VM or container via the Proxmox API. */
 const executeWorkloadAction = async (
   type: WorkloadKind,
@@ -620,6 +647,7 @@ export const load: PageServerLoad = async () => {
  * | `start` | `type`, `id`, `node`, `name?`, `status?` | Powers on a VM or container. |
  * | `stop` | `type`, `id`, `node`, `name?`, `status?` | Powers off a VM or container. |
  * | `restart` | `type`, `id`, `node`, `name?`, `status?` | Reboots a VM or container. |
+ * | `convertToTemplate` | `type`, `id`, `node`, `name?`, `status?` | Stops a running LXC (if needed) and converts it into a template. |
  * | `cloneFromTemplate` | `templateId`, `templateNode`, `newName` | Clones a QEMU template to a new full VM. |
  * | `cloneLxcTemplate` | `templateVolid`, `templateNode`, `newName`, `rootPassword` | Deploys a new LXC container from a storage template. |
  *
@@ -631,6 +659,47 @@ export const actions: Actions = {
   start: buildAction('start'),
   stop: buildAction('stop'),
   restart: buildAction('restart'),
+
+  /** Stops a running LXC (if needed) and converts it into a template. */
+  convertToTemplate: async ({ request }: RequestEvent) => {
+    let selectedWorkload: { type: WorkloadKind; id: number; name?: string; node: string; status?: string } | undefined;
+    try {
+      const formData = await request.formData();
+      selectedWorkload = parseWorkloadSubmission(formData);
+
+      if (selectedWorkload.type !== 'container') {
+        return fail(400, {
+          status: 'error' as const,
+          message: 'Only LXC containers can be converted to templates.',
+          workloadType: selectedWorkload.type,
+          formType: selectedWorkload.type
+        });
+      }
+
+      const { convertUpid, stopUpid } = await executeConvertToTemplateAction(
+        selectedWorkload.id,
+        selectedWorkload.node,
+        selectedWorkload.status
+      );
+
+      return {
+        status: 'success' as const,
+        message: stopUpid
+          ? `Stopped container ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''} and started template conversion — stop task ${stopUpid}, convert task ${convertUpid}.`
+          : `Converting container ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''} to template — task ${convertUpid}.`,
+        upid: convertUpid,
+        workloadType: selectedWorkload.type,
+        formType: selectedWorkload.type
+      };
+    } catch (error) {
+      return fail(500, {
+        status: 'error' as const,
+        message: error instanceof Error ? error.message : String(error),
+        workloadType: selectedWorkload?.type,
+        formType: selectedWorkload?.type
+      });
+    }
+  },
 
   /** Clones a QEMU VM template into a new full VM. */
   cloneFromTemplate: async ({ request }: RequestEvent) => {

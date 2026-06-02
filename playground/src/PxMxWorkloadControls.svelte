@@ -46,6 +46,21 @@
     selectedWorkload?.node != null
   );
 
+  // Conversion applies to any selected LXC container; running ones are stopped
+  // server-side before conversion.
+  const convertToTemplateEnabled = $derived(
+    !disabled &&
+    selectedWorkload?.type === 'container' &&
+    selectedWorkload?.id != null &&
+    selectedWorkload?.node != null
+  );
+
+  const convertToTemplateTooltip = $derived(
+    selectedWorkload?.status === 'running'
+      ? 'Stop and convert to template'
+      : 'Convert to template'
+  );
+
   // Controls visibility of the high-friction delete confirmation dialog.
   let showDeleteConfirm = $state(false);
 
@@ -86,6 +101,18 @@
     <button formaction="?/restart" title="Restart" aria-label="Restart" disabled={disabled}>
       <img src="/restart.svg" alt="" aria-hidden="true" />
     </button>
+
+    {#if selectedWorkload?.type === 'container'}
+      <button
+        formaction="?/convertToTemplate"
+        title={convertToTemplateTooltip}
+        aria-label={convertToTemplateTooltip}
+        class="template-btn"
+        disabled={!convertToTemplateEnabled}
+      >
+        <img src="/template.svg" alt="" aria-hidden="true" />
+      </button>
+    {/if}
   </form>
 
   <!-- Opens the in-browser terminal route for the selected workload. -->
