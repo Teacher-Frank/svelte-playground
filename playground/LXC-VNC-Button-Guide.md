@@ -45,7 +45,7 @@ apt update
 apt install -y xfce4 xfce4-goodies tigervnc-standalone-server dbus-x11 python3-websockify xterm
 ```
 
-## Student Section: Create a Non-Root VNC User (Recommended)
+## Create a Non-Root VNC User (Recommended)
 
 When students deploy a container from the playground, they start in a root shell. For safer desktop usage, create a dedicated user and run the VNC desktop session as that user.
 
