@@ -8,6 +8,7 @@
     name?: string;
     node?: string;
     status?: string;
+    primaryIp?: string;
   };
 
   let {
@@ -15,11 +16,13 @@
     selectedLabel = 'No workload selected',
     selectedWorkload = null,
     compact = false,
+    containerGuiEnabled = false,
   }: {
     disabled?: boolean;
     selectedLabel?: string;
     selectedWorkload?: SelectedWorkload | null;
     compact?: boolean;
+    containerGuiEnabled?: boolean;
   } = $props();
 
   // Terminal is only useful when the selected guest is currently running.
@@ -30,14 +33,37 @@
     selectedWorkload?.node != null
   );
 
-  // GUI/VNC access has the same preconditions as terminal: only useful for a
-  // running, addressable workload with concrete id/node context.
+  const supportsGuiAccess = $derived(
+    selectedWorkload?.type === 'vm' || containerGuiEnabled
+  );
+
+  const hasResolvedContainerIp = $derived(
+    selectedWorkload?.type !== 'container' ||
+    (typeof selectedWorkload?.primaryIp === 'string' && selectedWorkload.primaryIp.trim().length > 0)
+  );
+
+  // GUI/VNC access is only shown as active when the selected workload is
+  // running and the backend can provide a real GUI bridge for that type.
   const vncEnabled = $derived(
     !disabled &&
+    supportsGuiAccess &&
+    hasResolvedContainerIp &&
     selectedWorkload?.status === 'running' &&
     selectedWorkload?.id != null &&
     selectedWorkload?.node != null
   );
+
+  const vncTooltip = $derived.by(() => {
+    if (selectedWorkload?.type === 'container' && !containerGuiEnabled) {
+      return 'GUI is not available for containers without an LXC VNC bridge';
+    }
+
+    if (selectedWorkload?.type === 'container' && !hasResolvedContainerIp) {
+      return 'Waiting for container IPv4 address before enabling GUI (VNC)';
+    }
+
+    return 'Open GUI (VNC)';
+  });
 
   // Destructive actions are allowed whenever a concrete workload is selected.
   const deleteEnabled = $derived(
@@ -123,12 +149,12 @@
   <a
     class="vnc-btn"
     href={vncEnabled
-      ? `/proxmox/vnc?vmid=${encodeURIComponent(selectedWorkload!.id!)}&node=${encodeURIComponent(selectedWorkload!.node!)}&type=${encodeURIComponent(selectedWorkload!.type)}${selectedWorkload!.name ? `&name=${encodeURIComponent(selectedWorkload!.name)}` : ''}`
+      ? `/proxmox/vnc?vmid=${encodeURIComponent(selectedWorkload!.id!)}&node=${encodeURIComponent(selectedWorkload!.node!)}&type=${encodeURIComponent(selectedWorkload!.type)}${selectedWorkload!.name ? `&name=${encodeURIComponent(selectedWorkload!.name)}` : ''}${selectedWorkload!.type === 'container' && selectedWorkload!.primaryIp ? `&ip=${encodeURIComponent(selectedWorkload!.primaryIp)}` : ''}`
       : undefined}
     target={vncEnabled ? '_blank' : undefined}
     rel={vncEnabled ? 'noopener noreferrer' : undefined}
-    title="Open GUI (VNC)"
-    aria-label="Open GUI (VNC)"
+    title={vncTooltip}
+    aria-label={vncTooltip}
     aria-disabled={!vncEnabled}
     tabindex={vncEnabled ? 0 : -1}
   >

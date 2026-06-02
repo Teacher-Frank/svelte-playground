@@ -26,6 +26,7 @@ const makeData = () => ({
     configuredNode: 'pve1',
     configuredNodeExists: true,
     serverNode: 'pve1',
+    containerGuiSupported: false,
     serverStatus: 'online',
     lastSuccessfulRefresh: Date.now(),
     nodes: [],
@@ -91,5 +92,22 @@ describe('PxMxAdmin tab form state', () => {
     await page.getByRole('tab', { name: 'Virtual Machines' }).click();
 
     await expect.element(page.getByPlaceholder('New VM name')).toHaveValue('');
+  });
+
+  it('shows converted container templates in templates area and excludes them from container workload list', async () => {
+    const data = makeData();
+    data.results.containers = [
+      { id: 300, name: 'converted-template', node: 'pve1', status: 'stopped', uptime: 0, template: 1 },
+      { id: 301, name: 'runtime-container', node: 'pve1', status: 'running', uptime: 120, primaryIp: '10.0.0.51' },
+    ] as Workload[];
+
+    render(PxMxAdmin, { data });
+
+    await page.getByRole('tab', { name: 'LXC Containers' }).click();
+
+    await expect.element(page.getByRole('cell', { name: 'converted-template' })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'runtime-container' })).toBeVisible();
+    await expect.element(page.getByText('10.0.0.51')).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'converted-template' })).not.toBeInTheDocument();
   });
 });

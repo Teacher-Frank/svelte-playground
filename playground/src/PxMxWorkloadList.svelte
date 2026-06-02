@@ -10,15 +10,18 @@
     node?: string;
     status?: string;
     uptime?: number;
+    primaryIp?: string;
   };
 
   let {
     kind,
     workloads,
-    form
+    form,
+    containerGuiEnabled = false,
   }: {
     kind: WorkloadKind;
     workloads: Workload[];
+    containerGuiEnabled?: boolean;
     form?: {
       message?: string;
       status?: 'success' | 'error';
@@ -50,6 +53,20 @@
   const emptyStateLabel = $derived(kind === 'vm' ? 'No virtual machines found.' : 'No containers found.');
   const unnamedLabel = $derived(kind === 'vm' ? 'Unnamed VM' : 'Unnamed container');
 
+  const formatContainerIp = (workload: Workload): string => {
+    if (workload.primaryIp && workload.primaryIp.trim().length > 0) {
+      return workload.primaryIp;
+    }
+
+    // Running containers may need a short settle period before interfaces report
+    // a usable IPv4; show '?' while discovery is still in progress.
+    if (workload.status === 'running') {
+      return '?';
+    }
+
+    return '-';
+  };
+
   let dismissed = $state(false);
   $effect(() => {
     // Reset dismissal when server action feedback changes so each new result is
@@ -69,6 +86,9 @@
         <span>Name</span>
         <span>Status</span>
         <span>Node</span>
+        {#if kind === 'container'}
+          <span>IP</span>
+        {/if}
         <span>Uptime</span>
       </div>
       <span class="actions-header">Actions</span>
@@ -86,6 +106,9 @@
             <span>{workload.name ?? unnamedLabel}</span>
             <span>{workload.status ?? '-'}</span>
             <span>{workload.node ?? '-'}</span>
+            {#if kind === 'container'}
+              <span>{formatContainerIp(workload)}</span>
+            {/if}
             <span>{formatUptime(workload.uptime)}</span>
           </button>
 
@@ -93,7 +116,15 @@
           <PxMxWorkloadControls
             compact={true}
             disabled={workload.id == null}
-            selectedWorkload={{ type: kind, id: workload.id, name: workload.name, node: workload.node, status: workload.status }}
+            containerGuiEnabled={containerGuiEnabled}
+            selectedWorkload={{
+              type: kind,
+              id: workload.id,
+              name: workload.name,
+              node: workload.node,
+              status: workload.status,
+              primaryIp: workload.primaryIp,
+            }}
           />
         </li>
       {/each}

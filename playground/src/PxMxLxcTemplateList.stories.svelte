@@ -26,9 +26,13 @@
       content: 'vztmpl',
     },
   ];
+
+  const guestTemplates = [
+    { id: 210, name: 'app-template', node: 'pve1', status: 'stopped', template: 1 },
+  ];
 </script>
 
-<Story name="Templates" args={{ workloads: templates, serverNode: 'pve1' }} />
+<Story name="Templates" args={{ workloads: templates, containerTemplates: guestTemplates, serverNode: 'pve1' }} />
 
 <Story name="Empty" args={{ workloads: [], serverNode: 'pve1' }} />
 
@@ -36,6 +40,7 @@
   name="With success feedback"
   args={{
     workloads: templates,
+    containerTemplates: guestTemplates,
     serverNode: 'pve1',
     form: { message: 'Container created from template', status: 'success' },
   }}
@@ -45,6 +50,7 @@
   name="With error feedback"
   args={{
     workloads: templates,
+    containerTemplates: guestTemplates,
     serverNode: 'pve1',
     form: { message: 'Failed to create container: disk full', status: 'error' },
   }}
@@ -54,6 +60,7 @@
   name="Rename unavailable"
   args={{
     workloads: templates,
+    containerTemplates: guestTemplates,
     serverNode: 'pve1',
     form: { message: 'Rename is disabled for storage templates.', status: 'error' },
   }}

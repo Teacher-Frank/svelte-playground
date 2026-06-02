@@ -6,6 +6,22 @@ import WS from 'ws';
 
 const ALLOWED_VNC_PATH = /^\/api2\/json\/nodes\/[^/]+\/(qemu|lxc)\/\d+\/vncwebsocket$/;
 
+function isIPv4Host(hostname: string): boolean {
+  const parts = hostname.split('.');
+  if (parts.length !== 4) return false;
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) return false;
+    const octet = Number(part);
+    if (!Number.isInteger(octet) || octet < 0 || octet > 255) return false;
+  }
+  return true;
+}
+
+function getPortOrDefault(protocol: string, explicitPort: string): string {
+  if (explicitPort) return explicitPort;
+  return protocol === 'wss:' ? '443' : '80';
+}
+
 function getAllowedBridgeHosts(): Set<string> {
   const allowlist = new Set<string>();
   const envHosts = process.env.LXC_VNC_BRIDGE_ALLOWED_HOSTS
@@ -50,6 +66,13 @@ function safeClose(ws: WsWebSocket, code: number, reason: string): void {
   }
 }
 
+function sanitizeCloseReason(input: string, fallback: string): string {
+  const cleaned = input.replace(/[\r\n]+/g, ' ').trim();
+  if (!cleaned) return fallback;
+  // RFC6455 close reason payload must fit in 123 bytes.
+  return cleaned.slice(0, 123);
+}
+
 async function handleVncWs(browserWs: WsWebSocket, params: URLSearchParams): Promise<void> {
   const { Client } = await import('pve-client');
   const { Agent } = await import('node:https');
@@ -77,6 +100,8 @@ async function handleVncWs(browserWs: WsWebSocket, params: URLSearchParams): Pro
     const realm = process.env.PVE_REALM?.trim() || 'pam';
     const insecureTls = process.env.PVE_INSECURE_TLS === 'true';
     const allowedBridgeHosts = getAllowedBridgeHosts();
+    const allowDerivedIpv4Hosts = process.env.LXC_VNC_BRIDGE_DERIVE_FROM_IPV4 === 'true';
+    const derivedBridgePort = process.env.LXC_VNC_BRIDGE_WS_PORT?.trim() || '8001';
 
     if (upstreamUrl.protocol !== 'ws:' && upstreamUrl.protocol !== 'wss:') {
       browserWs.close(1008, 'Upstream websocket protocol is not allowed');
@@ -93,7 +118,12 @@ async function handleVncWs(browserWs: WsWebSocket, params: URLSearchParams): Pro
     // sessions backed by operator-managed websockify endpoints.
     const isAllowedBridgeUpstream = allowedBridgeHosts.has(upstreamUrl.host);
 
-    if (!isProxmoxUpstream && !isAllowedBridgeUpstream) {
+    const isAllowedDerivedIpv4Upstream =
+      allowDerivedIpv4Hosts &&
+      isIPv4Host(upstreamUrl.hostname) &&
+      getPortOrDefault(upstreamUrl.protocol, upstreamUrl.port) === derivedBridgePort;
+
+    if (!isProxmoxUpstream && !isAllowedBridgeUpstream && !isAllowedDerivedIpv4Upstream) {
       browserWs.close(1008, 'Upstream websocket target is not allowed');
       return;
     }
@@ -150,6 +180,13 @@ async function handleVncWs(browserWs: WsWebSocket, params: URLSearchParams): Pro
       rejectUnauthorized: !insecureTls,
     });
 
+    let upstreamOpen = false;
+    let browserClosed = false;
+
+    upstreamWs.on('open', () => {
+      upstreamOpen = true;
+    });
+
     // This proxy intentionally keeps auth server-side while preserving the raw
     // RFB stream. The browser still runs noVNC protocol logic end-to-end.
     upstreamWs.on('message', (data) => {
@@ -162,14 +199,40 @@ async function handleVncWs(browserWs: WsWebSocket, params: URLSearchParams): Pro
       }
     });
 
-    upstreamWs.on('close', () => {
-      safeClose(browserWs, 1001, 'Proxmox VNC session closed');
+    upstreamWs.on('close', (code, reasonBuffer) => {
+      if (browserClosed) return;
+
+      const reasonText =
+        typeof reasonBuffer === 'string'
+          ? reasonBuffer
+          : Buffer.isBuffer(reasonBuffer)
+            ? reasonBuffer.toString('utf8')
+            : '';
+
+      if (!upstreamOpen) {
+        safeClose(browserWs, 1013, sanitizeCloseReason(
+          reasonText,
+          'Failed to connect to upstream VNC websocket bridge'
+        ));
+        return;
+      }
+
+      if (code === 1000 || code === 1001) {
+        safeClose(browserWs, 1001, sanitizeCloseReason(reasonText, 'Proxmox VNC session closed'));
+        return;
+      }
+
+      safeClose(browserWs, 1011, sanitizeCloseReason(reasonText, 'Upstream VNC websocket closed unexpectedly'));
     });
 
     upstreamWs.on('error', (err) => {
       // Log detailed error server-side, but avoid leaking internals to clients.
       console.error('[proxmox-vnc-ws] Upstream websocket error:', err);
-      safeClose(browserWs, 1011, 'Upstream VNC websocket failed');
+      const message = err instanceof Error ? err.message : String(err);
+      const normalized = /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT/i.test(message)
+        ? 'Upstream VNC bridge is unreachable'
+        : 'Upstream VNC websocket failed';
+      safeClose(browserWs, 1013, sanitizeCloseReason(normalized, 'Upstream VNC websocket failed'));
     });
 
     browserWs.on('message', (data) => {
@@ -184,6 +247,7 @@ async function handleVncWs(browserWs: WsWebSocket, params: URLSearchParams): Pro
     });
 
     browserWs.on('close', () => {
+      browserClosed = true;
       if (upstreamWs.readyState === WS.OPEN || upstreamWs.readyState === WS.CONNECTING) upstreamWs.close();
     });
 

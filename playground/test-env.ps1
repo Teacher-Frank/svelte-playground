@@ -25,8 +25,20 @@ $env:PVE_INSECURE_TLS = "true"
 #optional: VNC configuration
 # $env:LXC_VNC_BRIDGE_WS_URL=ws://<your-host>:8001
 # $env:LXC_VNC_BRIDGE_ALLOWED_HOSTS=<your-host>:8001,<other-host>:9001
-$env:LXC_VNC_BRIDGE_WS_URL='ws://145.24.223.209:8001'
-$env:LXC_VNC_BRIDGE_ALLOWED_HOSTS='145.24.223.209:8001'
+# Optional placeholder variant: ws://{ip}:8001 (or use {ipv4})
+# Optional derived mode (when no explicit URL template is provided):
+#   LXC_VNC_BRIDGE_DERIVE_FROM_IPV4=true
+#   LXC_VNC_BRIDGE_WS_SCHEME=ws
+#   LXC_VNC_BRIDGE_WS_PORT=8001
+#   LXC_VNC_BRIDGE_WS_PATH=
+$env:LXC_VNC_BRIDGE_DERIVE_FROM_IPV4='true'
+$env:LXC_VNC_BRIDGE_WS_SCHEME='ws'
+$env:LXC_VNC_BRIDGE_WS_PORT='8001'
+$env:LXC_VNC_BRIDGE_WS_PATH=''
+# Keep this empty to let derived mode build ws://<container-ip>:<port>.
+$env:LXC_VNC_BRIDGE_WS_URL=''
+# Allowlist is not needed in derived mode; proxy validates IPv4 + configured port.
+$env:LXC_VNC_BRIDGE_ALLOWED_HOSTS=''
 
 # Optional: Set Node.js environment
 $env:NODE_ENV = "development"

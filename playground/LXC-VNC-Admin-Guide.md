@@ -45,7 +45,30 @@ chmod +x /root/lxc-post-create-hook.sh
 
 This script will be automatically invoked for every new LXC container created via the API or UI, as the deployment process always specifies it with the `hookscript` parameter. Do not skip this step.
 
-## 4. Troubleshooting
+## 4. Configure LXC VNC Bridge Mode in Playground
+
+The playground supports two bridge configuration modes for LXC GUI sessions:
+
+- Template mode: set `LXC_VNC_BRIDGE_WS_URL` and optionally use placeholders such as `{node}`, `{vmid}`, `{ip}`, or `{ipv4}`.
+- Derived IPv4 mode: build bridge websocket targets from the container IPv4 discovered via the Proxmox interfaces API.
+
+Recommended derived mode variables:
+
+```bash
+LXC_VNC_BRIDGE_DERIVE_FROM_IPV4=true
+LXC_VNC_BRIDGE_WS_SCHEME=ws
+LXC_VNC_BRIDGE_WS_PORT=8001
+LXC_VNC_BRIDGE_WS_PATH=
+```
+
+Operational notes:
+
+- In derived mode, the bridge target is built as `ws(s)://<container-ip>:<port><path>`.
+- The playground websocket proxy only allows derived IPv4 targets on the configured bridge port.
+- If no container IPv4 is available yet, the GUI action remains disabled until IP discovery completes.
+- Restart the playground server after changing bridge environment variables.
+
+## 5. Troubleshooting
 - If Xorg fails with 'no screens found', ensure the dummy video driver is installed and the config is correct.
 - Always restart the container after changing the config file.
 

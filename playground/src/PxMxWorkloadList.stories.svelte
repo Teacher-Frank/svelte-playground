@@ -18,9 +18,9 @@
   ];
 
   const containers = [
-    { id: 200, name: 'nginx', node: 'pve1', status: 'running', uptime: 12345 },
-    { id: 201, name: 'postgres', node: 'pve1', status: 'running', uptime: 6789 },
-    { id: 202, name: 'redis', node: 'pve2', status: 'stopped', uptime: 0 },
+    { id: 200, name: 'nginx', node: 'pve1', status: 'running', uptime: 12345, primaryIp: '10.0.0.21' },
+    { id: 201, name: 'postgres', node: 'pve1', status: 'running', uptime: 6789, primaryIp: '10.0.0.22' },
+    { id: 202, name: 'redis', node: 'pve2', status: 'stopped', uptime: 0, primaryIp: '-' },
   ];
 </script>
 

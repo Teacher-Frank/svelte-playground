@@ -24,6 +24,7 @@
     node?: string;
     status?: string;
     uptime?: number;
+    primaryIp?: string;
     isTemplate?: boolean;
     template?: number | boolean;
   };
@@ -48,6 +49,7 @@
     configuredNode: string;
     configuredNodeExists: boolean;
     serverNode: string;
+    containerGuiSupported: boolean;
     serverStatus: string;
     lastSuccessfulRefresh: number | null;
     nodes: unknown;
@@ -78,6 +80,8 @@
     form?: {
       message?: string;
       status?: 'success' | 'error';
+      upid?: string;
+      workloadAction?: 'start' | 'stop' | 'restart';
       workloadType?: 'vm' | 'container';
       formType?: 'vm-template' | 'lxc-template' | 'vm' | 'container';
     } | null;
@@ -88,6 +92,50 @@
   const lxcTemplateForm = $derived(form?.formType === 'lxc-template' ? form : null);
   const vmForm = $derived(form?.formType === 'vm' ? form : null);
   const containerForm = $derived(form?.formType === 'container' ? form : null);
+
+  const lxcGuestTemplates = $derived(
+    (data.results?.containers ?? []).filter(
+      (container) => container.template === 1 || container.template === true || container.isTemplate === true
+    )
+  );
+
+  const lxcWorkloads = $derived(
+    (data.results?.containers ?? []).filter(
+      (container) => !(container.template === 1 || container.template === true || container.isTemplate === true)
+    )
+  );
+
+  let lastContainerIpRefreshActionId = $state<string | null>(null);
+
+  $effect(() => {
+    if (form?.status !== 'success' || form.workloadType !== 'container') {
+      return;
+    }
+
+    if (form.workloadAction !== 'start' && form.workloadAction !== 'restart') {
+      return;
+    }
+
+    const actionId = form.upid ?? `${form.message ?? ''}:${form.workloadAction}`;
+    if (actionId === lastContainerIpRefreshActionId) {
+      return;
+    }
+    lastContainerIpRefreshActionId = actionId;
+
+    // Refresh in the background a few times after boot/reboot so container
+    // networking can settle and interface-derived IPv4 data appears quickly.
+    const timeouts = [0, 1500, 4000, 8000].map((delayMs) =>
+      setTimeout(() => {
+        void invalidateAll();
+      }, delayMs)
+    );
+
+    return () => {
+      for (const timeout of timeouts) {
+        clearTimeout(timeout);
+      }
+    };
+  });
 
   // Effect: Set up periodic refresh if enabled
   $effect(() => {
@@ -188,7 +236,11 @@
             aria-labelledby="tab-vms"
           >
             <PxMxVMTemplateList workloads={data.results.vms} form={templateForm} />
-            <PxMxWorkloadList kind="vm" workloads={data.results.vms.filter((vm) => !vm.template && !vm.isTemplate)} form={vmForm} />
+            <PxMxWorkloadList
+              kind="vm"
+              workloads={data.results.vms.filter((vm) => !vm.template && !vm.isTemplate)}
+              form={vmForm}
+            />
           </div>
         {:else}
           <div
@@ -196,8 +248,18 @@
             role="tabpanel"
             aria-labelledby="tab-lxc"
           >
-            <PxMxLxcTemplateList workloads={data.results.lxcTemplates} serverNode={data.results.serverNode} form={lxcTemplateForm} />
-            <PxMxWorkloadList kind="container" workloads={data.results.containers} form={containerForm} />
+            <PxMxLxcTemplateList
+              workloads={data.results.lxcTemplates}
+              containerTemplates={lxcGuestTemplates}
+              serverNode={data.results.serverNode}
+              form={lxcTemplateForm}
+            />
+            <PxMxWorkloadList
+              kind="container"
+              workloads={lxcWorkloads}
+              form={containerForm}
+              containerGuiEnabled={data.results.containerGuiSupported}
+            />
           </div>
         {/if}
       </div>

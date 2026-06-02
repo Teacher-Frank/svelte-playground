@@ -18,14 +18,38 @@
     // ...other fields from Proxmox API
   };
 
+  type GuestTemplate = {
+    id?: number | string;
+    name?: string;
+    node?: string;
+    status?: string;
+    template?: number | boolean;
+    isTemplate?: boolean;
+  };
+
+  type UnifiedTemplateRow = {
+    key: string;
+    sourceType: 'storage' | 'lxc';
+    templateId?: number | string;
+    templateNode?: string;
+    displayRef: string;
+    displayName: string;
+    displayLocation: string;
+    displayStatusOrFormat: string;
+    displaySizeMb: string;
+    templateVolid?: string;
+  };
+
 
   // Props: workloads is the array of LXC templates, form is for feedback messages (success/error).
   let {
     workloads,
+    containerTemplates = [],
     form,
     serverNode
   }: {
     workloads: LxcTemplate[];
+    containerTemplates?: GuestTemplate[];
     serverNode: string;
     form?: {
       message?: string;
@@ -36,6 +60,34 @@
   // For storage-based LXC templates, just use the array as-is.
   // This allows the UI to always reflect the backend result, even if empty.
   const templates = $derived(workloads);
+  const guestTemplates = $derived(containerTemplates);
+  const unifiedTemplates = $derived.by<UnifiedTemplateRow[]>(() => {
+    const guestRows = guestTemplates.map((guestTemplate) => ({
+      key: `lxc-${guestTemplate.id ?? guestTemplate.name ?? 'unknown'}`,
+      sourceType: 'lxc' as const,
+      templateId: guestTemplate.id,
+      templateNode: guestTemplate.node,
+      displayRef: guestTemplate.id?.toString() ?? '-',
+      displayName: guestTemplate.name ?? 'Unnamed template',
+      displayLocation: guestTemplate.node ?? '-',
+      displayStatusOrFormat: guestTemplate.status ?? '-',
+      displaySizeMb: '-',
+    }));
+
+    const storageRows = templates.map((templateLxc) => ({
+      key: `storage-${templateLxc.volid}`,
+      sourceType: 'storage' as const,
+      templateNode: serverNode,
+      displayRef: templateLxc.volid,
+      displayName: templateLxc.notes?.trim() || templateLxc.volid.split('/').pop() || templateLxc.volid,
+      displayLocation: templateLxc.storage,
+      displayStatusOrFormat: templateLxc.format,
+      displaySizeMb: Math.round(templateLxc.size / (1024 * 1024)).toString(),
+      templateVolid: templateLxc.volid,
+    }));
+
+    return [...guestRows, ...storageRows];
+  });
   const hasUbuntu2404Template = $derived(
     templates.some((template) => /(?:^|:)vztmpl\/ubuntu-24\.04-standard_/i.test(template.volid))
   );
@@ -81,31 +133,44 @@
     </p>
   {/if}
 
-  {#if templates.length > 0}
-    <!-- Render table of LXC templates if any are available -->
+  {#if unifiedTemplates.length > 0}
     <div class="tasks-table-wrap">
       <table class="tasks-table">
         <thead>
           <tr>
-            <th>Volume</th>
-            <th>Storage</th>
-            <th>Format</th>
+            <th>Type</th>
+            <th>Template</th>
+            <th>Name</th>
+            <th>Location</th>
+            <th>Status/Format</th>
             <th>Size (MB)</th>
-            <th>Deploy</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {#each templates as templateLxc (templateLxc.volid)}
+          {#each unifiedTemplates as templateRow (templateRow.key)}
             <tr>
-              <td>{templateLxc.volid}</td>
-              <td>{templateLxc.storage}</td>
-              <td>{templateLxc.format}</td>
-              <td>{Math.round(templateLxc.size / (1024 * 1024))}</td>
+              <td>{templateRow.sourceType}</td>
+              <td>{templateRow.displayRef}</td>
+              <td>{templateRow.displayName}</td>
+              <td>{templateRow.displayLocation}</td>
+              <td>{templateRow.displayStatusOrFormat}</td>
+              <td>{templateRow.displaySizeMb}</td>
               <td>
-                <!-- Deploy form for each template, posts to backend to clone template -->
-                <form method="POST" action="?/cloneLxcTemplate" class="deploy-form" autocomplete="off" use:enhance={preserveScrollOnSubmit}>
-                  <input type="hidden" name="templateVolid" value={templateLxc.volid} />
-                  <input type="hidden" name="templateNode" value={serverNode} />
+                <form
+                  method="POST"
+                  action={templateRow.sourceType === 'storage' ? '?/cloneLxcTemplate' : '?/cloneLxcGuestTemplate'}
+                  class="deploy-form"
+                  autocomplete="off"
+                  use:enhance={preserveScrollOnSubmit}
+                >
+                  {#if templateRow.sourceType === 'storage'}
+                    <input type="hidden" name="templateVolid" value={templateRow.templateVolid ?? ''} />
+                    <input type="hidden" name="templateNode" value={templateRow.templateNode ?? serverNode} />
+                  {:else}
+                    <input type="hidden" name="templateId" value={templateRow.templateId?.toString() ?? ''} />
+                    <input type="hidden" name="templateNode" value={templateRow.templateNode ?? ''} />
+                  {/if}
                   <input
                     type="text"
                     name="newName"
@@ -114,32 +179,36 @@
                     autocomplete="off"
                     class="deploy-name-input"
                   />
-                  <input
-                    type="password"
-                    name="rootPassword"
-                    placeholder="Root password"
-                    required
-                    autocomplete="new-password"
-                    minlength="12"
-                    pattern={String.raw`(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{12,}`}
-                    title="At least 12 characters with uppercase, lowercase, digit, and special character"
-                    class="deploy-name-input"
-                  />
+                  {#if templateRow.sourceType === 'storage'}
+                    <input
+                      type="password"
+                      name="rootPassword"
+                      placeholder="Root password"
+                      required
+                      autocomplete="new-password"
+                      minlength="12"
+                      pattern={String.raw`(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{12,}`}
+                      title="At least 12 characters with uppercase, lowercase, digit, and special character"
+                      class="deploy-name-input"
+                    />
+                  {/if}
                   <div class="template-actions">
                     <button
                       type="submit"
                       class="deploy-btn"
-                      title="Deploy container from template"
-                      aria-label="Deploy container from template"
+                      title={templateRow.sourceType === 'storage' ? 'Deploy container from storage template' : 'Deploy container from guest template'}
+                      aria-label={templateRow.sourceType === 'storage' ? 'Deploy container from storage template' : 'Deploy container from guest template'}
                     >
                       <img src="/deploy.svg" alt="" aria-hidden="true" />
                     </button>
                     <button
-                      type="button"
+                      type={templateRow.sourceType === 'storage' ? 'button' : 'submit'}
+                      formaction={templateRow.sourceType === 'storage' ? undefined : '?/renameLxcGuestTemplate'}
                       class="rename-btn"
-                      title="Rename is not available for storage templates"
-                      aria-label="Rename is not available for storage templates"
-                      disabled
+                      class:enabled={templateRow.sourceType === 'lxc'}
+                      title={templateRow.sourceType === 'storage' ? 'Rename is not available for storage templates' : 'Rename template to input name'}
+                      aria-label={templateRow.sourceType === 'storage' ? 'Rename is not available for storage templates' : 'Rename template to input name'}
+                      disabled={templateRow.sourceType === 'storage'}
                     >
                       <img src="/rename.svg" alt="" aria-hidden="true" />
                     </button>
@@ -212,6 +281,20 @@
     padding: 0.35rem;
     width: 2rem;
     height: 2rem;
+  }
+
+  .rename-btn.enabled {
+    cursor: pointer;
+    opacity: 1;
+  }
+
+  .rename-btn.enabled:hover {
+    background: #fde68a;
+    border-color: #d97706;
+  }
+
+  .rename-btn.enabled:active {
+    transform: scale(0.97);
   }
 
   .rename-btn img {

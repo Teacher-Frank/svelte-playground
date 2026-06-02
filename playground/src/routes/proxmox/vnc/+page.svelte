@@ -32,6 +32,11 @@
   const showOverlay = $derived(statusState !== 'connected');
   const showCredentialPrompt = $derived(statusState === 'credentials');
 
+  const requiresUsername = $derived.by(() => {
+    if (requestedCredentialTypes.includes('username')) return true;
+    return data.type === 'vm';
+  });
+
   const requiresPassword = $derived(requestedCredentialTypes.length === 0 || requestedCredentialTypes.includes('password'));
   const requiresTarget = $derived(requestedCredentialTypes.includes('target'));
 
@@ -58,6 +63,15 @@
   onMount(() => {
     let disposed = false;
     let facade: { disconnect: () => void } | undefined;
+    let connectedAtLeastOnce = false;
+    let connectWatchdog: ReturnType<typeof setTimeout> | undefined;
+
+    const clearConnectWatchdog = () => {
+      if (connectWatchdog) {
+        clearTimeout(connectWatchdog);
+        connectWatchdog = undefined;
+      }
+    };
 
     const openRfbSession = async () => {
       if (!containerEl) return;
@@ -95,6 +109,14 @@
         disconnect: () => rfb.disconnect(),
       };
 
+      clearConnectWatchdog();
+      connectWatchdog = setTimeout(() => {
+        if (disposed || statusState === 'connected') return;
+        statusText =
+          'Could not connect to the GUI websocket bridge. Check bridge availability and upstream endpoint.';
+        statusState = 'error';
+      }, 8000);
+
       // Default to scale-to-fit so GUI sessions stay usable on smaller displays.
       rfb.scaleViewport = true;
       rfb.resizeSession = true;
@@ -103,6 +125,8 @@
 
       rfb.addEventListener('connect', () => {
         if (disposed) return;
+        connectedAtLeastOnce = true;
+        clearConnectWatchdog();
         statusText = 'Connected';
         statusState = 'connected';
         requestedCredentialTypes = [];
@@ -112,10 +136,19 @@
       rfb.addEventListener('disconnect', (event: Event) => {
         if (disposed) return;
         if (reconnectInProgress) return;
+        clearConnectWatchdog();
         // Preserve more specific credential/security states instead of
         // overwriting them with a generic disconnect warning.
         if (statusState === 'credentials' || statusState === 'error') return;
         const detail = (event as CustomEvent<{ clean?: boolean }>).detail;
+
+        if (!connectedAtLeastOnce) {
+          statusText =
+            'GUI websocket bridge closed before connection was established. Verify bridge service and target socket.';
+          statusState = 'error';
+          return;
+        }
+
         statusText = detail?.clean ? 'Disconnected. Refresh to reconnect.' : 'Connection dropped unexpectedly.';
         statusState = 'warning';
       });
@@ -131,6 +164,7 @@
 
       rfb.addEventListener('securityfailure', (event: Event) => {
         if (disposed) return;
+        clearConnectWatchdog();
         const detail = (event as CustomEvent<{ status: number; reason?: string }>).detail;
         const code = Number.isFinite(detail.status) ? detail.status : -1;
         statusText = describeSecurityFailure(code, detail.reason);
@@ -171,6 +205,7 @@
 
     return () => {
       disposed = true;
+      clearConnectWatchdog();
       reconnectSession = undefined;
       facade?.disconnect();
       rfbSession = undefined;
@@ -190,10 +225,10 @@
       return;
     }
 
-    // We always collect username+password for consistent operator UX across
-    // backends, then include target only when specifically requested.
+    // For LXC bridge-backed sessions we keep login password-only unless the
+    // backend explicitly requests a username.
     const credentials: RFBCredentials = {};
-    if (credentialUsername.trim().length > 0) {
+    if (requiresUsername && credentialUsername.trim().length > 0) {
       credentials.username = credentialUsername.trim();
     }
     if (credentialPassword.length > 0) {
@@ -242,10 +277,12 @@
           <div class="overlay-text">{statusText}</div>
 
           <form class="credential-form" onsubmit={submitCredentials}>
-            <label>
-              Username
-              <input bind:value={credentialUsername} autocomplete="username" />
-            </label>
+            {#if requiresUsername}
+              <label>
+                Username
+                <input bind:value={credentialUsername} autocomplete="username" />
+              </label>
+            {/if}
 
             {#if requiresPassword}
               <label>

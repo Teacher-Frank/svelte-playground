@@ -12,6 +12,10 @@ export type WorkloadAction = 'start' | 'stop' | 'restart';
 
 const PROXMOX_REQUEST_TIMEOUT_MS = 8000;
 
+const isContainerGuiSupported = (): boolean =>
+  Boolean(process.env.LXC_VNC_BRIDGE_WS_URL?.trim()) ||
+  process.env.LXC_VNC_BRIDGE_DERIVE_FROM_IPV4 === 'true';
+
 /** A Proxmox guest workload (VM or LXC container) as returned by the API list endpoints. */
 export type Workload = {
   /** Numeric or string VMID / container ID. */
@@ -24,6 +28,20 @@ export type Workload = {
   status?: string;
   /** Seconds the workload has been running, or `0` when stopped. */
   uptime?: number;
+  /** Primary IPv4 address discovered from container interfaces, when available. */
+  primaryIp?: string;
+};
+
+type LxcIpAddress = {
+  'ip-address'?: string;
+  'ip-address-type'?: string;
+  prefix?: number;
+};
+
+type LxcInterface = {
+  inet?: string;
+  'ip-addresses'?: LxcIpAddress[];
+  name?: string;
 };
 
 /** A Proxmox cluster node as returned by the `/nodes` API endpoint. */
@@ -44,6 +62,42 @@ const compareByName = (left: Workload, right: Workload): number => {
   }
 
   return leftName < rightName ? -1 : 1;
+};
+
+const isIPv4Address = (value: string): boolean => {
+  const parts = value.split('.');
+  if (parts.length !== 4) return false;
+
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) return false;
+    const octet = Number(part);
+    if (!Number.isInteger(octet) || octet < 0 || octet > 255) return false;
+  }
+
+  return true;
+};
+
+const extractPrimaryContainerIPv4 = (interfaces: LxcInterface[]): string | undefined => {
+  // Prefer explicit ip-addresses IPv4 entries, then inet fallback, while
+  // skipping loopback and link-local addresses.
+  for (const iface of interfaces) {
+    const ipAddresses = Array.isArray(iface['ip-addresses']) ? iface['ip-addresses'] : [];
+    for (const ipAddress of ipAddresses) {
+      const value = ipAddress['ip-address'];
+      if (typeof value !== 'string' || !isIPv4Address(value)) continue;
+      if (value.startsWith('127.') || value.startsWith('169.254.')) continue;
+      return value;
+    }
+  }
+
+  for (const iface of interfaces) {
+    const fallback = iface.inet;
+    if (typeof fallback !== 'string' || !isIPv4Address(fallback)) continue;
+    if (fallback.startsWith('127.') || fallback.startsWith('169.254.')) continue;
+    return fallback;
+  }
+
+  return undefined;
 };
 
 /** An LXC container template available in Proxmox storage. */
@@ -104,6 +158,8 @@ export type ProxmoxResults = {
   configuredNodeExists: boolean;
   /** Hostname of the cluster node actually used for API calls. */
   serverNode: string;
+  /** Whether LXC GUI/VNC access is configured via an external bridge. */
+  containerGuiSupported: boolean;
   /** Human-readable server availability string (e.g. `"online"`, `"unavailable"`). */
   serverStatus: string;
   /** Timestamp of the most recent successful data refresh, or `null` on first failure. */
@@ -235,6 +291,7 @@ const buildUnavailableResults = (): ProxmoxResults => {
     configuredNode: configuredNode ?? 'unset',
     configuredNodeExists: false,
     serverNode: configuredNode ?? 'unknown',
+    containerGuiSupported: isContainerGuiSupported(),
     serverStatus: 'offline',
     lastSuccessfulRefresh: null,
     nodes: [],
@@ -308,6 +365,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   const lxcTemplates: LxcTemplate[] = [];
   let vms: Workload[] = [];
   let containers: Workload[] = [];
+  const containerPrimaryIpById = new Map<number, string>();
   let tasks: Array<Record<string, unknown>> = [];
 
   // Enumerate LXC templates from all storages that expose vztmpl content
@@ -351,6 +409,28 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   } catch (err) {
     console.error('[proxmox] Failed to list containers:', err);
   }
+
+  const runningContainerIds = (containers as Array<Record<string, unknown>>)
+    .filter((container) => container.status === 'running')
+    .map((container) => Number(container.vmid))
+    .filter((vmid) => Number.isInteger(vmid) && vmid > 0);
+
+  if (runningContainerIds.length > 0) {
+    await Promise.all(
+      runningContainerIds.map(async (vmid) => {
+        try {
+          const interfaces = await nodeApi.lxc.id(vmid).interfaces() as LxcInterface[];
+          const primaryIp = extractPrimaryContainerIPv4(interfaces);
+          if (primaryIp) {
+            containerPrimaryIpById.set(vmid, primaryIp);
+          }
+        } catch (err) {
+          console.warn(`[proxmox] Failed to query interfaces for container ${vmid}:`, err);
+        }
+      })
+    );
+  }
+
   try {
     tasks = await nodeApi.tasks.list({ $query: { limit: 10, source: 'all' } }) as Array<Record<string, unknown>>;
   } catch (err) {
@@ -365,6 +445,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     configuredNode: getConfiguredNodeName() ?? 'unset',
     configuredNodeExists,
     serverNode: node,
+    containerGuiSupported: isContainerGuiSupported(),
     serverStatus,
     lastSuccessfulRefresh: Date.now(),
     nodes,
@@ -383,7 +464,10 @@ const loadResults = async (): Promise<ProxmoxResults> => {
       .map((container) => ({
         ...container,
         node: typeof container.node === 'string' ? container.node : node,
-        id: container.vmid as number | string | undefined
+        id: container.vmid as number | string | undefined,
+        primaryIp: Number.isInteger(container.vmid)
+          ? containerPrimaryIpById.get(container.vmid as number)
+          : undefined,
       }))
       .sort(compareByName) as Workload[],
     lxcTemplates,
@@ -535,6 +619,7 @@ const buildAction = (action: WorkloadAction) => {
         status: 'success' as const,
         message: `${actionLabel} ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''}.`,
         upid,
+        workloadAction: effectiveAction,
         workloadType: selectedWorkload.type,
         formType: selectedWorkload.type
       };
@@ -619,6 +704,37 @@ const cloneLxcTemplate = async (templateVolid: string, templateNode: string, new
   }) as string;
 };
 
+/**
+ * Clones a converted LXC guest template to a new container and starts it.
+ * Returns both the clone and start task UPIDs.
+ */
+const cloneLxcGuestTemplate = async (
+  templateId: number,
+  templateNode: string,
+  newName: string
+): Promise<{ cloneUpid: string; startUpid: string }> => {
+  const client = await createClient();
+  const newid = await client.api.cluster.nextid() as number;
+  const nodeApi = client.api.nodes.get(templateNode);
+  const cloneUpid = await nodeApi.lxc.id(templateId).clone({
+    $body: { newid, hostname: newName, full: true },
+  }) as string;
+
+  await client.task.wait(cloneUpid);
+  const startUpid = await nodeApi.lxc.id(newid).status.start() as string;
+
+  return { cloneUpid, startUpid };
+};
+
+/** Renames a converted LXC guest template by updating hostname in config. */
+const renameLxcGuestTemplate = async (templateId: number, templateNode: string, newName: string): Promise<string | unknown> => {
+  const client = await createClient();
+  return await client.request('/nodes/{node}/lxc/{vmid}/config', 'PUT', {
+    $path: { node: templateNode, vmid: templateId },
+    $body: { hostname: newName },
+  });
+};
+
 // ---------------------------------------------------------------------------
 // SvelteKit exports
 // ---------------------------------------------------------------------------
@@ -659,6 +775,8 @@ export const load: PageServerLoad = async () => {
  * | `convertToTemplate` | `type`, `id`, `node`, `name?`, `status?` | Stops a running LXC (if needed) and converts it into a template. |
  * | `cloneFromTemplate` | `templateId`, `templateNode`, `newName` | Clones a QEMU template to a new full VM. |
  * | `renameVmTemplate` | `templateId`, `templateNode`, `newName` | Renames a QEMU template. |
+ * | `cloneLxcGuestTemplate` | `templateId`, `templateNode`, `newName` | Clones a converted LXC guest template to a new container. |
+ * | `renameLxcGuestTemplate` | `templateId`, `templateNode`, `newName` | Renames a converted LXC guest template. |
  * | `cloneLxcTemplate` | `templateVolid`, `templateNode`, `newName`, `rootPassword` | Deploys a new LXC container from a storage template. |
  *
  * @returns A `{ status: 'success' | 'error', message?, upid? }` object, or a
@@ -794,6 +912,99 @@ export const actions: Actions = {
         status: 'error' as const,
         message: error instanceof Error ? error.message : String(error),
         formType: 'vm-template'
+      });
+    }
+  },
+
+  /** Clones a converted LXC guest template into a new container. */
+  cloneLxcGuestTemplate: async ({ request }: RequestEvent) => {
+    try {
+      const formData = await request.formData();
+
+      const templateIdValue = formData.get('templateId');
+      const templateNode = formData.get('templateNode');
+      const newName = formData.get('newName');
+
+      if (typeof templateIdValue !== 'string' || templateIdValue.length === 0) {
+        return fail(400, { status: 'error' as const, message: 'Missing template ID.', formType: 'lxc-template' });
+      }
+
+      const templateId = Number(templateIdValue);
+      if (!Number.isInteger(templateId) || templateId <= 0) {
+        return fail(400, { status: 'error' as const, message: 'Invalid template ID.', formType: 'lxc-template' });
+      }
+
+      if (typeof templateNode !== 'string' || templateNode.trim().length === 0) {
+        return fail(400, { status: 'error' as const, message: 'Missing template node.', formType: 'lxc-template' });
+      }
+
+      if (typeof newName !== 'string' || newName.trim().length === 0) {
+        return fail(400, { status: 'error' as const, message: 'New container name is required.', formType: 'lxc-template' });
+      }
+
+      const { cloneUpid, startUpid } = await cloneLxcGuestTemplate(
+        templateId,
+        templateNode.trim(),
+        newName.trim()
+      );
+
+      return {
+        status: 'success' as const,
+        message:
+          `Cloned guest template ${templateId} as "${newName.trim()}" — clone task ${cloneUpid}. ` +
+          `Started container ${newName.trim()} — start task ${startUpid}.`,
+        formType: 'lxc-template'
+      };
+    } catch (error) {
+      return fail(500, {
+        status: 'error' as const,
+        message: error instanceof Error ? error.message : String(error),
+        formType: 'lxc-template'
+      });
+    }
+  },
+
+  /** Renames a converted LXC guest template using the entered newName value. */
+  renameLxcGuestTemplate: async ({ request }: RequestEvent) => {
+    try {
+      const formData = await request.formData();
+
+      const templateIdValue = formData.get('templateId');
+      const templateNode = formData.get('templateNode');
+      const newName = formData.get('newName');
+
+      if (typeof templateIdValue !== 'string' || templateIdValue.length === 0) {
+        return fail(400, { status: 'error' as const, message: 'Missing template ID.', formType: 'lxc-template' });
+      }
+
+      const templateId = Number(templateIdValue);
+      if (!Number.isInteger(templateId) || templateId <= 0) {
+        return fail(400, { status: 'error' as const, message: 'Invalid template ID.', formType: 'lxc-template' });
+      }
+
+      if (typeof templateNode !== 'string' || templateNode.trim().length === 0) {
+        return fail(400, { status: 'error' as const, message: 'Missing template node.', formType: 'lxc-template' });
+      }
+
+      if (typeof newName !== 'string' || newName.trim().length === 0) {
+        return fail(400, { status: 'error' as const, message: 'Template name is required.', formType: 'lxc-template' });
+      }
+
+      const result = await renameLxcGuestTemplate(templateId, templateNode.trim(), newName.trim());
+      const maybeTask = typeof result === 'string' ? result : undefined;
+
+      return {
+        status: 'success' as const,
+        message: maybeTask
+          ? `Renaming guest template ${templateId} to "${newName.trim()}" — task ${maybeTask}.`
+          : `Renamed guest template ${templateId} to "${newName.trim()}".`,
+        formType: 'lxc-template'
+      };
+    } catch (error) {
+      return fail(500, {
+        status: 'error' as const,
+        message: error instanceof Error ? error.message : String(error),
+        formType: 'lxc-template'
       });
     }
   },

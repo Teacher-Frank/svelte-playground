@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
   const stop = vi.fn();
+  const start = vi.fn();
+  const lxcClone = vi.fn();
   const taskWait = vi.fn();
   const request = vi.fn();
   const nodeGet = vi.fn(() => ({
@@ -9,17 +11,24 @@ const mocks = vi.hoisted(() => {
       id: vi.fn(() => ({
         status: {
           stop,
+          start,
         },
+        clone: lxcClone,
       })),
     },
   }));
 
-  return { stop, taskWait, request, nodeGet };
+  const nextid = vi.fn();
+
+  return { stop, start, lxcClone, taskWait, request, nodeGet, nextid };
 });
 
 vi.mock('pve-client', () => ({
   Client: class {
     api = {
+      cluster: {
+        nextid: mocks.nextid,
+      },
       nodes: {
         get: mocks.nodeGet,
       },
@@ -60,7 +69,10 @@ describe('proxmox page server actions', () => {
     process.env.PVE_API_TOKEN = 'root@pam!token=abc123';
 
     mocks.stop.mockResolvedValue('UPID:stop-task');
+    mocks.start.mockResolvedValue('UPID:start-task');
+    mocks.lxcClone.mockResolvedValue('UPID:lxc-clone-task');
     mocks.taskWait.mockResolvedValue([]);
+    mocks.nextid.mockResolvedValue(200);
     mocks.request.mockImplementation(async (path: string) => {
       if (path === '/nodes/{node}/lxc/{vmid}/template') return 'UPID:convert-task';
       if (path === '/nodes/{node}/qemu/{vmid}/config') return 'UPID:rename-task';
@@ -131,5 +143,35 @@ describe('proxmox page server actions', () => {
     expect((result as { status: number }).status).toBe(400);
     expect((result as { data: { message: string } }).data.message).toContain('Template name is required.');
     expect(mocks.request).not.toHaveBeenCalled();
+  });
+
+  it('cloneLxcGuestTemplate clones and starts a converted guest template with a new hostname', async () => {
+    const result = await actions.cloneLxcGuestTemplate(
+      makeEvent({ templateId: '210', templateNode: 'pve1', newName: 'cloned-ct' })
+    );
+
+    expect(mocks.lxcClone).toHaveBeenCalledWith({
+      $body: { newid: 200, hostname: 'cloned-ct', full: true },
+    });
+    expect(mocks.taskWait).toHaveBeenCalledWith('UPID:lxc-clone-task');
+    expect(mocks.start).toHaveBeenCalledTimes(1);
+
+    expect(result.status).toBe('success');
+    expect(result.message).toContain('Cloned guest template 210 as "cloned-ct"');
+    expect(result.message).toContain('Started container cloned-ct');
+  });
+
+  it('renameLxcGuestTemplate updates guest template hostname', async () => {
+    const result = await actions.renameLxcGuestTemplate(
+      makeEvent({ templateId: '210', templateNode: 'pve1', newName: 'renamed-ct-template' })
+    );
+
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/lxc/{vmid}/config', 'PUT', {
+      $path: { node: 'pve1', vmid: 210 },
+      $body: { hostname: 'renamed-ct-template' },
+    });
+
+    expect(result.status).toBe('success');
+    expect(result.message).toContain('Renaming guest template 210 to "renamed-ct-template"');
   });
 });
