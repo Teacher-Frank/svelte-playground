@@ -9,6 +9,10 @@
     node?: string;
     status?: string;
     primaryIp?: string;
+    cpulimit?: number;
+    memorylimit?: number;
+    hostMaxCpu?: number;
+    hostMaxMemory?: number;
   };
 
   let {
@@ -87,8 +91,96 @@
       : 'Convert to template'
   );
 
+  const hasHostCapacityData = $derived(
+    typeof selectedWorkload?.hostMaxCpu === 'number' &&
+    Number.isFinite(selectedWorkload.hostMaxCpu) &&
+    selectedWorkload.hostMaxCpu > 0 &&
+    typeof selectedWorkload?.hostMaxMemory === 'number' &&
+    Number.isFinite(selectedWorkload.hostMaxMemory) &&
+    selectedWorkload.hostMaxMemory > 0
+  );
+
+  const configureEnabled = $derived(
+    !disabled &&
+    selectedWorkload?.type === 'container' &&
+    selectedWorkload?.id != null &&
+    selectedWorkload?.node != null &&
+    hasHostCapacityData
+  );
+
+  const hostCpuCount = $derived(
+    typeof selectedWorkload?.hostMaxCpu === 'number' && Number.isFinite(selectedWorkload.hostMaxCpu)
+      ? selectedWorkload.hostMaxCpu
+      : 0
+  );
+
+  const hostMemoryMiB = $derived(
+    typeof selectedWorkload?.hostMaxMemory === 'number' && Number.isFinite(selectedWorkload.hostMaxMemory)
+      ? Math.floor(selectedWorkload.hostMaxMemory / (1024 ** 2))
+      : 0
+  );
+
+  const maxCpuSharePercent = 75;
+
+  const maxMemoryMiB = $derived(
+    hostMemoryMiB > 0 ? Math.max(16, Math.floor(hostMemoryMiB * 0.75)) : 0
+  );
+
+  const defaultCpuSharePercent = $derived.by(() => {
+    if (hostCpuCount <= 0) return 25;
+    const currentCpuLimit = selectedWorkload?.cpulimit;
+    if (typeof currentCpuLimit !== 'number' || !Number.isFinite(currentCpuLimit) || currentCpuLimit <= 0) {
+      return 25;
+    }
+    const percent = Math.round((currentCpuLimit / hostCpuCount) * 100);
+    return Math.min(maxCpuSharePercent, Math.max(1, percent));
+  });
+
+  const defaultMemoryMiB = $derived.by(() => {
+    if (maxMemoryMiB <= 0) return 1024;
+    const currentMemoryLimit = selectedWorkload?.memorylimit;
+    if (typeof currentMemoryLimit !== 'number' || !Number.isFinite(currentMemoryLimit) || currentMemoryLimit <= 0) {
+      return Math.min(maxMemoryMiB, 1024);
+    }
+    const currentMiB = Math.floor(currentMemoryLimit / (1024 ** 2));
+    return Math.min(maxMemoryMiB, Math.max(16, currentMiB));
+  });
+
+  const configureTooltip = $derived.by(() => {
+    if (selectedWorkload?.type !== 'container') {
+      return 'Configuration is only available for LXC containers';
+    }
+    if (!hasHostCapacityData) {
+      return 'Host capacity is unavailable for this node';
+    }
+    return 'Configure CPU and memory';
+  });
+
   // Controls visibility of the high-friction delete confirmation dialog.
   let showDeleteConfirm = $state(false);
+  let showConfigureModal = $state(false);
+  let configToast = $state<{ kind: 'success' | 'error'; message: string } | null>(null);
+  let configToastTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  let cpuSharePercent = $state(25);
+  let memoryMiB = $state(1024);
+
+  const openConfigureModal = () => {
+    cpuSharePercent = defaultCpuSharePercent;
+    memoryMiB = defaultMemoryMiB;
+    showConfigureModal = true;
+  };
+
+  const showConfigToast = (kind: 'success' | 'error', message: string) => {
+    configToast = { kind, message };
+    if (configToastTimeout) {
+      clearTimeout(configToastTimeout);
+    }
+    configToastTimeout = setTimeout(() => {
+      configToast = null;
+      configToastTimeout = null;
+    }, 2500);
+  };
 
   const preserveScrollOnSubmit = () => {
     if (typeof window === 'undefined') return;
@@ -99,6 +191,28 @@
     return async ({ update }: { update: () => Promise<void> }) => {
       await update();
       window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
+    };
+  };
+
+  const enhanceConfigureSubmit = () => {
+    if (typeof window === 'undefined') return;
+
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+
+    return async ({ result, update }: { result: { type?: string; data?: { message?: string } }; update: () => Promise<void> }) => {
+      await update();
+      window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
+
+      if (result?.type === 'success') {
+        showConfigureModal = false;
+        showConfigToast('success', result.data?.message ?? 'Container configuration updated.');
+        return;
+      }
+
+      if (result?.type === 'failure') {
+        showConfigToast('error', result.data?.message ?? 'Failed to update container configuration.');
+      }
     };
   };
 </script>
@@ -162,6 +276,17 @@
   </a>
 
   {#if selectedWorkload?.type === 'container'}
+    <button
+      type="button"
+      class="configure-btn"
+      title={configureTooltip}
+      aria-label={configureTooltip}
+      disabled={!configureEnabled}
+      onclick={openConfigureModal}
+    >
+      <img src="/settings.svg" alt="" aria-hidden="true" />
+    </button>
+
     <form class="convert-form" method="POST" action="?/convertToTemplate" use:enhance={preserveScrollOnSubmit}>
       <input name="type" type="hidden" value={selectedWorkload?.type ?? ''} />
       <input name="id" type="hidden" value={selectedWorkload?.id?.toString() ?? ''} />
@@ -218,5 +343,71 @@
         </div>
       </div>
     </div>
+  {/if}
+
+  {#if showConfigureModal}
+    <div class="config-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="config-modal-title">
+      <div class="config-modal-box">
+        <h3 id="config-modal-title">Container Configuration</h3>
+        <p class="config-modal-subtitle">
+          Set required CPU share and memory. Maximum allowed is 75% of the host.
+        </p>
+
+        <form
+          method="POST"
+          action="?/configureContainer"
+          use:enhance={enhanceConfigureSubmit}
+        >
+          <input name="type" type="hidden" value={selectedWorkload?.type ?? ''} />
+          <input name="id" type="hidden" value={selectedWorkload?.id?.toString() ?? ''} />
+          <input name="name" type="hidden" value={selectedWorkload?.name ?? ''} />
+          <input name="node" type="hidden" value={selectedWorkload?.node ?? ''} />
+          <input name="status" type="hidden" value={selectedWorkload?.status ?? ''} />
+
+          <label class="config-label" for="cpu-share-percent">Needed CPU share (%)</label>
+          <input
+            id="cpu-share-percent"
+            name="cpuSharePercent"
+            type="number"
+            min="1"
+            max={maxCpuSharePercent}
+            step="1"
+            bind:value={cpuSharePercent}
+            required
+          />
+          <p class="config-hint">Host CPU: {hostCpuCount.toFixed(0)} core(s) • Max share: {maxCpuSharePercent}%</p>
+
+          <label class="config-label" for="memory-mib">Needed memory (MiB)</label>
+          <input
+            id="memory-mib"
+            name="memoryMiB"
+            type="number"
+            min="16"
+            max={maxMemoryMiB}
+            step="1"
+            bind:value={memoryMiB}
+            required
+          />
+          <p class="config-hint">Host memory: {hostMemoryMiB.toLocaleString()} MiB • Max memory: {maxMemoryMiB.toLocaleString()} MiB</p>
+
+          <div class="config-modal-actions">
+            <button type="submit" class="config-ok-btn">OK</button>
+            <button
+              type="button"
+              class="config-cancel-btn"
+              onclick={() => { showConfigureModal = false; }}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {/if}
+
+  {#if configToast}
+    <p class="config-toast" class:success={configToast.kind === 'success'} class:error={configToast.kind === 'error'}>
+      {configToast.message}
+    </p>
   {/if}
 </div>

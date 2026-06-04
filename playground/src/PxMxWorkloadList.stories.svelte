@@ -18,9 +18,9 @@
   ];
 
   const containers = [
-    { id: 200, name: 'nginx', node: 'pve1', status: 'running', uptime: 12345, primaryIp: '10.0.0.21' },
-    { id: 201, name: 'postgres', node: 'pve1', status: 'running', uptime: 6789, primaryIp: '10.0.0.22' },
-    { id: 202, name: 'redis', node: 'pve2', status: 'stopped', uptime: 0, primaryIp: '-' },
+    { id: 200, name: 'nginx', node: 'pve1', status: 'running', uptime: 12345, primaryIp: '10.0.0.21', cpulimit: 2, memorylimit: 2147483648, hostMaxCpu: 8, hostMaxMemory: 17179869184 },
+    { id: 201, name: 'postgres', node: 'pve1', status: 'running', uptime: 6789, primaryIp: '10.0.0.22', cpulimit: 4, memorylimit: 4294967296, hostMaxCpu: 8, hostMaxMemory: 17179869184 },
+    { id: 202, name: 'redis', node: 'pve2', status: 'stopped', uptime: 0, primaryIp: '-', cpulimit: 1, memorylimit: 1073741824, hostMaxCpu: 12, hostMaxMemory: 25769803776 },
   ];
 </script>
 

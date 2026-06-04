@@ -30,6 +30,14 @@ export type Workload = {
   uptime?: number;
   /** Primary IPv4 address discovered from container interfaces, when available. */
   primaryIp?: string;
+  /** Configured CPU limit for containers, when available from API payloads. */
+  cpulimit?: number;
+  /** Configured memory limit for containers, in bytes when available. */
+  memorylimit?: number;
+  /** Host CPU core count for the workload node. */
+  hostMaxCpu?: number;
+  /** Host memory capacity (bytes) for the workload node. */
+  hostMaxMemory?: number;
 };
 
 type LxcIpAddress = {
@@ -50,6 +58,10 @@ export type ClusterNode = {
   node?: string;
   /** Node availability status (e.g. `"online"`, `"offline"`). */
   status?: string;
+  /** Host CPU core count. */
+  maxcpu?: number;
+  /** Host memory capacity in bytes. */
+  maxmem?: number;
 };
 
 /** Case-insensitive alphabetical comparator for workloads, used when sorting VM/container lists. */
@@ -62,6 +74,16 @@ const compareByName = (left: Workload, right: Workload): number => {
   }
 
   return leftName < rightName ? -1 : 1;
+};
+
+const toPositiveNumber = (value: unknown): number | undefined => {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : (typeof value === 'string' ? Number(value.trim()) : NaN);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return parsed;
 };
 
 const isIPv4Address = (value: string): boolean => {
@@ -326,6 +348,8 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     clusterNodes = (nodes as Array<Record<string, unknown>>).map((entry) => ({
       node: typeof entry.node === 'string' ? entry.node : undefined,
       status: typeof entry.status === 'string' ? entry.status : undefined,
+      maxcpu: toPositiveNumber(entry.maxcpu),
+      maxmem: toPositiveNumber(entry.maxmem),
     }));
   } catch (err) {
     console.error('[proxmox] Failed to parse cluster nodes:', err);
@@ -438,6 +462,11 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   }
 
   const currentNode = clusterNodes.find((entry) => entry.node === node);
+  const nodeCapacityByName = new Map<string, { maxcpu?: number; maxmem?: number }>(
+    clusterNodes
+      .filter((entry): entry is ClusterNode & { node: string } => typeof entry.node === 'string')
+      .map((entry) => [entry.node, { maxcpu: entry.maxcpu, maxmem: entry.maxmem }])
+  );
   const serverStatus = typeof currentNode?.status === 'string' ? currentNode.status : 'unknown';
 
   return {
@@ -453,22 +482,40 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     cluster,
     vms: (vms as Array<Record<string, unknown>>)
       // Ensure each VM has a node field and an id mapped from vmid.
-      .map((vm) => ({
-        ...vm,
-        node: typeof vm.node === 'string' ? vm.node : node,
-        id: vm.vmid as number | string | undefined
-      }))
+      .map((vm) => {
+        const resolvedNode = typeof vm.node === 'string' ? vm.node : node;
+        const hostCapacity = nodeCapacityByName.get(resolvedNode);
+        return {
+          ...vm,
+          node: resolvedNode,
+          id: vm.vmid as number | string | undefined,
+          hostMaxCpu: hostCapacity?.maxcpu,
+          hostMaxMemory: hostCapacity?.maxmem,
+        };
+      })
       .sort(compareByName) as Workload[],
     containers: (containers as Array<Record<string, unknown>>)
       // Ensure each container has a node field and an id mapped from vmid.
-      .map((container) => ({
-        ...container,
-        node: typeof container.node === 'string' ? container.node : node,
-        id: container.vmid as number | string | undefined,
-        primaryIp: Number.isInteger(container.vmid)
-          ? containerPrimaryIpById.get(container.vmid as number)
-          : undefined,
-      }))
+      .map((container) => {
+        const resolvedNode = typeof container.node === 'string' ? container.node : node;
+        const hostCapacity = nodeCapacityByName.get(resolvedNode);
+        return {
+          ...container,
+          node: resolvedNode,
+          id: container.vmid as number | string | undefined,
+          cpulimit:
+            toPositiveNumber(container.cpulimit) ??
+            toPositiveNumber(container.maxcpu) ??
+            toPositiveNumber(container.cpus),
+          memorylimit:
+            toPositiveNumber(container.memory) ?? toPositiveNumber(container.maxmem),
+          hostMaxCpu: hostCapacity?.maxcpu,
+          hostMaxMemory: hostCapacity?.maxmem,
+          primaryIp: Number.isInteger(container.vmid)
+            ? containerPrimaryIpById.get(container.vmid as number)
+            : undefined,
+        };
+      })
       .sort(compareByName) as Workload[],
     lxcTemplates,
     recentTasks: (tasks as Array<Record<string, unknown>>)
@@ -589,6 +636,55 @@ const executeWorkloadAction = async (
       return { upid: await status.reboot() as string, effectiveAction: 'restart' };
     }
   }
+};
+
+const executeContainerConfigureAction = async (
+  id: number,
+  node: string,
+  cpuSharePercent: number,
+  memoryMiB: number
+): Promise<{ upid?: string; appliedCpuLimit: number; appliedMemoryMiB: number }> => {
+  const client = await createClient();
+
+  const nodeStatus = await client.request('/nodes/{node}/status', 'GET', {
+    $path: { node },
+  }) as Record<string, unknown>;
+
+  const cpuInfo = nodeStatus.cpuinfo as Record<string, unknown> | undefined;
+  const hostCpuCount = toPositiveNumber(cpuInfo?.cpus);
+
+  const memoryInfo = nodeStatus.memory as Record<string, unknown> | undefined;
+  const hostMemoryBytes = toPositiveNumber(memoryInfo?.total);
+
+  if (!hostCpuCount || !hostMemoryBytes) {
+    throw new Error(`Could not resolve host capacity for node ${node}.`);
+  }
+
+  if (!Number.isFinite(cpuSharePercent) || cpuSharePercent <= 0 || cpuSharePercent > 75) {
+    throw new Error('CPU share must be between 1 and 75 percent.');
+  }
+
+  const maxMemoryMiB = Math.floor((hostMemoryBytes * 0.75) / (1024 ** 2));
+  if (!Number.isFinite(memoryMiB) || memoryMiB < 16 || memoryMiB > maxMemoryMiB) {
+    throw new Error(`Memory must be between 16 and ${maxMemoryMiB} MiB (75% of host memory).`);
+  }
+
+  const appliedCpuLimit = Number(((hostCpuCount * cpuSharePercent) / 100).toFixed(2));
+  const appliedMemoryMiB = Math.floor(memoryMiB);
+
+  const result = await client.request('/nodes/{node}/lxc/{vmid}/config', 'PUT', {
+    $path: { node, vmid: id },
+    $body: {
+      cpulimit: appliedCpuLimit,
+      memory: appliedMemoryMiB,
+    },
+  });
+
+  return {
+    upid: typeof result === 'string' ? result : undefined,
+    appliedCpuLimit,
+    appliedMemoryMiB,
+  };
 };
 
 /** Builds a SvelteKit form action handler for a given workload action. */
@@ -772,6 +868,7 @@ export const load: PageServerLoad = async () => {
  * | `start` | `type`, `id`, `node`, `name?`, `status?` | Powers on a VM or container. |
  * | `stop` | `type`, `id`, `node`, `name?`, `status?` | Powers off a VM or container. |
  * | `restart` | `type`, `id`, `node`, `name?`, `status?` | Reboots a VM or container. |
+ * | `configureContainer` | `type`, `id`, `node`, `cpuSharePercent`, `memoryMiB` | Applies LXC CPU/memory limits capped to 75% of host capacity. |
  * | `convertToTemplate` | `type`, `id`, `node`, `name?`, `status?` | Stops a running LXC (if needed) and converts it into a template. |
  * | `cloneFromTemplate` | `templateId`, `templateNode`, `newName` | Clones a QEMU template to a new full VM. |
  * | `renameVmTemplate` | `templateId`, `templateNode`, `newName` | Renames a QEMU template. |
@@ -787,6 +884,72 @@ export const actions: Actions = {
   start: buildAction('start'),
   stop: buildAction('stop'),
   restart: buildAction('restart'),
+
+  /** Updates LXC CPU/memory limits while enforcing a 75% host-capacity ceiling. */
+  configureContainer: async ({ request }: RequestEvent) => {
+    let selectedWorkload: { type: WorkloadKind; id: number; name?: string; node: string; status?: string } | undefined;
+    try {
+      const formData = await request.formData();
+      selectedWorkload = parseWorkloadSubmission(formData);
+
+      if (selectedWorkload.type !== 'container') {
+        return fail(400, {
+          status: 'error' as const,
+          message: 'Only LXC containers can be configured from this dialog.',
+          workloadType: selectedWorkload.type,
+          formType: selectedWorkload.type
+        });
+      }
+
+      const cpuShareRaw = formData.get('cpuSharePercent');
+      const memoryRaw = formData.get('memoryMiB');
+
+      if (typeof cpuShareRaw !== 'string' || cpuShareRaw.trim().length === 0) {
+        return fail(400, {
+          status: 'error' as const,
+          message: 'CPU share is required.',
+          workloadType: selectedWorkload.type,
+          formType: selectedWorkload.type
+        });
+      }
+
+      if (typeof memoryRaw !== 'string' || memoryRaw.trim().length === 0) {
+        return fail(400, {
+          status: 'error' as const,
+          message: 'Memory is required.',
+          workloadType: selectedWorkload.type,
+          formType: selectedWorkload.type
+        });
+      }
+
+      const cpuSharePercent = Number(cpuShareRaw);
+      const memoryMiB = Number(memoryRaw);
+
+      const { upid, appliedCpuLimit, appliedMemoryMiB } = await executeContainerConfigureAction(
+        selectedWorkload.id,
+        selectedWorkload.node,
+        cpuSharePercent,
+        memoryMiB
+      );
+
+      return {
+        status: 'success' as const,
+        message: upid
+          ? `Updated container ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''}: cpulimit=${appliedCpuLimit}, memory=${appliedMemoryMiB} MiB — task ${upid}.`
+          : `Updated container ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''}: cpulimit=${appliedCpuLimit}, memory=${appliedMemoryMiB} MiB.`,
+        upid,
+        workloadType: selectedWorkload.type,
+        formType: selectedWorkload.type
+      };
+    } catch (error) {
+      return fail(500, {
+        status: 'error' as const,
+        message: error instanceof Error ? error.message : String(error),
+        workloadType: selectedWorkload?.type,
+        formType: selectedWorkload?.type
+      });
+    }
+  },
 
   /** Stops a running LXC (if needed) and converts it into a template. */
   convertToTemplate: async ({ request }: RequestEvent) => {

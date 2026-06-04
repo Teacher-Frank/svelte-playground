@@ -105,6 +105,77 @@
   gap: 0.5rem;
 }
 
+.pxmx-admin .container-list-layout {
+  align-items: start;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) var(--actions-col-width);
+  --container-row-min-height: 3.3rem;
+}
+
+.pxmx-admin .container-table-wrap {
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.pxmx-admin .container-table-content {
+  min-width: 70rem;
+}
+
+.pxmx-admin .container-actions-pane {
+  min-width: var(--actions-col-width);
+}
+
+.pxmx-admin .container-actions-pane .actions-header {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.pxmx-admin .container-actions-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.pxmx-admin .container-action-row {
+  align-items: center;
+  display: flex;
+  min-height: var(--container-row-min-height);
+}
+
+.pxmx-admin .workload-header.container-kind .col-id,
+.pxmx-admin .workload-row-button.container-kind .col-id,
+.pxmx-admin .workload-header.container-kind .col-name,
+.pxmx-admin .workload-row-button.container-kind .col-name {
+  position: sticky;
+}
+
+.pxmx-admin .workload-header.container-kind .col-id,
+.pxmx-admin .workload-row-button.container-kind .col-id {
+  left: 1rem;
+  z-index: 3;
+}
+
+.pxmx-admin .workload-header.container-kind .col-name,
+.pxmx-admin .workload-row-button.container-kind .col-name {
+  left: 7rem;
+  z-index: 3;
+}
+
+.pxmx-admin .workload-header.container-kind .col-id,
+.pxmx-admin .workload-header.container-kind .col-name {
+  background: #f5f5f5;
+}
+
+.pxmx-admin .workload-row-button.container-kind .col-id,
+.pxmx-admin .workload-row-button.container-kind .col-name {
+  background: #fff;
+}
+
+.pxmx-admin .workload-header.container-kind .col-name,
+.pxmx-admin .workload-row-button.container-kind .col-name {
+  box-shadow: 6px 0 6px -6px rgba(0, 0, 0, 0.25);
+}
+
 .pxmx-admin .workload-header,
 .pxmx-admin .workload-row-button {
   display: grid;
@@ -114,7 +185,11 @@
 
 .pxmx-admin .workload-header.container-kind,
 .pxmx-admin .workload-row-button.container-kind {
-  grid-template-columns: 5rem minmax(10rem, 2fr) 7rem 7rem minmax(8rem, 1.2fr) 6rem;
+  grid-template-columns: 5rem minmax(14rem, 2.8fr) 7rem 7rem minmax(8rem, 1.2fr) 7rem minmax(8rem, 1fr) 6rem;
+}
+
+.pxmx-admin .workload-header.container-kind span {
+  white-space: nowrap;
 }
 
 .pxmx-admin .vm-header-row {
@@ -159,6 +234,17 @@
   padding: 0.85rem 1rem;
   text-align: left;
   width: 100%;
+}
+
+.pxmx-admin .workload-row-button.container-kind {
+  align-items: center;
+  min-height: var(--container-row-min-height);
+}
+
+.pxmx-admin .workload-row-button.container-kind span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pxmx-admin .workload-row-button span:last-child {
@@ -265,6 +351,7 @@
 
 .workload-controls .action-buttons button,
 .workload-controls .convert-form button,
+.workload-controls .configure-btn,
 .workload-controls .terminal-btn,
 .workload-controls .vnc-btn,
 .workload-controls .delete-btn {
@@ -354,6 +441,27 @@
   display: flex;
   flex: 0 0 auto;
   margin: 0;
+}
+
+.workload-controls .configure-btn {
+  background: #fff3e0;
+  border: 1px solid #f39c12;
+}
+
+.workload-controls .configure-btn:hover:not(:disabled) {
+  background: #ffe0b2;
+  border-color: #e67e22;
+}
+
+.workload-controls .configure-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.workload-controls .configure-btn:disabled {
+  background: #f2d4b5;
+  border-color: #d9b691;
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .workload-controls .delete-btn {
@@ -546,4 +654,117 @@
 .pxmx-admin .pxmx-tab-bar button.active {
   border-bottom-color: #444;
   color: #111;
+}
+
+.config-modal-overlay {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 1001;
+}
+
+.config-modal-box {
+  background: #ffffff;
+  border: 1px solid #d7d7d7;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.35);
+  color: #1f2937;
+  max-width: 28rem;
+  padding: 1.1rem 1.1rem 1rem;
+  width: min(92vw, 28rem);
+}
+
+.config-modal-box h3 {
+  margin: 0 0 0.4rem;
+}
+
+.config-modal-subtitle {
+  color: #4b5563;
+  font-size: 0.9rem;
+  margin: 0 0 0.8rem;
+}
+
+.config-label {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 700;
+  margin-top: 0.5rem;
+}
+
+.config-modal-box input[type='number'] {
+  border: 1px solid #c7c7c7;
+  border-radius: 0.5rem;
+  box-sizing: border-box;
+  font-size: 0.95rem;
+  margin-top: 0.25rem;
+  padding: 0.45rem 0.55rem;
+  width: 100%;
+}
+
+.config-hint {
+  color: #6b7280;
+  font-size: 0.82rem;
+  margin: 0.35rem 0 0.2rem;
+}
+
+.config-modal-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  margin-top: 0.9rem;
+}
+
+.config-ok-btn,
+.config-cancel-btn {
+  border: 1px solid #bdbdbd;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 0.45rem 0.9rem;
+}
+
+.config-ok-btn {
+  background: #e8f5e9;
+  border-color: #81c784;
+  color: #2e7d32;
+}
+
+.config-ok-btn:hover {
+  background: #d7ecd9;
+}
+
+.config-cancel-btn {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.config-cancel-btn:hover {
+  background: #e5e7eb;
+}
+
+.config-toast {
+  border-radius: 0.55rem;
+  bottom: 1rem;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+  color: #ffffff;
+  font-size: 0.86rem;
+  left: 50%;
+  margin: 0;
+  max-width: min(90vw, 34rem);
+  padding: 0.55rem 0.75rem;
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 1100;
+}
+
+.config-toast.success {
+  background: #2e7d32;
+}
+
+.config-toast.error {
+  background: #c62828;
 }

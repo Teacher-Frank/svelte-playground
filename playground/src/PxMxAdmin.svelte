@@ -25,6 +25,10 @@
     status?: string;
     uptime?: number;
     primaryIp?: string;
+    cpulimit?: number;
+    memorylimit?: number;
+    hostMaxCpu?: number;
+    hostMaxMemory?: number;
     isTemplate?: boolean;
     template?: number | boolean;
   };

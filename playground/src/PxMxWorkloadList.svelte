@@ -11,6 +11,10 @@
     status?: string;
     uptime?: number;
     primaryIp?: string;
+    cpulimit?: number;
+    memorylimit?: number;
+    hostMaxCpu?: number;
+    hostMaxMemory?: number;
   };
 
   let {
@@ -67,6 +71,37 @@
     return '-';
   };
 
+  const formatCpuLimit = (workload: Workload): string => {
+    if (
+      typeof workload.cpulimit !== 'number' ||
+      !Number.isFinite(workload.cpulimit) ||
+      workload.cpulimit <= 0 ||
+      typeof workload.hostMaxCpu !== 'number' ||
+      !Number.isFinite(workload.hostMaxCpu) ||
+      workload.hostMaxCpu <= 0
+    ) {
+      return '-';
+    }
+
+    const sharePercent = Math.round((workload.cpulimit / workload.hostMaxCpu) * 100);
+    return `${sharePercent}%`;
+  };
+
+  const formatMemoryLimit = (workload: Workload): string => {
+    if (typeof workload.memorylimit !== 'number' || !Number.isFinite(workload.memorylimit) || workload.memorylimit <= 0) {
+      return '-';
+    }
+
+    const bytes = workload.memorylimit;
+    const gib = 1024 ** 3;
+    if (bytes >= gib) {
+      return `${(bytes / gib).toFixed(1)} GiB`;
+    }
+
+    const mib = 1024 ** 2;
+    return `${Math.round(bytes / mib)} MiB`;
+  };
+
   let dismissed = $state(false);
   $effect(() => {
     // Reset dismissal when server action feedback changes so each new result is
@@ -80,55 +115,118 @@
     <h2>{sectionTitle}</h2>
   </div>
   {#if workloads.length > 0}
-    <div class="vm-header-row">
-      <div class="workload-header" class:container-kind={kind === 'container'}>
-        <span>ID</span>
-        <span>Name</span>
-        <span>Status</span>
-        <span>Node</span>
-        {#if kind === 'container'}
-          <span>IP</span>
-        {/if}
-        <span>Uptime</span>
-      </div>
-      <span class="actions-header">Actions</span>
-    </div>
-    <ul class="workload-list">
-      <!-- Key rows by workload id to preserve control state predictably during refreshes. -->
-      {#each workloads as workload (workload.id)}
-        <li class="vm-row">
-          <button
-            class="workload-row-button"
-            class:container-kind={kind === 'container'}
-            type="button"
-          >
-            <span>{workload.id ?? 'Unknown'}</span>
-            <span>{workload.name ?? unnamedLabel}</span>
-            <span>{workload.status ?? '-'}</span>
-            <span>{workload.node ?? '-'}</span>
-            {#if kind === 'container'}
-              <span>{formatContainerIp(workload)}</span>
-            {/if}
-            <span>{formatUptime(workload.uptime)}</span>
-          </button>
+    {#if kind === 'container'}
+      <div class="container-list-layout">
+        <div class="container-table-wrap">
+          <div class="container-table-content">
+            <div class="workload-header container-kind">
+              <span class="col-id">ID</span>
+              <span class="col-name">Name</span>
+              <span>Status</span>
+              <span>Node</span>
+              <span>IP</span>
+              <span>CPU Share</span>
+              <span>Memory Limit</span>
+              <span>Uptime</span>
+            </div>
+            <ul class="workload-list">
+              <!-- Key rows by workload id to preserve control state predictably during refreshes. -->
+              {#each workloads as workload (workload.id)}
+                <li>
+                  <button
+                    class="workload-row-button container-kind"
+                    type="button"
+                  >
+                    <span class="col-id">{workload.id ?? 'Unknown'}</span>
+                    <span class="col-name">{workload.name ?? unnamedLabel}</span>
+                    <span>{workload.status ?? '-'}</span>
+                    <span>{workload.node ?? '-'}</span>
+                    <span>{formatContainerIp(workload)}</span>
+                    <span>{formatCpuLimit(workload)}</span>
+                    <span>{formatMemoryLimit(workload)}</span>
+                    <span>{formatUptime(workload.uptime)}</span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          </div>
+        </div>
 
-          <!-- Forward row context directly so action forms submit authoritative node/type/id values. -->
-          <PxMxWorkloadControls
-            compact={true}
-            disabled={workload.id == null}
-            containerGuiEnabled={containerGuiEnabled}
-            selectedWorkload={{
-              type: kind,
-              id: workload.id,
-              name: workload.name,
-              node: workload.node,
-              status: workload.status,
-              primaryIp: workload.primaryIp,
-            }}
-          />
-        </li>
-      {/each}
-    </ul>
+        <div class="container-actions-pane">
+          <span class="actions-header">Actions</span>
+          <ul class="container-actions-list">
+            {#each workloads as workload (workload.id)}
+              <li class="container-action-row">
+                <PxMxWorkloadControls
+                  compact={true}
+                  disabled={workload.id == null}
+                  containerGuiEnabled={containerGuiEnabled}
+                  selectedWorkload={{
+                    type: kind,
+                    id: workload.id,
+                    name: workload.name,
+                    node: workload.node,
+                    status: workload.status,
+                    primaryIp: workload.primaryIp,
+                    cpulimit: workload.cpulimit,
+                    memorylimit: workload.memorylimit,
+                    hostMaxCpu: workload.hostMaxCpu,
+                    hostMaxMemory: workload.hostMaxMemory,
+                  }}
+                />
+              </li>
+            {/each}
+          </ul>
+        </div>
+      </div>
+    {:else}
+      <div class="vm-header-row">
+        <div class="workload-header">
+          <span class="col-id">ID</span>
+          <span class="col-name">Name</span>
+          <span>Status</span>
+          <span>Node</span>
+          <span>Uptime</span>
+        </div>
+        <span class="actions-header">Actions</span>
+      </div>
+      <ul class="workload-list">
+        <!-- Key rows by workload id to preserve control state predictably during refreshes. -->
+        {#each workloads as workload (workload.id)}
+          <li class="vm-row">
+            <button
+              class="workload-row-button"
+              type="button"
+            >
+              <span class="col-id">{workload.id ?? 'Unknown'}</span>
+              <span class="col-name">{workload.name ?? unnamedLabel}</span>
+              <span>{workload.status ?? '-'}</span>
+              <span>{workload.node ?? '-'}</span>
+              <span>{formatUptime(workload.uptime)}</span>
+            </button>
+
+            <!-- Forward row context directly so action forms submit authoritative node/type/id values. -->
+            <PxMxWorkloadControls
+              compact={true}
+              disabled={workload.id == null}
+              containerGuiEnabled={containerGuiEnabled}
+              selectedWorkload={{
+                type: kind,
+                id: workload.id,
+                name: workload.name,
+                node: workload.node,
+                status: workload.status,
+                primaryIp: workload.primaryIp,
+                cpulimit: workload.cpulimit,
+                memorylimit: workload.memorylimit,
+                hostMaxCpu: workload.hostMaxCpu,
+                hostMaxMemory: workload.hostMaxMemory,
+              }}
+            />
+          </li>
+        {/each}
+      </ul>
+    {/if}
   {:else}
     <p>{emptyStateLabel}</p>
   {/if}
