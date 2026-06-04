@@ -6,38 +6,15 @@ This guide explains how to set up an LXC container so it is ready for GUI access
 
 Proxmox's built-in VNC is for VM consoles, not LXC containers. To get a GUI in an LXC, you must run a desktop and VNC server inside the container, then connect to it via a websocket bridge.
 
-## Step 0: Configure the Playground to Use the LXC Bridge
+## Step 1: Configure the Playground to Use Derived IPv4 LXC Bridge Mode
 
 The VNC button uses Proxmox native VNC by default. For LXC desktop sessions, configure the playground server to route LXC VNC through your websockify bridge.
 
-Set these environment variables for the playground runtime:
+Configure these runtime environment variables in the admin guide under the **Webserver Configuration** section before continuing with container-side setup.
 
-```bash
-LXC_VNC_BRIDGE_WS_URL=ws://<bridge-host>:<bridge-port>
-LXC_VNC_BRIDGE_ALLOWED_HOSTS=<bridge-host>:<bridge-port>
-```
+This guide assumes derived IPv4 bridge mode is already enabled on the playground server.
 
-- `LXC_VNC_BRIDGE_WS_URL` is used for LXC VNC sessions. It can also use placeholders:
-    - `ws://<bridge-host>:80{vmid}`
-    - `ws://<bridge-host>/lxc/{node}/{vmid}`
-- `LXC_VNC_BRIDGE_ALLOWED_HOSTS` is a comma-separated allowlist of bridge websocket hosts.
-
-Example:
-
-```bash
-LXC_VNC_BRIDGE_WS_URL=ws://proxmox.example.local:8001
-LXC_VNC_BRIDGE_ALLOWED_HOSTS=proxmox.example.local:8001
-```
-
-Bridge websocket port policy for this playground:
-- Allowed range: `8000` to `9000`
-- Default example port: `8001`
-
-Restart the playground server after updating environment variables.
-
-Also restart the playground server after pulling VNC-related code changes. The VNC route and websocket proxy behavior are server-side and may not refresh correctly in an already running dev process.
-
-## Step 1: Install Desktop and VNC Server (inside container)
+## Step 2: Install Desktop and VNC Server (inside container)
 
 **Bash and PowerShell Core**
 ```bash
@@ -66,14 +43,14 @@ su - student
 
 From this point onward, run the remaining guide steps as `student` (especially `vncpasswd`, `~/.vnc/xstartup`, and user crontab entries).
 
-## Step 2: Set VNC Password (inside container)
+## Step 3: Set VNC Password (inside container)
 
 **Bash and PowerShell Core**
 ```bash
 vncpasswd
 ```
 
-## Step 3: Create VNC Startup Script (inside container)
+## Step 4: Create VNC Startup Script (inside container)
 
 **Bash**
 ```bash
@@ -99,7 +76,7 @@ exec dbus-launch --exit-with-session startxfce4
 chmod +x ~/.vnc/xstartup
 ```
 
-## Step 4: Main Flow - Make VNC + Desktop Restart-Safe with crontab
+## Step 5: Main Flow - Make VNC + Desktop Restart-Safe with crontab
 
 **Note:** We use crontab as the main path because systemd user services are not available on this LXC template by default.
 
@@ -136,7 +113,7 @@ Add this line:
 
 This is the primary startup path for this guide.
 
-## Step 5: Find the Container IP
+## Step 6: Find the Container IP
 
 **Inside the container:**
 ```bash
@@ -152,7 +129,7 @@ Use the IP address that is reachable from the host running the websocket bridge.
 
 
 
-## Step 6: Start the Websocket Bridge (websockify)
+## Step 7: Start the Websocket Bridge (websockify)
 
 You can run websockify either inside the LXC container or on the Proxmox host. Which you choose depends on your network setup:
 
@@ -171,7 +148,7 @@ You can run websockify either inside the LXC container or on the Proxmox host. W
     ```
 3. Save and exit the editor. Now, websockify will start automatically every time the container boots.
 
-Use the same websocket port here that you configure in `LXC_VNC_BRIDGE_WS_URL`.
+Use the same websocket port here that you configure in `LXC_VNC_BRIDGE_WS_PORT`.
 
 ### Running websockify in the Background (Manual Start)
 
@@ -197,7 +174,7 @@ Start-Process websockify -ArgumentList '8001', '<container-ip>:5901'
 - To stop websockify, find its process ID (`ps aux | grep websockify` or `Get-Process websockify`) and kill it as needed.
 
 - The websocket bridge port is configurable. Use ports in the `8000` to `9000` range. Default example port is `8001`.
-- Then connect using the VNC button (with Step 0 configured) or point noVNC at `ws(s)://<host>:<bridge-port>`.
+- Then connect using the VNC button (with Step 1 configured) or point noVNC at `ws(s)://<host>:<bridge-port>`.
 
 **Note:** If you run websockify inside the container, the playground/noVNC client must be able to reach the container's IP and port directly. If you run it on the Proxmox host, use the host's IP and ensure it can connect to the container's VNC port.
 
@@ -303,7 +280,7 @@ This should allow Xorg to start in an LXC container without a real GPU, and your
 
 ## Optional: systemd user-service flow
 
-If your specific container image does support systemd user services, you can use a `vncserver@:1.service` unit instead of crontab. Keep `-noreset` in `ExecStart` and keep using the same `~/.vnc/xstartup` file from Step 3.
+If your specific container image does support systemd user services, you can use a `vncserver@:1.service` unit instead of crontab. Keep `-noreset` in `ExecStart` and keep using the same `~/.vnc/xstartup` file from Step 4.
 
 ## Troubleshooting: VNC/Xorg Terminates with '-reset' Warning
 
@@ -318,20 +295,7 @@ This means the X server is being told to reset (often by logout or session end),
 
 ## Troubleshooting: Hangs on "Submitting credentials..."
 
-If the VNC page stays on "Submitting credentials...":
-
-1. Restart the playground server so environment and recent VNC code changes are active.
-2. Confirm `LXC_VNC_BRIDGE_WS_URL` and `LXC_VNC_BRIDGE_ALLOWED_HOSTS` match exactly (`host:port`).
-3. Verify bridge and VNC listeners:
-    ```bash
-    ss -tlnp | grep -E "8001|5901"
-    ```
-4. Run websockify in verbose mode and retry once:
-    ```bash
-    websockify --verbose 8001 127.0.0.1:5901
-    ```
-
-If verbose output shows `Target closed connection` immediately, the backend VNC auth handshake is failing. Restart VNC via `~/.local/bin/vnc-boot.sh` and retry.
+If the VNC page stays on "Submitting credentials...", follow the playground server troubleshooting steps in the admin guide's **Webserver Configuration** section first, then return here for container-side VNC checks.
 
 ## Security Tips
 - Use a non-root user for the desktop session.

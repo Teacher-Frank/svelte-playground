@@ -40,12 +40,7 @@ This section documents all environment variables currently used in `acctest-env.
 
 ### LXC VNC bridge variables
 
-- `LXC_VNC_BRIDGE_DERIVE_FROM_IPV4`: When `true`, derive bridge websocket targets from container IPv4 addresses.
-- `LXC_VNC_BRIDGE_WS_SCHEME`: Websocket scheme for derived mode (`ws` or `wss`).
-- `LXC_VNC_BRIDGE_WS_PORT`: Websocket port used in derived mode.
-- `LXC_VNC_BRIDGE_WS_PATH`: Optional path suffix used in derived mode.
-- `LXC_VNC_BRIDGE_WS_URL`: Optional explicit websocket URL template for template mode. Keep empty to use derived mode.
-- `LXC_VNC_BRIDGE_ALLOWED_HOSTS`: Optional host allowlist for explicit bridge targets. Can remain empty in pure derived mode.
+Bridge runtime configuration is documented in the **Webserver Configuration** section below.
 
 ### Current `acctest-env.ps1` profile
 
@@ -55,21 +50,11 @@ This section documents all environment variables currently used in `acctest-env.
 - `PVE_LXC_ROOTFS_STORAGE=local-lvm`.
 - `LXC_VNC_BRIDGE_DERIVE_FROM_IPV4=true`, `LXC_VNC_BRIDGE_WS_SCHEME=ws`, and `LXC_VNC_BRIDGE_WS_PORT=8001`.
 
-## VNC Configuration
+## Webserver Configuration
 
-The playground supports two bridge configuration modes for LXC GUI sessions.
+Configure the playground webserver with derived IPv4 bridge mode for LXC GUI sessions.
 
-### Template mode
-
-- Set `LXC_VNC_BRIDGE_WS_URL` to a websocket URL template.
-- Placeholders such as `{node}`, `{vmid}`, `{ip}`, or `{ipv4}` may be used.
-
-### Derived IPv4 mode
-
-- Set `LXC_VNC_BRIDGE_DERIVE_FROM_IPV4=true`.
-- Configure `LXC_VNC_BRIDGE_WS_SCHEME`, `LXC_VNC_BRIDGE_WS_PORT`, and optional `LXC_VNC_BRIDGE_WS_PATH`.
-
-Recommended derived mode values:
+Required bridge variables:
 
 ```bash
 LXC_VNC_BRIDGE_DERIVE_FROM_IPV4=true
@@ -77,6 +62,43 @@ LXC_VNC_BRIDGE_WS_SCHEME=ws
 LXC_VNC_BRIDGE_WS_PORT=8001
 LXC_VNC_BRIDGE_WS_PATH=
 ```
+
+- `LXC_VNC_BRIDGE_DERIVE_FROM_IPV4=true` enables derived mode for LXC VNC websocket targets.
+- `LXC_VNC_BRIDGE_WS_SCHEME` sets the websocket scheme (`ws` or `wss`).
+- `LXC_VNC_BRIDGE_WS_PORT` sets the websocket bridge port used with discovered container IPv4 addresses.
+- `LXC_VNC_BRIDGE_WS_PATH` is optional and can remain empty.
+
+Bridge websocket port policy for this playground:
+- Allowed range: `8000` to `9000`
+- Default example port: `8001`
+
+Restart the playground server after changing these variables.
+
+Also restart the playground server after pulling VNC-related code changes. The VNC route and websocket proxy behavior are server-side and may not refresh correctly in an already running dev process.
+
+### Playground server troubleshooting: "Submitting credentials..."
+
+If the VNC page stays on "Submitting credentials...":
+
+1. Restart the playground server so environment and recent VNC code changes are active.
+2. Confirm derived bridge mode is enabled and the bridge port matches websockify:
+  - `LXC_VNC_BRIDGE_DERIVE_FROM_IPV4=true`
+  - `LXC_VNC_BRIDGE_WS_PORT=8001` (or your chosen bridge port)
+3. Verify bridge and VNC listeners:
+  ```bash
+  ss -tlnp | grep -E "8001|5901"
+  ```
+4. Run websockify in verbose mode and retry once:
+  ```bash
+  websockify --verbose 8001 127.0.0.1:5901
+  ```
+
+If verbose output shows `Target closed connection` immediately, the backend VNC auth handshake is failing. Restart VNC via `~/.local/bin/vnc-boot.sh` and retry.
+
+## VNC Configuration
+
+The datalab playground uses derived IPv4 bridge mode for LXC GUI sessions.
+Configure bridge environment variables in the **Webserver Configuration** section above.
 
 Operational notes:
 
