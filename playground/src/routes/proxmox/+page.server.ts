@@ -813,28 +813,30 @@ const cloneLxcTemplate = async (templateVolid: string, templateNode: string, new
   const client = await createClient();
   const newid = await client.api.cluster.nextid() as number;
   const nodeApi = client.api.nodes.get(templateNode);
+  const lxcHookscriptVolid =
+    process.env.PVE_LXC_HOOKSCRIPT_VOLID?.trim() ||
+    'local:snippets/lxc-post-create-hook.sh';
+  const lxcRootfsStorage = process.env.PVE_LXC_ROOTFS_STORAGE?.trim();
 
   // See IssueUbuntuTemplate.md for the Proxmox Ubuntu 24.04 console/network issue
   // and why this deployment path forces unprivileged+nested containers.
-  const createBody = isUbuntu2404Template(templateVolid)
-    ? {
-        vmid: newid,
-        ostemplate: templateVolid,
-        hostname: newName,
-        password: rootPassword,
-        unprivileged: true,
-        features: 'nesting=1',
-        'net0': 'name=eth0,bridge=vmbr0,ip=dhcp,type=veth',
-        hookscript: '/root/lxc-post-create-hook.sh',
-      }
-    : {
-        vmid: newid,
-        ostemplate: templateVolid,
-        hostname: newName,
-        password: rootPassword,
-        'net0': 'name=eth0,bridge=vmbr0,ip=dhcp,type=veth',
-        hookscript: '/root/lxc-post-create-hook.sh',
-      };
+  // Proxmox expects hookscript in <storage>:snippets/<file> format, not an
+  // absolute host path like /root/... .
+  const createBody = {
+    vmid: newid,
+    ostemplate: templateVolid,
+    hostname: newName,
+    password: rootPassword,
+    ...(lxcRootfsStorage ? { storage: lxcRootfsStorage } : {}),
+    'net0': 'name=eth0,bridge=vmbr0,ip=dhcp,type=veth',
+    hookscript: lxcHookscriptVolid,
+    ...(isUbuntu2404Template(templateVolid)
+      ? {
+          unprivileged: true,
+          features: 'nesting=1',
+        }
+      : {}),
+  };
 
   return await nodeApi.lxc.create(templateNode, {
     $path: { node: templateNode },

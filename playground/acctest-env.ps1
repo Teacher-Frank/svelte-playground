@@ -19,6 +19,10 @@ $env:PVE_TERMINAL_TRACE = "true"
 
 # Optional: allow self-signed TLS certs
 $env:PVE_INSECURE_TLS = "true"
+# Optional: Proxmox hookscript volume ID (<storage>:snippets/<file>)
+$env:PVE_LXC_HOOKSCRIPT_VOLID = "local:snippets/lxc-post-create-hook.sh"
+# Optional: target storage for LXC root filesystem (must support rootdir/container directories)
+$env:PVE_LXC_ROOTFS_STORAGE = "local-lvm"
 
 #optional: VNC configuration
 # $env:LXC_VNC_BRIDGE_WS_URL=ws://<your-host>:8001
@@ -44,6 +48,8 @@ $env:NODE_ENV = "development"
 # Show effective Proxmox target values before startup
 Write-Host "PVE_BASE_URL=$($env:PVE_BASE_URL)"
 Write-Host "PVE_NODE=$($env:PVE_NODE)"
+Write-Host "PVE_LXC_HOOKSCRIPT_VOLID=$($env:PVE_LXC_HOOKSCRIPT_VOLID)"
+Write-Host "PVE_LXC_ROOTFS_STORAGE=$($env:PVE_LXC_ROOTFS_STORAGE)"
 
 # Resolve repo paths from this script location.
 $playgroundRoot = Split-Path -Parent $PSCommandPath

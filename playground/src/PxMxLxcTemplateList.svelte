@@ -35,7 +35,7 @@
     displayRef: string;
     displayName: string;
     displayLocation: string;
-    displayStatusOrFormat: string;
+    displayFormat: string;
     displaySizeMb: string;
     templateVolid?: string;
   };
@@ -70,7 +70,7 @@
       displayRef: guestTemplate.id?.toString() ?? '-',
       displayName: guestTemplate.name ?? 'Unnamed template',
       displayLocation: guestTemplate.node ?? '-',
-      displayStatusOrFormat: guestTemplate.status ?? '-',
+      displayFormat: '-',
       displaySizeMb: '-',
     }));
 
@@ -81,7 +81,7 @@
       displayRef: templateLxc.volid,
       displayName: templateLxc.notes?.trim() || templateLxc.volid.split('/').pop() || templateLxc.volid,
       displayLocation: templateLxc.storage,
-      displayStatusOrFormat: templateLxc.format,
+      displayFormat: templateLxc.format,
       displaySizeMb: Math.round(templateLxc.size / (1024 * 1024)).toString(),
       templateVolid: templateLxc.volid,
     }));
@@ -237,7 +237,7 @@
             <th>Template</th>
             <th>Name</th>
             <th>Location</th>
-            <th>Status/Format</th>
+            <th>Format</th>
             <th>Size (MB)</th>
             <th>Actions</th>
           </tr>
@@ -249,7 +249,7 @@
               <td>{templateRow.displayRef}</td>
               <td>{templateRow.displayName}</td>
               <td>{templateRow.displayLocation}</td>
-              <td>{templateRow.displayStatusOrFormat}</td>
+              <td>{templateRow.displayFormat}</td>
               <td>{templateRow.displaySizeMb}</td>
               <td>
                 <div class="template-actions">

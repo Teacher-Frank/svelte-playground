@@ -138,7 +138,6 @@
             <th>ID</th>
             <th>Name</th>
             <th>Node</th>
-            <th>Status</th>
             <th>Deploy</th>
           </tr>
         </thead>
@@ -148,7 +147,6 @@
               <td>{templateVm.id ?? '-'}</td>
               <td>{templateVm.name ?? 'Unnamed template'}</td>
               <td>{templateVm.node ?? '-'}</td>
-              <td>{templateVm.status ?? '-'}</td>
               <td>
                 <div class="template-actions">
                   <button
