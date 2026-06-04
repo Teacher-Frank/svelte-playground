@@ -109,6 +109,10 @@
     )
   );
 
+  const vmWorkloads = $derived(
+    (data.results?.vms ?? []).filter((vm) => !vm.template && !vm.isTemplate)
+  );
+
   let lastContainerIpRefreshActionId = $state<string | null>(null);
 
   $effect(() => {
@@ -147,9 +151,21 @@
       return;
     }
 
+    let refreshInFlight = false;
+
     // Refreshes server status, VM/container status, and the task log together.
     const intervalId = setInterval(() => {
-      void invalidateAll();
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+      if (refreshInFlight) {
+        return;
+      }
+
+      refreshInFlight = true;
+      void invalidateAll().finally(() => {
+        refreshInFlight = false;
+      });
     }, REFRESH_INTERVAL_MS);
 
     return () => {
@@ -242,7 +258,7 @@
             <PxMxVMTemplateList workloads={data.results.vms} form={templateForm} />
             <PxMxWorkloadList
               kind="vm"
-              workloads={data.results.vms.filter((vm) => !vm.template && !vm.isTemplate)}
+              workloads={vmWorkloads}
               form={vmForm}
             />
           </div>

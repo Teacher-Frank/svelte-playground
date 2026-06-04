@@ -11,6 +11,16 @@ export type WorkloadKind = 'vm' | 'container';
 export type WorkloadAction = 'start' | 'stop' | 'restart';
 
 const PROXMOX_REQUEST_TIMEOUT_MS = 8000;
+const PROFILE_PROXMOX_LOAD = process.env.PLAYGROUND_PROFILE_LOAD === 'true';
+
+const nowMs = (): number => Number(process.hrtime.bigint()) / 1_000_000;
+
+const logLoadTiming = (stage: string, startedAt: number, details?: string): void => {
+  if (!PROFILE_PROXMOX_LOAD) return;
+
+  const elapsedMs = (nowMs() - startedAt).toFixed(1);
+  console.info(`[proxmox][timing] ${stage}=${elapsedMs}ms${details ? ` ${details}` : ''}`);
+};
 
 const isContainerGuiSupported = (): boolean =>
   Boolean(process.env.LXC_VNC_BRIDGE_WS_URL?.trim()) ||
@@ -326,11 +336,66 @@ const buildUnavailableResults = (): ProxmoxResults => {
   };
 };
 
+const listLxcTemplates = async (nodeApi: NodeScopedAPI): Promise<LxcTemplate[]> => {
+  let storages: Array<Record<string, unknown>> = [];
+  try {
+    storages = await nodeApi.storage.list() as Array<Record<string, unknown>>;
+  } catch (err) {
+    console.error('[proxmox] Failed to list storages:', err);
+    return [];
+  }
+
+  const storageNames = storages
+    .map((storage) => (typeof storage.storage === 'string' ? storage.storage : undefined))
+    .filter((storageName): storageName is string => Boolean(storageName));
+
+  if (storageNames.length === 0) {
+    return [];
+  }
+
+  const templateGroups = await Promise.all(
+    storageNames.map(async (storageName): Promise<LxcTemplate[]> => {
+      const contentApi = nodeApi.storage.get(storageName).content;
+      if (!contentApi || typeof contentApi.list !== 'function') {
+        return [];
+      }
+
+      try {
+        const contentList = await contentApi.list({ $query: { content: 'vztmpl' } });
+        if (!Array.isArray(contentList)) {
+          return [];
+        }
+
+        return (contentList as unknown[]).flatMap((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return [];
+          }
+
+          const record = entry as Record<string, unknown>;
+          if (record.content !== 'vztmpl') {
+            return [];
+          }
+
+          return [{ ...record, storage: storageName } as LxcTemplate];
+        });
+      } catch (err) {
+        console.error(`[proxmox] Failed to list content for storage ${storageName}:`, err);
+        return [];
+      }
+    })
+  );
+
+  return templateGroups.flat();
+};
+
 /** Loads all Proxmox data needed by the page. Errors in individual sections are logged but do not abort the load. */
 const loadResults = async (): Promise<ProxmoxResults> => {
+  const loadStartedAt = nowMs();
+
   // --- Connect and fetch top-level cluster data ---
   let nodes, version, cluster;
   let client: Client;
+  const connectStartedAt = nowMs();
   try {
     client = await createClient();
     [nodes, version, cluster] = await Promise.all([
@@ -338,6 +403,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
       client.api.version.version(),
       client.api.cluster.status(),
     ]);
+    logLoadTiming('connect_and_cluster_fetch', connectStartedAt);
   } catch (err) {
     console.error('[proxmox] Connection/auth error:', err);
     return buildUnavailableResults();
@@ -385,54 +451,28 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   }
 
   // --- Load node-level data (errors are logged but do not abort the load) ---
-  let storages: Array<Record<string, unknown>> = [];
-  const lxcTemplates: LxcTemplate[] = [];
-  let vms: Workload[] = [];
-  let containers: Workload[] = [];
   const containerPrimaryIpById = new Map<number, string>();
-  let tasks: Array<Record<string, unknown>> = [];
+  const nodeDataStartedAt = nowMs();
+  const [lxcTemplates, vmsRaw, containersRaw, tasksRaw] = await Promise.all([
+    listLxcTemplates(nodeApi),
+    nodeApi.qemu.list().catch((err) => {
+      console.error('[proxmox] Failed to list VMs:', err);
+      return [] as Workload[];
+    }),
+    nodeApi.lxc.list().catch((err) => {
+      console.error('[proxmox] Failed to list containers:', err);
+      return [] as Workload[];
+    }),
+    nodeApi.tasks.list({ $query: { limit: 10, source: 'all' } }).catch((err) => {
+      console.error('[proxmox] Failed to list tasks:', err);
+      return [] as Array<Record<string, unknown>>;
+    }),
+  ]);
+  logLoadTiming('node_parallel_fetch', nodeDataStartedAt);
 
-  // Enumerate LXC templates from all storages that expose vztmpl content
-  try {
-    storages = await nodeApi.storage.list() as Array<Record<string, unknown>>;
-  } catch (err) {
-    console.error('[proxmox] Failed to list storages:', err);
-  }
-
-  if (storages.length > 0) {
-    for (const storage of storages) {
-      if (typeof storage.storage !== 'string') continue;
-
-      const contentApi = nodeApi.storage.get(storage.storage).content;
-      if (!contentApi || typeof contentApi.list !== 'function') continue;
-
-      let contentList: unknown;
-      try {
-        contentList = await contentApi.list({ $query: { content: 'vztmpl' } });
-      } catch (err) {
-        console.error(`[proxmox] Failed to list content for storage ${storage.storage}:`, err);
-        continue;
-      }
-
-      if (Array.isArray(contentList)) {
-        for (const tmpl of contentList as Array<Record<string, unknown>>) {
-          if (tmpl.content === 'vztmpl') {
-            lxcTemplates.push({ ...tmpl, storage: storage.storage } as LxcTemplate);
-          }
-        }
-      }
-    }
-  }
-  try {
-    vms = await nodeApi.qemu.list() as Workload[];
-  } catch (err) {
-    console.error('[proxmox] Failed to list VMs:', err);
-  }
-  try {
-    containers = await nodeApi.lxc.list() as Workload[];
-  } catch (err) {
-    console.error('[proxmox] Failed to list containers:', err);
-  }
+  const vms = vmsRaw as Workload[];
+  const containers = containersRaw as Workload[];
+  const tasks = tasksRaw as Array<Record<string, unknown>>;
 
   const runningContainerIds = (containers as Array<Record<string, unknown>>)
     .filter((container) => container.status === 'running')
@@ -440,6 +480,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     .filter((vmid) => Number.isInteger(vmid) && vmid > 0);
 
   if (runningContainerIds.length > 0) {
+    const containerIpFetchStartedAt = nowMs();
     await Promise.all(
       runningContainerIds.map(async (vmid) => {
         try {
@@ -453,12 +494,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
         }
       })
     );
-  }
-
-  try {
-    tasks = await nodeApi.tasks.list({ $query: { limit: 10, source: 'all' } }) as Array<Record<string, unknown>>;
-  } catch (err) {
-    console.error('[proxmox] Failed to list tasks:', err);
+    logLoadTiming('container_ip_fetch', containerIpFetchStartedAt, `count=${runningContainerIds.length}`);
   }
 
   const currentNode = clusterNodes.find((entry) => entry.node === node);
@@ -468,6 +504,12 @@ const loadResults = async (): Promise<ProxmoxResults> => {
       .map((entry) => [entry.node, { maxcpu: entry.maxcpu, maxmem: entry.maxmem }])
   );
   const serverStatus = typeof currentNode?.status === 'string' ? currentNode.status : 'unknown';
+
+  logLoadTiming(
+    'load_results_total',
+    loadStartedAt,
+    `vms=${vms.length} containers=${containers.length} templates=${lxcTemplates.length} tasks=${tasks.length}`
+  );
 
   return {
     apiHost: getApiHost(),

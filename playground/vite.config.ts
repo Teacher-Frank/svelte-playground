@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import mkcert from 'vite-plugin-mkcert';
 import type { Plugin } from 'vite';
@@ -26,10 +26,20 @@ function proxmoxVncPlugin(): Plugin {
     }
   };
 }
-export default defineConfig({
-  plugins: [sveltekit(), proxmoxTerminalPlugin(), proxmoxVncPlugin(), mkcert()],
-  server: {
-    https: true,
-    port: 8000
-  }
+export default defineConfig(({ command, mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const useMkcert = command === 'serve' && env.PLAYGROUND_USE_MKCERT !== 'false';
+
+  return {
+    plugins: [
+      sveltekit(),
+      proxmoxTerminalPlugin(),
+      proxmoxVncPlugin(),
+      ...(useMkcert ? [mkcert()] : []),
+    ],
+    server: {
+      https: true,
+      port: 8000
+    }
+  };
 });

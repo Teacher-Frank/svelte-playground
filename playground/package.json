@@ -2,8 +2,8 @@
 	"name": "playground",
 	"version": "0.0.1",
 	"scripts": {
-		"dev": "npm run docs && vite dev",
-		"build": "npm run docs && vite build && npm run prepack",
+		"dev": "vite dev",
+		"build": "vite build && npm run prepack",
 		"preview": "vite preview",
 		"start": "node --experimental-strip-types server/index.ts",
 		"prepare": "svelte-kit sync || echo ''",
@@ -13,8 +13,10 @@
 		"lint": "eslint .",
 		"test:unit": "node --experimental-strip-types ./scripts/run-vitest.ts",
 		"quality:gate": "npm run check && npm run lint && npm run test:unit -- --run",
-		"test": "npm run docs && npm run test:unit -- --run",
+		"test": "npm run test:unit -- --run",
 		"docs": "typedoc",
+		"bench:dev-startup": "node --experimental-strip-types ./scripts/bench-dev-startup.ts",
+		"profile:proxmox-load": "PLAYGROUND_PROFILE_LOAD=true vite dev",
 		"story:dev": "storybook dev -p 6006",
 		"story:build": "storybook build --output-dir storybook-static"
 	},

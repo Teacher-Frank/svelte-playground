@@ -116,11 +116,15 @@ describe('template action controls', () => {
     });
 
     const deployButton = page.getByRole('button', { name: 'Deploy VM from template' });
-    const renameButton = page.getByRole('button', { name: 'Rename template to input name' });
+    const renameButton = page.getByRole('button', { name: 'Rename template' });
 
     await expect.element(deployButton).toBeVisible();
     await expect.element(renameButton).toBeVisible();
     await expect.element(renameButton).toBeEnabled();
+    await expect.element(page.getByPlaceholder('New VM name')).not.toBeInTheDocument();
+
+    await deployButton.click();
+    await expect.element(page.getByPlaceholder('New VM name')).toBeVisible();
   });
 
   it('renders disabled rename button for LXC storage templates', async () => {
@@ -146,5 +150,10 @@ describe('template action controls', () => {
     await expect.element(renameButton).toBeVisible();
     await expect.element(renameButton).toBeDisabled();
     await expect.element(typeCell).toBeVisible();
+    await expect.element(page.getByPlaceholder('Container name')).not.toBeInTheDocument();
+
+    await deployButton.click();
+    await expect.element(page.getByPlaceholder('Container name')).toBeVisible();
+    await expect.element(page.getByPlaceholder('Root password')).toBeVisible();
   });
 });

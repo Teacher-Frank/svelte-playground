@@ -159,6 +159,7 @@
   // Controls visibility of the high-friction delete confirmation dialog.
   let showDeleteConfirm = $state(false);
   let showConfigureModal = $state(false);
+  let configureSubmitInFlight = $state(false);
   let configToast = $state<{ kind: 'success' | 'error'; message: string } | null>(null);
   let configToastTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -199,13 +200,16 @@
 
     const scrollX = window.scrollX;
     const scrollY = window.scrollY;
+    configureSubmitInFlight = true;
+    showConfigureModal = false;
+    showConfigToast('success', 'Configuration update started. The task is now running.');
 
     return async ({ result, update }: { result: { type?: string; data?: { message?: string } }; update: () => Promise<void> }) => {
       await update();
       window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
+      configureSubmitInFlight = false;
 
       if (result?.type === 'success') {
-        showConfigureModal = false;
         showConfigToast('success', result.data?.message ?? 'Container configuration updated.');
         return;
       }
@@ -281,7 +285,7 @@
       class="configure-btn"
       title={configureTooltip}
       aria-label={configureTooltip}
-      disabled={!configureEnabled}
+      disabled={!configureEnabled || configureSubmitInFlight}
       onclick={openConfigureModal}
     >
       <img src="/settings.svg" alt="" aria-hidden="true" />
@@ -391,10 +395,11 @@
           <p class="config-hint">Host memory: {hostMemoryMiB.toLocaleString()} MiB • Max memory: {maxMemoryMiB.toLocaleString()} MiB</p>
 
           <div class="config-modal-actions">
-            <button type="submit" class="config-ok-btn">OK</button>
+            <button type="submit" class="config-ok-btn" disabled={configureSubmitInFlight}>OK</button>
             <button
               type="button"
               class="config-cancel-btn"
+              disabled={configureSubmitInFlight}
               onclick={() => { showConfigureModal = false; }}
             >
               Cancel

@@ -36,6 +36,24 @@ npm run dev -- --open
 
 Everything inside `src/lib` is part of your library, everything inside `src/routes` can be used as a showcase or preview app.
 
+### Performance utilities
+
+The playground includes two optional utilities to track performance work over time:
+
+- Startup benchmark (cold + warm runs):
+
+```sh
+npm run bench:dev-startup
+```
+
+- Proxmox loader timing logs (prints stage timing to server console):
+
+```sh
+npm run profile:proxmox-load
+```
+
+You can also enable timings manually by setting `PLAYGROUND_PROFILE_LOAD=true` before launching the dev server.
+
 ## Building
 
 To build your library:

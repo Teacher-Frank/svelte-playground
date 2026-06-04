@@ -62,6 +62,7 @@ describe('PxMxAdmin tab form state', () => {
     render(PxMxAdmin, { data: makeData() });
 
     await page.getByRole('tab', { name: 'LXC Containers' }).click();
+    await page.getByRole('button', { name: 'Deploy container from storage template' }).click();
 
     const containerNameInput = page.getByPlaceholder('Container name');
     const rootPasswordInput = page.getByPlaceholder('Root password');
@@ -72,8 +73,11 @@ describe('PxMxAdmin tab form state', () => {
     await expect.element(containerNameInput).toHaveValue('my-lxc');
     await expect.element(rootPasswordInput).toHaveValue('StrongPassw0rd!');
 
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
     await page.getByRole('tab', { name: 'Virtual Machines' }).click();
     await page.getByRole('tab', { name: 'LXC Containers' }).click();
+    await page.getByRole('button', { name: 'Deploy container from storage template' }).click();
 
     await expect.element(page.getByPlaceholder('Container name')).toHaveValue('');
     await expect.element(page.getByPlaceholder('Root password')).toHaveValue('');
@@ -83,13 +87,17 @@ describe('PxMxAdmin tab form state', () => {
     render(PxMxAdmin, { data: makeData() });
 
     await page.getByRole('tab', { name: 'Virtual Machines' }).click();
+    await page.getByRole('button', { name: 'Deploy VM from template' }).click();
 
     const vmNameInput = page.getByPlaceholder('New VM name');
     await vmNameInput.fill('my-vm');
     await expect.element(vmNameInput).toHaveValue('my-vm');
 
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
     await page.getByRole('tab', { name: 'LXC Containers' }).click();
     await page.getByRole('tab', { name: 'Virtual Machines' }).click();
+    await page.getByRole('button', { name: 'Deploy VM from template' }).click();
 
     await expect.element(page.getByPlaceholder('New VM name')).toHaveValue('');
   });
