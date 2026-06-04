@@ -14,10 +14,55 @@ const basePort = Number(process.env.PLAYGROUND_DEV_BENCH_BASE_PORT ?? '45173');
 
 const toFixed = (value: number): string => value.toFixed(1);
 
-const stripAnsi = (value: string): string =>
-  value
-    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/\u001B\][^\u0007]*(?:\u0007|\u001B\\)/g, '');
+const stripAnsi = (value: string): string => {
+  // Remove CSI and OSC escape sequences without regex control chars.
+  let result = '';
+  let index = 0;
+
+  while (index < value.length) {
+    const char = value[index];
+
+    if (char === '\u001b') {
+      const next = value[index + 1];
+
+      // CSI: ESC [ ... final-byte
+      if (next === '[') {
+        index += 2;
+        while (index < value.length) {
+          const code = value.charCodeAt(index);
+          index += 1;
+          if (code >= 0x40 && code <= 0x7e) {
+            break;
+          }
+        }
+        continue;
+      }
+
+      // OSC: ESC ] ... BEL or ESC \
+      if (next === ']') {
+        index += 2;
+        while (index < value.length) {
+          const current = value[index];
+          if (current === '\u0007') {
+            index += 1;
+            break;
+          }
+          if (current === '\u001b' && value[index + 1] === '\\') {
+            index += 2;
+            break;
+          }
+          index += 1;
+        }
+        continue;
+      }
+    }
+
+    result += char;
+    index += 1;
+  }
+
+  return result;
+};
 
 const average = (values: number[]): number => {
   if (values.length === 0) return 0;
@@ -57,7 +102,23 @@ const runSingle = (run: number): Promise<StartupSample> =>
     let settled = false;
     let viteReportedMs: number | undefined;
     let outputBuffer = '';
-    let readinessProbe: ReturnType<typeof setInterval> | undefined;
+    const readinessProbe = setInterval(() => {
+      if (settled) return;
+
+      void isServerReachable(port).then((reachable) => {
+        if (!reachable || settled) return;
+
+        settled = true;
+        clearTimeout(timer);
+        clearInterval(readinessProbe);
+
+        const startupMs = Date.now() - startedAt;
+        child.once('exit', () => {
+          resolveRun({ run, startupMs, viteReportedMs });
+        });
+        child.kill('SIGTERM');
+      });
+    }, 250);
 
     const child = spawn(
       process.execPath,
@@ -74,7 +135,7 @@ const runSingle = (run: number): Promise<StartupSample> =>
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      if (readinessProbe) clearInterval(readinessProbe);
+      clearInterval(readinessProbe);
       child.kill('SIGTERM');
       const diagnostic = outputBuffer.trim().slice(-800);
       rejectRun(new Error(
@@ -96,7 +157,7 @@ const runSingle = (run: number): Promise<StartupSample> =>
       if (/\bready in\b/i.test(outputBuffer) || /Local:\s+https?:\/\//i.test(outputBuffer)) {
         settled = true;
         clearTimeout(timer);
-        if (readinessProbe) clearInterval(readinessProbe);
+        clearInterval(readinessProbe);
 
         const startupMs = Date.now() - startedAt;
         child.once('exit', () => {
@@ -118,7 +179,7 @@ const runSingle = (run: number): Promise<StartupSample> =>
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (readinessProbe) clearInterval(readinessProbe);
+      clearInterval(readinessProbe);
       rejectRun(error);
     });
 
@@ -126,27 +187,9 @@ const runSingle = (run: number): Promise<StartupSample> =>
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (readinessProbe) clearInterval(readinessProbe);
+      clearInterval(readinessProbe);
       rejectRun(new Error(`Run ${run} exited early (code=${code ?? 'null'}, signal=${signal ?? 'null'}).`));
     });
-
-    readinessProbe = setInterval(() => {
-      if (settled) return;
-
-      void isServerReachable(port).then((reachable) => {
-        if (!reachable || settled) return;
-
-        settled = true;
-        clearTimeout(timer);
-        if (readinessProbe) clearInterval(readinessProbe);
-
-        const startupMs = Date.now() - startedAt;
-        child.once('exit', () => {
-          resolveRun({ run, startupMs, viteReportedMs });
-        });
-        child.kill('SIGTERM');
-      });
-    }, 250);
   });
 
 const main = async (): Promise<void> => {

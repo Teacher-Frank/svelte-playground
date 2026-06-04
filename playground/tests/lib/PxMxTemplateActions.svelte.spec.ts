@@ -19,7 +19,7 @@ describe('template action controls', () => {
       compact: true,
     });
 
-    const convertButton = page.getByRole('button', { name: 'Stop and convert to template' });
+    const convertButton = page.getByRole('button', { name: 'Stop and convert container to template' });
     await expect.element(convertButton).toBeVisible();
     await expect.element(convertButton).toBeEnabled();
   });
@@ -37,7 +37,31 @@ describe('template action controls', () => {
       compact: true,
     });
 
-    const convertButton = page.getByRole('button', { name: 'Convert to template' });
+    const convertButton = page.getByRole('button', { name: 'Convert container to template' });
+    await expect.element(convertButton).toBeVisible();
+    await expect.element(convertButton).toBeEnabled();
+  });
+
+  it('shows configure and convert actions for VM workloads', async () => {
+    render(PxMxWorkloadControls, {
+      selectedWorkload: {
+        type: 'vm',
+        id: 101,
+        name: 'web-vm',
+        node: 'pve1',
+        status: 'running',
+        hostMaxCpu: 16,
+        hostMaxMemory: 64 * 1024 * 1024 * 1024,
+      },
+      selectedLabel: 'web-vm (VM 101)',
+      compact: true,
+    });
+
+    const configureButton = page.getByRole('button', { name: 'Configure VM CPU cores and memory' });
+    const convertButton = page.getByRole('button', { name: 'Stop and convert VM to template' });
+
+    await expect.element(configureButton).toBeVisible();
+    await expect.element(configureButton).toBeEnabled();
     await expect.element(convertButton).toBeVisible();
     await expect.element(convertButton).toBeEnabled();
   });

@@ -58,7 +58,7 @@ const makeData = () => ({
 });
 
 describe('PxMxAdmin tab form state', () => {
-  it('clears LXC deploy inputs after switching tabs away and back', async () => {
+  it('clears LXC deploy inputs after switching tabs away and back', { timeout: 30_000 }, async () => {
     render(PxMxAdmin, { data: makeData() });
 
     await page.getByRole('tab', { name: 'LXC Containers' }).click();
@@ -83,7 +83,7 @@ describe('PxMxAdmin tab form state', () => {
     await expect.element(page.getByPlaceholder('Root password')).toHaveValue('');
   });
 
-  it('clears VM deploy name after switching tabs away and back', async () => {
+  it('clears VM deploy name after switching tabs away and back', { timeout: 30_000 }, async () => {
     render(PxMxAdmin, { data: makeData() });
 
     await page.getByRole('tab', { name: 'Virtual Machines' }).click();

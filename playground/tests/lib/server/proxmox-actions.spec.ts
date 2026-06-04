@@ -1,16 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
-  const stop = vi.fn();
+  const lxcStop = vi.fn();
+  const qemuStop = vi.fn();
   const start = vi.fn();
   const lxcClone = vi.fn();
   const taskWait = vi.fn();
   const request = vi.fn();
   const nodeGet = vi.fn(() => ({
+    qemu: {
+      vmid: vi.fn(() => ({
+        status: {
+          stop: qemuStop,
+        },
+      })),
+    },
     lxc: {
       id: vi.fn(() => ({
         status: {
-          stop,
+          stop: lxcStop,
           start,
         },
         clone: lxcClone,
@@ -20,7 +28,7 @@ const mocks = vi.hoisted(() => {
 
   const nextid = vi.fn();
 
-  return { stop, start, lxcClone, taskWait, request, nodeGet, nextid };
+  return { lxcStop, qemuStop, start, lxcClone, taskWait, request, nodeGet, nextid };
 });
 
 vi.mock('pve-client', () => ({
@@ -68,13 +76,22 @@ describe('proxmox page server actions', () => {
     process.env.PVE_BASE_URL = 'https://pve.example.com:8006';
     process.env.PVE_API_TOKEN = 'root@pam!token=abc123';
 
-    mocks.stop.mockResolvedValue('UPID:stop-task');
+    mocks.lxcStop.mockResolvedValue('UPID:lxc-stop-task');
+    mocks.qemuStop.mockResolvedValue('UPID:vm-stop-task');
     mocks.start.mockResolvedValue('UPID:start-task');
     mocks.lxcClone.mockResolvedValue('UPID:lxc-clone-task');
     mocks.taskWait.mockResolvedValue([]);
     mocks.nextid.mockResolvedValue(200);
-    mocks.request.mockImplementation(async (path: string) => {
+    mocks.request.mockImplementation(async (path: string, _method?: string, payload?: Record<string, unknown>) => {
+      if (path === '/nodes/{node}/status') {
+        return {
+          cpuinfo: { cpus: 16 },
+          memory: { total: 64 * 1024 * 1024 * 1024 },
+        };
+      }
       if (path === '/nodes/{node}/lxc/{vmid}/template') return 'UPID:convert-task';
+      if (path === '/nodes/{node}/qemu/{vmid}/template') return 'UPID:vm-convert-task';
+      if (path === '/nodes/{node}/lxc/{vmid}/config' && payload?.$body) return 'UPID:lxc-config-task';
       if (path === '/nodes/{node}/qemu/{vmid}/config') return 'UPID:rename-task';
       return 'UPID:other-task';
     });
@@ -85,8 +102,8 @@ describe('proxmox page server actions', () => {
       makeEvent({ type: 'container', id: '200', node: 'pve1', name: 'api-ct', status: 'running' })
     );
 
-    expect(mocks.stop).toHaveBeenCalledTimes(1);
-    expect(mocks.taskWait).toHaveBeenCalledWith('UPID:stop-task');
+    expect(mocks.lxcStop).toHaveBeenCalledTimes(1);
+    expect(mocks.taskWait).toHaveBeenCalledWith('UPID:lxc-stop-task');
     expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/lxc/{vmid}/template', 'POST', {
       $path: { node: 'pve1', vmid: 200 },
     });
@@ -101,7 +118,7 @@ describe('proxmox page server actions', () => {
       makeEvent({ type: 'container', id: '201', node: 'pve1', name: 'db-ct', status: 'stopped' })
     );
 
-    expect(mocks.stop).not.toHaveBeenCalled();
+    expect(mocks.lxcStop).not.toHaveBeenCalled();
     expect(mocks.taskWait).not.toHaveBeenCalled();
     expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/lxc/{vmid}/template', 'POST', {
       $path: { node: 'pve1', vmid: 201 },
@@ -111,14 +128,65 @@ describe('proxmox page server actions', () => {
     expect(result.message).toContain('Converting container 201 (db-ct) to template');
   });
 
-  it('convertToTemplate returns validation failure for non-container workloads', async () => {
+  it('convertToTemplate supports running VMs with stop then qemu template conversion', async () => {
     const result = await actions.convertToTemplate(
       makeEvent({ type: 'vm', id: '100', node: 'pve1', name: 'web-vm', status: 'running' })
     );
 
-    expect((result as { status: number }).status).toBe(400);
-    expect((result as { data: { message: string } }).data.message).toContain('Only LXC containers can be converted to templates.');
-    expect(mocks.request).not.toHaveBeenCalled();
+    expect(mocks.qemuStop).toHaveBeenCalledTimes(1);
+    expect(mocks.taskWait).toHaveBeenCalledWith('UPID:vm-stop-task');
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/template', 'POST', {
+      $path: { node: 'pve1', vmid: 100 },
+    });
+
+    expect(result.status).toBe('success');
+    expect(result.upid).toBe('UPID:vm-convert-task');
+    expect(result.message).toContain('Stopped VM 100 (web-vm)');
+  });
+
+  it('configureWorkload applies LXC cpulimit and memory settings', async () => {
+    const result = await actions.configureWorkload(
+      makeEvent({
+        type: 'container',
+        id: '202',
+        node: 'pve1',
+        name: 'api-ct',
+        cpuSharePercent: '50',
+        memoryMiB: '2048',
+      })
+    );
+
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/status', 'GET', {
+      $path: { node: 'pve1' },
+    });
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/lxc/{vmid}/config', 'PUT', {
+      $path: { node: 'pve1', vmid: 202 },
+      $body: { cpulimit: 8, memory: 2048 },
+    });
+
+    expect(result.status).toBe('success');
+    expect(result.message).toContain('Updated container 202 (api-ct): cpulimit=8, memory=2048 MiB');
+  });
+
+  it('configureWorkload applies VM cores and memory settings', async () => {
+    const result = await actions.configureWorkload(
+      makeEvent({
+        type: 'vm',
+        id: '110',
+        node: 'pve1',
+        name: 'build-vm',
+        cpuSharePercent: '50',
+        memoryMiB: '4096',
+      })
+    );
+
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'POST', {
+      $path: { node: 'pve1', vmid: 110 },
+      $body: { cores: 8, memory: '4096' },
+    });
+
+    expect(result.status).toBe('success');
+    expect(result.message).toContain('Updated VM 110 (build-vm): cores=8, memory=4096 MiB');
   });
 
   it('renameVmTemplate updates template name through qemu config endpoint', async () => {

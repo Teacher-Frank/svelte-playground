@@ -76,20 +76,22 @@
     selectedWorkload?.node != null
   );
 
-  // Conversion applies to any selected LXC container; running ones are stopped
-  // server-side before conversion.
+  // Conversion applies to any selected VM/container; running workloads are
+  // stopped server-side before conversion.
   const convertToTemplateEnabled = $derived(
     !disabled &&
-    selectedWorkload?.type === 'container' &&
+    (selectedWorkload?.type === 'container' || selectedWorkload?.type === 'vm') &&
     selectedWorkload?.id != null &&
     selectedWorkload?.node != null
   );
 
-  const convertToTemplateTooltip = $derived(
-    selectedWorkload?.status === 'running'
-      ? 'Stop and convert to template'
-      : 'Convert to template'
-  );
+  const convertToTemplateTooltip = $derived.by(() => {
+    const targetLabel = selectedWorkload?.type === 'vm' ? 'VM' : 'container';
+    if (selectedWorkload?.status === 'running') {
+      return `Stop and convert ${targetLabel} to template`;
+    }
+    return `Convert ${targetLabel} to template`;
+  });
 
   const hasHostCapacityData = $derived(
     typeof selectedWorkload?.hostMaxCpu === 'number' &&
@@ -102,7 +104,7 @@
 
   const configureEnabled = $derived(
     !disabled &&
-    selectedWorkload?.type === 'container' &&
+    (selectedWorkload?.type === 'container' || selectedWorkload?.type === 'vm') &&
     selectedWorkload?.id != null &&
     selectedWorkload?.node != null &&
     hasHostCapacityData
@@ -147,13 +149,15 @@
   });
 
   const configureTooltip = $derived.by(() => {
-    if (selectedWorkload?.type !== 'container') {
-      return 'Configuration is only available for LXC containers';
+    if (selectedWorkload?.type !== 'container' && selectedWorkload?.type !== 'vm') {
+      return 'Configuration is only available for VM and LXC workloads';
     }
     if (!hasHostCapacityData) {
       return 'Host capacity is unavailable for this node';
     }
-    return 'Configure CPU and memory';
+    return selectedWorkload?.type === 'vm'
+      ? 'Configure VM CPU cores and memory'
+      : 'Configure container CPU and memory';
   });
 
   // Controls visibility of the high-friction delete confirmation dialog.
@@ -279,35 +283,33 @@
     <img src="/vnc.svg" alt="" aria-hidden="true" />
   </a>
 
-  {#if selectedWorkload?.type === 'container'}
-    <button
-      type="button"
-      class="configure-btn"
-      title={configureTooltip}
-      aria-label={configureTooltip}
-      disabled={!configureEnabled || configureSubmitInFlight}
-      onclick={openConfigureModal}
-    >
-      <img src="/settings.svg" alt="" aria-hidden="true" />
-    </button>
+  <button
+    type="button"
+    class="configure-btn"
+    title={configureTooltip}
+    aria-label={configureTooltip}
+    disabled={!configureEnabled || configureSubmitInFlight}
+    onclick={openConfigureModal}
+  >
+    <img src="/settings.svg" alt="" aria-hidden="true" />
+  </button>
 
-    <form class="convert-form" method="POST" action="?/convertToTemplate" use:enhance={preserveScrollOnSubmit}>
-      <input name="type" type="hidden" value={selectedWorkload?.type ?? ''} />
-      <input name="id" type="hidden" value={selectedWorkload?.id?.toString() ?? ''} />
-      <input name="name" type="hidden" value={selectedWorkload?.name ?? ''} />
-      <input name="node" type="hidden" value={selectedWorkload?.node ?? ''} />
-      <input name="status" type="hidden" value={selectedWorkload?.status ?? ''} />
-      <button
-        type="submit"
-        title={convertToTemplateTooltip}
-        aria-label={convertToTemplateTooltip}
-        class="template-btn"
-        disabled={!convertToTemplateEnabled}
-      >
-        <img src="/template.svg" alt="" aria-hidden="true" />
-      </button>
-    </form>
-  {/if}
+  <form class="convert-form" method="POST" action="?/convertToTemplate" use:enhance={preserveScrollOnSubmit}>
+    <input name="type" type="hidden" value={selectedWorkload?.type ?? ''} />
+    <input name="id" type="hidden" value={selectedWorkload?.id?.toString() ?? ''} />
+    <input name="name" type="hidden" value={selectedWorkload?.name ?? ''} />
+    <input name="node" type="hidden" value={selectedWorkload?.node ?? ''} />
+    <input name="status" type="hidden" value={selectedWorkload?.status ?? ''} />
+    <button
+      type="submit"
+      title={convertToTemplateTooltip}
+      aria-label={convertToTemplateTooltip}
+      class="template-btn"
+      disabled={!convertToTemplateEnabled}
+    >
+      <img src="/template.svg" alt="" aria-hidden="true" />
+    </button>
+  </form>
 
   <!-- Triggers an explicit confirmation overlay before submitting destroy. -->
   <button
@@ -352,14 +354,14 @@
   {#if showConfigureModal}
     <div class="config-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="config-modal-title">
       <div class="config-modal-box">
-        <h3 id="config-modal-title">Container Configuration</h3>
+        <h3 id="config-modal-title">Workload Configuration</h3>
         <p class="config-modal-subtitle">
           Set required CPU share and memory. Maximum allowed is 75% of the host.
         </p>
 
         <form
           method="POST"
-          action="?/configureContainer"
+          action="?/configureWorkload"
           use:enhance={enhanceConfigureSubmit}
         >
           <input name="type" type="hidden" value={selectedWorkload?.type ?? ''} />

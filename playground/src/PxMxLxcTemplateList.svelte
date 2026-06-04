@@ -1,6 +1,9 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import './PxMxStyle.css';
+  import { createOptimisticDialogEnhance, focusAndSelectInput } from './templateDialogEnhance.js';
+  import type { EnhanceResult } from './templateDialogEnhance.js';
+  import PxMxTemplateTable from './PxMxTemplateTable.svelte';
+  import PxMxTemplateDialog from './PxMxTemplateDialog.svelte';
 
 
   // LxcTemplate type describes the structure of a Proxmox LXC template as returned by the backend.
@@ -92,6 +95,37 @@
     templates.some((template) => /(?:^|:)vztmpl\/ubuntu-24\.04-standard_/i.test(template.volid))
   );
 
+  const templateTableHeaders = ['Type', 'Template', 'Name', 'Location', 'Format', 'Size (MB)', 'Actions'];
+
+  const templateTableRows = $derived(
+    unifiedTemplates.map((templateRow) => ({
+      key: templateRow.key,
+      cells: [
+        templateRow.sourceType,
+        templateRow.displayRef,
+        templateRow.displayName,
+        templateRow.displayLocation,
+        templateRow.displayFormat,
+        templateRow.displaySizeMb,
+      ],
+      deployTitle: templateRow.sourceType === 'storage'
+        ? 'Deploy container from storage template'
+        : 'Deploy container from guest template',
+      deployLabel: templateRow.sourceType === 'storage'
+        ? 'Deploy container from storage template'
+        : 'Deploy container from guest template',
+      renameTitle: templateRow.sourceType === 'storage'
+        ? 'Rename is not available for storage templates'
+        : 'Rename template',
+      renameLabel: templateRow.sourceType === 'storage'
+        ? 'Rename is not available for storage templates'
+        : 'Rename template',
+      renameEnabled: templateRow.sourceType === 'lxc',
+      onDeploy: () => openTemplateDialog(templateRow, 'deploy'),
+      onRename: () => openTemplateDialog(templateRow, 'rename'),
+    }))
+  );
+
   type LxcDialogAction = 'deploy-storage' | 'deploy-lxc' | 'rename-lxc';
 
   let templateDialog: HTMLDialogElement | null = $state(null);
@@ -136,11 +170,7 @@
     requestedName = '';
     requestedPassword = '';
     templateDialog?.showModal();
-
-    setTimeout(() => {
-      lxcNameInput?.focus();
-      lxcNameInput?.select();
-    }, 0);
+    focusAndSelectInput(lxcNameInput);
   }
 
   function handleTemplateDialogClose(): void {
@@ -168,37 +198,23 @@
     }
   });
 
-  const preserveScrollOnSubmit = () => {
-    if (typeof window === 'undefined') return;
-
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
-
-    return async ({ update }: { update: () => Promise<void> }) => {
-      await update();
-      window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
-    };
-  };
-
   const enhanceTemplateDialogSubmit = () => {
-    if (typeof window === 'undefined') return;
-
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
-    submitInFlight = true;
-    pendingMessage = pendingSubmitMessage();
-    dismissed = false;
-    templateDialog?.close();
-
-    return async ({ result, update }: { result: { type?: string; data?: { message?: string } }; update: () => Promise<void> }) => {
-      await update();
-      window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
-      submitInFlight = false;
-
-      if (result?.type === 'failure') {
-        pendingMessage = null;
-      }
-    };
+    return createOptimisticDialogEnhance({
+      closeDialog: () => {
+        templateDialog?.close();
+      },
+      onSubmitStart: () => {
+        submitInFlight = true;
+        pendingMessage = pendingSubmitMessage();
+        dismissed = false;
+      },
+      onSubmitEnd: (result: EnhanceResult | undefined) => {
+        submitInFlight = false;
+        if (result?.type === 'failure') {
+          pendingMessage = null;
+        }
+      },
+    });
   };
 </script>
 
@@ -229,293 +245,83 @@
   {/if}
 
   {#if unifiedTemplates.length > 0}
-    <div class="tasks-table-wrap">
-      <table class="tasks-table">
-        <thead>
-          <tr>
-            <th>Type</th>
-            <th>Template</th>
-            <th>Name</th>
-            <th>Location</th>
-            <th>Format</th>
-            <th>Size (MB)</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each unifiedTemplates as templateRow (templateRow.key)}
-            <tr>
-              <td>{templateRow.sourceType}</td>
-              <td>{templateRow.displayRef}</td>
-              <td>{templateRow.displayName}</td>
-              <td>{templateRow.displayLocation}</td>
-              <td>{templateRow.displayFormat}</td>
-              <td>{templateRow.displaySizeMb}</td>
-              <td>
-                <div class="template-actions">
-                  <button
-                    type="button"
-                    class="deploy-btn"
-                    title={templateRow.sourceType === 'storage' ? 'Deploy container from storage template' : 'Deploy container from guest template'}
-                    aria-label={templateRow.sourceType === 'storage' ? 'Deploy container from storage template' : 'Deploy container from guest template'}
-                    disabled={submitInFlight}
-                    onclick={() => openTemplateDialog(templateRow, 'deploy')}
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" class="btn-icon">
-                      <path d="M5 12h14M12 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    class="rename-btn"
-                    class:enabled={templateRow.sourceType === 'lxc'}
-                    title={templateRow.sourceType === 'storage' ? 'Rename is not available for storage templates' : 'Rename template'}
-                    aria-label={templateRow.sourceType === 'storage' ? 'Rename is not available for storage templates' : 'Rename template'}
-                    disabled={templateRow.sourceType === 'storage' || submitInFlight}
-                    onclick={() => openTemplateDialog(templateRow, 'rename')}
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" class="btn-icon">
-                      <path d="M4 20h4l10.5-10.5a2.12 2.12 0 1 0-3-3L5.5 17v3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                  </button>
-                </div>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
+    <PxMxTemplateTable
+      headers={templateTableHeaders}
+      rows={templateTableRows}
+      submitInFlight={submitInFlight}
+    />
   {:else}
     <!-- Show message if no templates are found -->
     <p>No LXC templates found.</p>
   {/if}
 
-  <dialog class="template-dialog" bind:this={templateDialog} onclose={handleTemplateDialogClose}>
-    {#if activeTemplateRow}
-      <form method="POST" action={templateDialogAction} class="template-dialog-form" autocomplete="off" use:enhance={enhanceTemplateDialogSubmit}>
-        <div class="template-dialog-header">
-          <h3>{templateDialogTitle}</h3>
-          <button type="button" class="dialog-close-btn" onclick={() => templateDialog?.close()} aria-label="Close dialog" disabled={submitInFlight}>✕</button>
-        </div>
+  <PxMxTemplateDialog
+    bind:dialog={templateDialog}
+    active={Boolean(activeTemplateRow)}
+    title={templateDialogTitle}
+    action={templateDialogAction}
+    submitLabel={submitLabel}
+    submitInFlight={submitInFlight}
+    onDialogClose={handleTemplateDialogClose}
+    onCancel={() => templateDialog?.close()}
+    enhanceSubmit={enhanceTemplateDialogSubmit}
+  >
+    {#snippet fields()}
+      {#if activeTemplateRow?.sourceType === 'storage'}
+        <input type="hidden" name="templateVolid" value={activeTemplateRow.templateVolid ?? ''} />
+        <input type="hidden" name="templateNode" value={activeTemplateRow.templateNode ?? serverNode} />
+      {:else}
+        <input type="hidden" name="templateId" value={activeTemplateRow?.templateId?.toString() ?? ''} />
+        <input type="hidden" name="templateNode" value={activeTemplateRow?.templateNode ?? ''} />
+      {/if}
 
-        {#if activeTemplateRow.sourceType === 'storage'}
-          <input type="hidden" name="templateVolid" value={activeTemplateRow.templateVolid ?? ''} />
-          <input type="hidden" name="templateNode" value={activeTemplateRow.templateNode ?? serverNode} />
-        {:else}
-          <input type="hidden" name="templateId" value={activeTemplateRow.templateId?.toString() ?? ''} />
-          <input type="hidden" name="templateNode" value={activeTemplateRow.templateNode ?? ''} />
-        {/if}
+      <label>
+        Container name
+        <input
+          type="text"
+          name="newName"
+          placeholder="Container name"
+          required
+          autocomplete="off"
+          class="deploy-name-input"
+          bind:this={lxcNameInput}
+          bind:value={requestedName}
+        />
+      </label>
 
+      {#if needsRootPassword}
         <label>
-          Container name
+          Root password
           <input
-            type="text"
-            name="newName"
-            placeholder="Container name"
+            type="password"
+            name="rootPassword"
+            placeholder="Root password"
             required
-            autocomplete="off"
+            autocomplete="new-password"
+            minlength="12"
+            pattern={String.raw`(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{12,}`}
+            title="At least 12 characters with uppercase, lowercase, digit, and special character"
             class="deploy-name-input"
-            bind:this={lxcNameInput}
-            bind:value={requestedName}
+            bind:value={requestedPassword}
           />
         </label>
-
-        {#if needsRootPassword}
-          <label>
-            Root password
-            <input
-              type="password"
-              name="rootPassword"
-              placeholder="Root password"
-              required
-              autocomplete="new-password"
-              minlength="12"
-              pattern={String.raw`(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{12,}`}
-              title="At least 12 characters with uppercase, lowercase, digit, and special character"
-              class="deploy-name-input"
-              bind:value={requestedPassword}
-            />
-          </label>
-        {/if}
-
-        <p class="dialog-hint">
-          {activeAction === 'rename-lxc'
-            ? 'Only the template name will be updated.'
-            : 'The values are used for this deployment only.'}
-        </p>
-
-        <div class="template-dialog-actions">
-          <button type="submit" class="dialog-primary-btn" disabled={submitInFlight}>{submitLabel}</button>
-          <button type="button" class="cancel-btn" onclick={() => templateDialog?.close()} disabled={submitInFlight}>Cancel</button>
-        </div>
-      </form>
-    {/if}
-  </dialog>
+      {/if}
+    {/snippet}
+    {#snippet hint()}
+      {activeAction === 'rename-lxc'
+        ? 'Only the template name will be updated.'
+        : 'The values are used for this deployment only.'}
+    {/snippet}
+  </PxMxTemplateDialog>
 </section>
 
 <style>
-  .template-actions {
-    display: inline-flex;
-    gap: 0.35rem;
-    align-items: center;
-  }
-
   .deploy-name-input {
     border: 1px solid #b3b3b3;
     border-radius: 0.4rem;
     padding: 0.25rem 0.5rem;
     font-size: 0.9rem;
     width: 12rem;
-  }
-
-  .deploy-btn {
-    background: #3b82f6;
-    border: 1px solid #2563eb;
-    border-radius: 0.4rem;
-    color: #fff;
-    cursor: pointer;
-    font-size: 0.9rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.35rem;
-    width: 2rem;
-    height: 2rem;
-  }
-
-  .btn-icon {
-    width: 1.05rem;
-    height: 1.05rem;
-    display: block;
-  }
-
-  .rename-btn {
-    background: #fef3c7;
-    border: 1px solid #f59e0b;
-    border-radius: 0.4rem;
-    color: #7c2d12;
-    cursor: not-allowed;
-    opacity: 0.55;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.35rem;
-    width: 2rem;
-    height: 2rem;
-  }
-
-  .rename-btn.enabled {
-    cursor: pointer;
-    opacity: 1;
-  }
-
-  .rename-btn.enabled:hover {
-    background: #fde68a;
-    border-color: #d97706;
-  }
-
-  .rename-btn.enabled:active {
-    transform: scale(0.97);
-  }
-
-  .template-dialog {
-    border: 1px solid #cfcfcf;
-    border-radius: 0.65rem;
-    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.24);
-    max-width: 30rem;
-    padding: 1rem;
-    width: calc(100% - 2rem);
-  }
-
-  .template-dialog::backdrop {
-    background: rgba(0, 0, 0, 0.35);
-  }
-
-  .template-dialog-form {
-    display: grid;
-    gap: 0.75rem;
-  }
-
-  .template-dialog-form h3 {
-    margin: 0;
-  }
-
-  .template-dialog-header {
-    align-items: center;
-    display: flex;
-    justify-content: space-between;
-    gap: 0.5rem;
-  }
-
-  .dialog-close-btn {
-    background: transparent;
-    border: none;
-    color: #666;
-    cursor: pointer;
-    font-size: 1rem;
-    line-height: 1;
-    padding: 0.2rem;
-  }
-
-  .dialog-close-btn:hover {
-    color: #111;
-  }
-
-  .template-dialog-form label {
-    color: #333;
-    display: grid;
-    font-size: 0.9rem;
-    font-weight: 600;
-    gap: 0.35rem;
-  }
-
-  .template-dialog-actions {
-    display: flex;
-    gap: 0.5rem;
-    justify-content: flex-end;
-  }
-
-  .dialog-primary-btn {
-    background: #2563eb;
-    border: 1px solid #1d4ed8;
-    border-radius: 0.4rem;
-    color: #fff;
-    cursor: pointer;
-    font-size: 0.9rem;
-    font-weight: 600;
-    padding: 0.45rem 0.9rem;
-  }
-
-  .dialog-primary-btn:hover {
-    background: #1d4ed8;
-  }
-
-  .dialog-hint {
-    color: #666;
-    font-size: 0.84rem;
-    margin: -0.1rem 0 0;
-  }
-
-  .cancel-btn {
-    background: #f5f5f5;
-    border: 1px solid #d0d0d0;
-    border-radius: 0.4rem;
-    color: #333;
-    cursor: pointer;
-    font-size: 0.9rem;
-    padding: 0.45rem 0.75rem;
-  }
-
-  .cancel-btn:hover {
-    background: #e9e9e9;
-  }
-
-  .deploy-btn:hover {
-    background: #2563eb;
-  }
-
-  .deploy-btn:active {
-    transform: scale(0.97);
   }
 
   .action-success {

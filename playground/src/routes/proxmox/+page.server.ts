@@ -337,7 +337,7 @@ const buildUnavailableResults = (): ProxmoxResults => {
 };
 
 const listLxcTemplates = async (nodeApi: NodeScopedAPI): Promise<LxcTemplate[]> => {
-  let storages: Array<Record<string, unknown>> = [];
+  let storages: Array<Record<string, unknown>>;
   try {
     storages = await nodeApi.storage.list() as Array<Record<string, unknown>>;
   } catch (err) {
@@ -531,6 +531,13 @@ const loadResults = async (): Promise<ProxmoxResults> => {
           ...vm,
           node: resolvedNode,
           id: vm.vmid as number | string | undefined,
+          cpulimit:
+            toPositiveNumber(vm.cpulimit) ??
+            toPositiveNumber(vm.cpus) ??
+            toPositiveNumber(vm.maxcpu),
+          memorylimit:
+            toPositiveNumber(vm.memory) ??
+            toPositiveNumber(vm.maxmem),
           hostMaxCpu: hostCapacity?.maxcpu,
           hostMaxMemory: hostCapacity?.maxmem,
         };
@@ -630,6 +637,7 @@ const executeDestroyAction = async (type: WorkloadKind, id: number, node: string
  * container is stopped first and the stop task is awaited.
  */
 const executeConvertToTemplateAction = async (
+  type: WorkloadKind,
   id: number,
   node: string,
   workloadStatus?: string
@@ -641,13 +649,19 @@ const executeConvertToTemplateAction = async (
 
   let stopUpid: string | undefined;
   if (shouldStop) {
-    stopUpid = await nodeApi.lxc.id(id).status.stop() as string;
+    stopUpid = await (type === 'vm'
+      ? nodeApi.qemu.vmid(id).status.stop()
+      : nodeApi.lxc.id(id).status.stop()) as string;
     await client.task.wait(stopUpid);
   }
 
-  const convertUpid = await client.request('/nodes/{node}/lxc/{vmid}/template', 'POST', {
+  const convertUpid = await client.request(
+    type === 'vm' ? '/nodes/{node}/qemu/{vmid}/template' : '/nodes/{node}/lxc/{vmid}/template',
+    'POST',
+    {
     $path: { node, vmid: id },
-  }) as string;
+    }
+  ) as string;
 
   return { convertUpid, stopUpid };
 };
@@ -680,12 +694,13 @@ const executeWorkloadAction = async (
   }
 };
 
-const executeContainerConfigureAction = async (
+const executeWorkloadConfigureAction = async (
+  type: WorkloadKind,
   id: number,
   node: string,
   cpuSharePercent: number,
   memoryMiB: number
-): Promise<{ upid?: string; appliedCpuLimit: number; appliedMemoryMiB: number }> => {
+): Promise<{ upid?: string; appliedCpuLimit: number; appliedMemoryMiB: number; appliedCpuCores?: number }> => {
   const client = await createClient();
 
   const nodeStatus = await client.request('/nodes/{node}/status', 'GET', {
@@ -714,11 +729,28 @@ const executeContainerConfigureAction = async (
   const appliedCpuLimit = Number(((hostCpuCount * cpuSharePercent) / 100).toFixed(2));
   const appliedMemoryMiB = Math.floor(memoryMiB);
 
-  const result = await client.request('/nodes/{node}/lxc/{vmid}/config', 'PUT', {
+  if (type === 'container') {
+    const result = await client.request('/nodes/{node}/lxc/{vmid}/config', 'PUT', {
+      $path: { node, vmid: id },
+      $body: {
+        cpulimit: appliedCpuLimit,
+        memory: appliedMemoryMiB,
+      },
+    });
+
+    return {
+      upid: typeof result === 'string' ? result : undefined,
+      appliedCpuLimit,
+      appliedMemoryMiB,
+    };
+  }
+
+  const appliedCpuCores = Math.max(1, Math.round((hostCpuCount * cpuSharePercent) / 100));
+  const result = await client.request('/nodes/{node}/qemu/{vmid}/config', 'POST', {
     $path: { node, vmid: id },
     $body: {
-      cpulimit: appliedCpuLimit,
-      memory: appliedMemoryMiB,
+      cores: appliedCpuCores,
+      memory: String(appliedMemoryMiB),
     },
   });
 
@@ -726,6 +758,7 @@ const executeContainerConfigureAction = async (
     upid: typeof result === 'string' ? result : undefined,
     appliedCpuLimit,
     appliedMemoryMiB,
+    appliedCpuCores,
   };
 };
 
@@ -912,8 +945,8 @@ export const load: PageServerLoad = async () => {
  * | `start` | `type`, `id`, `node`, `name?`, `status?` | Powers on a VM or container. |
  * | `stop` | `type`, `id`, `node`, `name?`, `status?` | Powers off a VM or container. |
  * | `restart` | `type`, `id`, `node`, `name?`, `status?` | Reboots a VM or container. |
- * | `configureContainer` | `type`, `id`, `node`, `cpuSharePercent`, `memoryMiB` | Applies LXC CPU/memory limits capped to 75% of host capacity. |
- * | `convertToTemplate` | `type`, `id`, `node`, `name?`, `status?` | Stops a running LXC (if needed) and converts it into a template. |
+ * | `configureWorkload` | `type`, `id`, `node`, `cpuSharePercent`, `memoryMiB` | Applies workload CPU/memory settings capped to 75% of host capacity. |
+ * | `convertToTemplate` | `type`, `id`, `node`, `name?`, `status?` | Stops a running VM/LXC (if needed) and converts it into a template. |
  * | `cloneFromTemplate` | `templateId`, `templateNode`, `newName` | Clones a QEMU template to a new full VM. |
  * | `renameVmTemplate` | `templateId`, `templateNode`, `newName` | Renames a QEMU template. |
  * | `cloneLxcGuestTemplate` | `templateId`, `templateNode`, `newName` | Clones a converted LXC guest template to a new container. |
@@ -929,21 +962,12 @@ export const actions: Actions = {
   stop: buildAction('stop'),
   restart: buildAction('restart'),
 
-  /** Updates LXC CPU/memory limits while enforcing a 75% host-capacity ceiling. */
-  configureContainer: async ({ request }: RequestEvent) => {
+  /** Updates VM/LXC CPU/memory limits while enforcing a 75% host-capacity ceiling. */
+  configureWorkload: async ({ request }: RequestEvent) => {
     let selectedWorkload: { type: WorkloadKind; id: number; name?: string; node: string; status?: string } | undefined;
     try {
       const formData = await request.formData();
       selectedWorkload = parseWorkloadSubmission(formData);
-
-      if (selectedWorkload.type !== 'container') {
-        return fail(400, {
-          status: 'error' as const,
-          message: 'Only LXC containers can be configured from this dialog.',
-          workloadType: selectedWorkload.type,
-          formType: selectedWorkload.type
-        });
-      }
 
       const cpuShareRaw = formData.get('cpuSharePercent');
       const memoryRaw = formData.get('memoryMiB');
@@ -969,18 +993,24 @@ export const actions: Actions = {
       const cpuSharePercent = Number(cpuShareRaw);
       const memoryMiB = Number(memoryRaw);
 
-      const { upid, appliedCpuLimit, appliedMemoryMiB } = await executeContainerConfigureAction(
+      const { upid, appliedCpuLimit, appliedMemoryMiB, appliedCpuCores } = await executeWorkloadConfigureAction(
+        selectedWorkload.type,
         selectedWorkload.id,
         selectedWorkload.node,
         cpuSharePercent,
         memoryMiB
       );
 
+      const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
+      const cpuSummary = selectedWorkload.type === 'vm'
+        ? `cores=${appliedCpuCores ?? Math.max(1, Math.round(appliedCpuLimit))}`
+        : `cpulimit=${appliedCpuLimit}`;
+
       return {
         status: 'success' as const,
         message: upid
-          ? `Updated container ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''}: cpulimit=${appliedCpuLimit}, memory=${appliedMemoryMiB} MiB — task ${upid}.`
-          : `Updated container ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''}: cpulimit=${appliedCpuLimit}, memory=${appliedMemoryMiB} MiB.`,
+          ? `Updated ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''}: ${cpuSummary}, memory=${appliedMemoryMiB} MiB — task ${upid}.`
+          : `Updated ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''}: ${cpuSummary}, memory=${appliedMemoryMiB} MiB.`,
         upid,
         workloadType: selectedWorkload.type,
         formType: selectedWorkload.type
@@ -995,33 +1025,27 @@ export const actions: Actions = {
     }
   },
 
-  /** Stops a running LXC (if needed) and converts it into a template. */
+  /** Stops a running VM/LXC (if needed) and converts it into a template. */
   convertToTemplate: async ({ request }: RequestEvent) => {
     let selectedWorkload: { type: WorkloadKind; id: number; name?: string; node: string; status?: string } | undefined;
     try {
       const formData = await request.formData();
       selectedWorkload = parseWorkloadSubmission(formData);
 
-      if (selectedWorkload.type !== 'container') {
-        return fail(400, {
-          status: 'error' as const,
-          message: 'Only LXC containers can be converted to templates.',
-          workloadType: selectedWorkload.type,
-          formType: selectedWorkload.type
-        });
-      }
-
       const { convertUpid, stopUpid } = await executeConvertToTemplateAction(
+        selectedWorkload.type,
         selectedWorkload.id,
         selectedWorkload.node,
         selectedWorkload.status
       );
 
+      const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
+
       return {
         status: 'success' as const,
         message: stopUpid
-          ? `Stopped container ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''} and started template conversion — stop task ${stopUpid}, convert task ${convertUpid}.`
-          : `Converting container ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''} to template — task ${convertUpid}.`,
+          ? `Stopped ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''} and started template conversion — stop task ${stopUpid}, convert task ${convertUpid}.`
+          : `Converting ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''} to template — task ${convertUpid}.`,
         upid: convertUpid,
         workloadType: selectedWorkload.type,
         formType: selectedWorkload.type
