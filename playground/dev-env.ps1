@@ -17,12 +17,20 @@ $env:PVE_REALM = "pam"
 # Optional: allow self-signed TLS certs
 $env:PVE_INSECURE_TLS = "true"
 
+# Optional: admin contact used when VM template cloud-init prerequisites are missing
+$env:PVE_ADMIN_CONTACT_EMAIL = "thifm@hr.nl"
+
+# Optional: preferred storage for VM cloud-init disks in automation workflows
+$env:PVE_VM_CLOUDINIT_STORAGE = "local-lvm"
+
 # Optional: Set Node.js environment
 $env:NODE_ENV = "development"
 
 # Show effective Proxmox target values before startup
 Write-Host "PVE_BASE_URL=$($env:PVE_BASE_URL)"
 Write-Host "PVE_NODE=$($env:PVE_NODE)"
+Write-Host "PVE_ADMIN_CONTACT_EMAIL=$($env:PVE_ADMIN_CONTACT_EMAIL)"
+Write-Host "PVE_VM_CLOUDINIT_STORAGE=$($env:PVE_VM_CLOUDINIT_STORAGE)"
 
 # Resolve repo paths from this script location.
 $playgroundRoot = Split-Path -Parent $PSCommandPath

@@ -19,6 +19,10 @@ $env:PVE_TERMINAL_TRACE = "true"
 
 # Optional: allow self-signed TLS certs
 $env:PVE_INSECURE_TLS = "true"
+# Optional: admin contact used when VM template cloud-init prerequisites are missing
+$env:PVE_ADMIN_CONTACT_EMAIL = "thifm@hr.nl"
+# Optional: preferred storage for VM cloud-init disks in automation workflows
+$env:PVE_VM_CLOUDINIT_STORAGE = "local-lvm"
 # Optional: Proxmox hookscript volume ID (<storage>:snippets/<file>)
 $env:PVE_LXC_HOOKSCRIPT_VOLID = "local:snippets/lxc-post-create-hook.sh"
 # Optional: target storage for LXC root filesystem (must support rootdir/container directories)
@@ -48,6 +52,8 @@ $env:NODE_ENV = "development"
 # Show effective Proxmox target values before startup
 Write-Host "PVE_BASE_URL=$($env:PVE_BASE_URL)"
 Write-Host "PVE_NODE=$($env:PVE_NODE)"
+Write-Host "PVE_ADMIN_CONTACT_EMAIL=$($env:PVE_ADMIN_CONTACT_EMAIL)"
+Write-Host "PVE_VM_CLOUDINIT_STORAGE=$($env:PVE_VM_CLOUDINIT_STORAGE)"
 Write-Host "PVE_LXC_HOOKSCRIPT_VOLID=$($env:PVE_LXC_HOOKSCRIPT_VOLID)"
 Write-Host "PVE_LXC_ROOTFS_STORAGE=$($env:PVE_LXC_ROOTFS_STORAGE)"
 

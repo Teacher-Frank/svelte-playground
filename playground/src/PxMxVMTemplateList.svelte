@@ -55,6 +55,8 @@
   let activeTemplate = $state<Workload | null>(null);
   let activeAction = $state<VmTemplateAction>('deploy');
   let requestedName = $state('');
+  let ciUser = $state('');
+  let ciPassword = $state('');
   let vmNameInput: HTMLInputElement | null = $state(null);
   let submitInFlight = $state(false);
   let pendingMessage = $state<string | null>(null);
@@ -76,6 +78,8 @@
     activeTemplate = templateVm;
     activeAction = action;
     requestedName = '';
+    ciUser = '';
+    ciPassword = '';
     vmDialog?.showModal();
     focusAndSelectInput(vmNameInput);
   }
@@ -83,6 +87,8 @@
   function handleVmDialogClose(): void {
     activeTemplate = null;
     requestedName = '';
+    ciUser = '';
+    ciPassword = '';
   }
 
   const pendingSubmitMessage = (): string =>
@@ -174,9 +180,40 @@
           class="deploy-name-input"
         />
       </label>
+      {#if activeAction === 'deploy'}
+        <label>
+          Username
+          <input
+            type="text"
+            name="ciUser"
+            placeholder="e.g. ubuntu, debian"
+            bind:value={ciUser}
+            required
+            autocomplete="off"
+            class="deploy-name-input"
+          />
+        </label>
+        <label>
+          Password
+          <input
+            type="password"
+            name="ciPassword"
+            placeholder="Cloud-init password"
+            required
+            autocomplete="new-password"
+            minlength="12"
+            pattern={String.raw`(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{12,}`}
+            title="At least 12 characters with uppercase, lowercase, digit, and special character"
+            class="deploy-name-input"
+            bind:value={ciPassword}
+          />
+        </label>
+      {/if}
     {/snippet}
     {#snippet hint()}
-      This name is used for {activeAction === 'deploy' ? 'the newly deployed VM.' : 'the existing template.'}
+      {activeAction === 'deploy'
+        ? 'Name, username, and password are used for this deployment only.'
+        : 'Only the template name will be updated.'}
     {/snippet}
   </PxMxTemplateDialog>
 </section>

@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => {
   const lxcStop = vi.fn();
   const qemuStop = vi.fn();
+  const qemuStart = vi.fn();
   const start = vi.fn();
   const lxcClone = vi.fn();
+  const qemuClone = vi.fn();
   const taskWait = vi.fn();
   const request = vi.fn();
   const nodeGet = vi.fn(() => ({
@@ -12,7 +14,9 @@ const mocks = vi.hoisted(() => {
       vmid: vi.fn(() => ({
         status: {
           stop: qemuStop,
+          start: qemuStart,
         },
+        clone: qemuClone,
       })),
     },
     lxc: {
@@ -28,7 +32,7 @@ const mocks = vi.hoisted(() => {
 
   const nextid = vi.fn();
 
-  return { lxcStop, qemuStop, start, lxcClone, taskWait, request, nodeGet, nextid };
+  return { lxcStop, qemuStop, qemuStart, start, lxcClone, qemuClone, taskWait, request, nodeGet, nextid };
 });
 
 vi.mock('pve-client', () => ({
@@ -75,23 +79,33 @@ describe('proxmox page server actions', () => {
     vi.clearAllMocks();
     process.env.PVE_BASE_URL = 'https://pve.example.com:8006';
     process.env.PVE_API_TOKEN = 'root@pam!token=abc123';
+    process.env.PVE_ADMIN_CONTACT_EMAIL = 'infra-admin@example.com';
 
     mocks.lxcStop.mockResolvedValue('UPID:lxc-stop-task');
     mocks.qemuStop.mockResolvedValue('UPID:vm-stop-task');
+    mocks.qemuStart.mockResolvedValue('UPID:vm-start-task');
+    mocks.qemuClone.mockResolvedValue('UPID:vm-clone-task');
     mocks.start.mockResolvedValue('UPID:start-task');
     mocks.lxcClone.mockResolvedValue('UPID:lxc-clone-task');
     mocks.taskWait.mockResolvedValue([]);
     mocks.nextid.mockResolvedValue(200);
-    mocks.request.mockImplementation(async (path: string, _method?: string, payload?: Record<string, unknown>) => {
+    mocks.request.mockImplementation(async (path: string, method?: string, payload?: Record<string, unknown>) => {
       if (path === '/nodes/{node}/status') {
         return {
           cpuinfo: { cpus: 16 },
           memory: { total: 64 * 1024 * 1024 * 1024 },
         };
       }
+      if (path === '/nodes/{node}/qemu/{vmid}/config' && method === 'GET') {
+        return {
+          ide2: 'local-lvm:cloudinit,media=cdrom',
+        };
+      }
       if (path === '/nodes/{node}/lxc/{vmid}/template') return 'UPID:convert-task';
       if (path === '/nodes/{node}/qemu/{vmid}/template') return 'UPID:vm-convert-task';
       if (path === '/nodes/{node}/lxc/{vmid}/config' && payload?.$body) return 'UPID:lxc-config-task';
+      // PUT is synchronous cloud-init config; POST is rename/configure
+      if (path === '/nodes/{node}/qemu/{vmid}/config' && method === 'PUT') return null;
       if (path === '/nodes/{node}/qemu/{vmid}/config') return 'UPID:rename-task';
       return 'UPID:other-task';
     });
@@ -187,6 +201,90 @@ describe('proxmox page server actions', () => {
 
     expect(result.status).toBe('success');
     expect(result.message).toContain('Updated VM 110 (build-vm): cores=8, memory=4096 MiB');
+  });
+
+  it('cloneFromTemplate clones, applies cloud-init credentials, and starts the VM', async () => {
+    const result = await actions.cloneFromTemplate(
+      makeEvent({
+        templateId: '900',
+        templateNode: 'pve1',
+        newName: 'my-vm',
+        ciUser: 'ubuntu',
+        ciPassword: 'StrongPassw0rd!',
+      })
+    );
+
+    // Clone is called and its task awaited before config is applied
+    expect(mocks.qemuClone).toHaveBeenCalledWith({
+      $body: { newid: 200, name: 'my-vm', full: true },
+    });
+    expect(mocks.taskWait).toHaveBeenCalledWith('UPID:vm-clone-task');
+
+    // Cloud-init drive and credentials applied via PUT config
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
+      $path: { node: 'pve1', vmid: 200 },
+      $body: expect.objectContaining({
+        ciuser: 'ubuntu',
+        cipassword: 'StrongPassw0rd!',
+      }),
+    });
+
+    // VM is started after config
+    expect(mocks.qemuStart).toHaveBeenCalledTimes(1);
+
+    expect(result.status).toBe('success');
+    expect(result.message).toContain('UPID:vm-clone-task');
+    expect(result.message).toContain('UPID:vm-start-task');
+  });
+
+  it('cloneFromTemplate rejects a weak cloud-init password', async () => {
+    const result = await actions.cloneFromTemplate(
+      makeEvent({
+        templateId: '900',
+        templateNode: 'pve1',
+        newName: 'my-vm',
+        ciUser: 'ubuntu',
+        ciPassword: 'weak',
+      })
+    );
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(mocks.qemuClone).not.toHaveBeenCalled();
+  });
+
+  it('cloneFromTemplate rejects a missing username', async () => {
+    const result = await actions.cloneFromTemplate(
+      makeEvent({
+        templateId: '900',
+        templateNode: 'pve1',
+        newName: 'my-vm',
+        ciUser: '',
+        ciPassword: 'StrongPassw0rd!',
+      })
+    );
+
+    expect((result as { status: number }).status).toBe(400);
+    expect((result as { data: { message: string } }).data.message).toContain('Username is required');
+    expect(mocks.qemuClone).not.toHaveBeenCalled();
+  });
+
+  it('cloneFromTemplate blocks deploy when template has no cloud-init drive and includes admin contact', async () => {
+    mocks.request.mockImplementationOnce(async () => ({}));
+
+    const result = await actions.cloneFromTemplate(
+      makeEvent({
+        templateId: '900',
+        templateNode: 'pve1',
+        newName: 'my-vm',
+        ciUser: 'ubuntu',
+        ciPassword: 'StrongPassw0rd!',
+      })
+    );
+
+    expect((result as { status: number }).status).toBe(400);
+    expect((result as { data: { message: string } }).data.message).toContain('does not have a cloud-init drive attached');
+    expect((result as { data: { message: string } }).data.message).toContain('infra-admin@example.com');
+    expect(mocks.qemuClone).not.toHaveBeenCalled();
   });
 
   it('renameVmTemplate updates template name through qemu config endpoint', async () => {

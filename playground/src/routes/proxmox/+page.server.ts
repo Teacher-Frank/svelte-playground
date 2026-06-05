@@ -805,14 +805,51 @@ const buildAction = (action: WorkloadAction) => {
   };
 };
 
-/** Clones a QEMU VM template to a new VM. Returns the task UPID. */
-const cloneVmFromTemplate = async (templateId: number, templateNode: string, newName: string): Promise<string> => {
+/**
+ * Clones a QEMU VM template, applies cloud-init credentials, and starts the VM.
+ */
+const hasCloudInitDriveInVmConfig = (config: Record<string, unknown>): boolean =>
+  Object.values(config).some(
+    (value) => typeof value === 'string' && value.toLowerCase().includes('cloudinit')
+  );
+
+const templateHasCloudInitDrive = async (templateId: number, templateNode: string): Promise<boolean> => {
+  const client = await createClient();
+  const config = await client.request('/nodes/{node}/qemu/{vmid}/config', 'GET', {
+    $path: { node: templateNode, vmid: templateId },
+  }) as Record<string, unknown>;
+
+  return hasCloudInitDriveInVmConfig(config);
+};
+
+const deployVmFromTemplate = async (
+  templateId: number,
+  templateNode: string,
+  newName: string,
+  ciUser: string,
+  ciPassword: string
+): Promise<{ cloneUpid: string; startUpid: string }> => {
   const client = await createClient();
   const newid = await client.api.cluster.nextid() as number;
   const nodeApi: NodeScopedAPI = client.api.nodes.get(templateNode);
-  return await nodeApi.qemu.vmid(templateId).clone({
+
+  // Full clone — must complete before cloud-init config can be applied.
+  const cloneUpid = await nodeApi.qemu.vmid(templateId).clone({
     $body: { newid, name: newName, full: true },
   }) as string;
+  await client.task.wait(cloneUpid);
+
+  // Apply cloud-init user credentials to the cloned VM.
+  await client.request('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
+    $path: { node: templateNode, vmid: newid },
+    $body: {
+      ciuser: ciUser,
+      cipassword: ciPassword,
+    } as Record<string, unknown>,
+  });
+
+  const startUpid = await nodeApi.qemu.vmid(newid).status.start() as string;
+  return { cloneUpid, startUpid };
 };
 
 /** Renames a QEMU template (or VM) by updating its config name. */
@@ -1060,7 +1097,7 @@ export const actions: Actions = {
     }
   },
 
-  /** Clones a QEMU VM template into a new full VM. */
+  /** Clones a QEMU VM template into a new VM, applies cloud-init credentials, and starts it. */
   cloneFromTemplate: async ({ request }: RequestEvent) => {
     try {
       const formData = await request.formData();
@@ -1068,29 +1105,60 @@ export const actions: Actions = {
       const templateIdValue = formData.get('templateId');
       const templateNode = formData.get('templateNode');
       const newName = formData.get('newName');
+      const ciUser = formData.get('ciUser');
+      const ciPassword = formData.get('ciPassword');
 
       if (typeof templateIdValue !== 'string' || templateIdValue.length === 0) {
-        return fail(400, { status: 'error' as const, message: 'Missing template ID.' });
+        return fail(400, { status: 'error' as const, message: 'Missing template ID.', formType: 'vm-template' });
       }
 
       const templateId = Number(templateIdValue);
       if (!Number.isInteger(templateId) || templateId <= 0) {
-        return fail(400, { status: 'error' as const, message: 'Invalid template ID.' });
+        return fail(400, { status: 'error' as const, message: 'Invalid template ID.', formType: 'vm-template' });
       }
 
       if (typeof templateNode !== 'string' || templateNode.trim().length === 0) {
-        return fail(400, { status: 'error' as const, message: 'Missing template node.' });
+        return fail(400, { status: 'error' as const, message: 'Missing template node.', formType: 'vm-template' });
       }
 
       if (typeof newName !== 'string' || newName.trim().length === 0) {
-        return fail(400, { status: 'error' as const, message: 'New VM name is required.' });
+        return fail(400, { status: 'error' as const, message: 'New VM name is required.', formType: 'vm-template' });
       }
 
-      const upid = await cloneVmFromTemplate(templateId, templateNode.trim(), newName.trim());
+      if (typeof ciUser !== 'string' || ciUser.trim().length === 0) {
+        return fail(400, { status: 'error' as const, message: 'Username is required for cloud-init.', formType: 'vm-template' });
+      }
+
+      const passwordError = validateStrongPassword(ciPassword);
+      if (passwordError) {
+        return fail(400, { status: 'error' as const, message: passwordError, formType: 'vm-template' });
+      }
+
+      const hasCloudInitDrive = await templateHasCloudInitDrive(templateId, templateNode.trim());
+      if (!hasCloudInitDrive) {
+        const adminContactEmail = process.env.PVE_ADMIN_CONTACT_EMAIL?.trim();
+        const contactMessage = adminContactEmail
+          ? ` Please contact your administrator at ${adminContactEmail}.`
+          : ' Please contact your administrator.';
+
+        return fail(400, {
+          status: 'error' as const,
+          message: `Template ${templateId} does not have a cloud-init drive attached.${contactMessage}`,
+          formType: 'vm-template'
+        });
+      }
+
+      const { cloneUpid, startUpid } = await deployVmFromTemplate(
+        templateId,
+        templateNode.trim(),
+        newName.trim(),
+        ciUser.trim(),
+        ciPassword as string
+      );
 
       return {
         status: 'success' as const,
-        message: `Cloning template ${templateId} as "${newName.trim()}" — task ${upid}.`,
+        message: `Cloned template ${templateId} as "${newName.trim()}" — clone task ${cloneUpid}. Started VM — start task ${startUpid}.`,
         formType: 'vm-template'
       };
     } catch (error) {
