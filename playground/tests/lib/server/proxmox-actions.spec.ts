@@ -273,6 +273,22 @@ describe('proxmox page server actions', () => {
     });
   });
 
+  it('cloneFromTemplate rejects a name that is not a valid Proxmox DNS name', async () => {
+    const result = await actions.cloneFromTemplate(
+      makeEvent({
+        templateId: '900',
+        templateNode: 'pve1',
+        newName: 'my vm with spaces!',
+        ciUser: 'ubuntu',
+        ciPassword: 'StrongPassw0rd!',
+      })
+    );
+
+    expect((result as { status: number }).status).toBe(400);
+    expect((result as { data: { message: string } }).data.message).toContain('my vm with spaces!');
+    expect(mocks.qemuClone).not.toHaveBeenCalled();
+  });
+
   it('cloneFromTemplate rejects a weak cloud-init password', async () => {
     const result = await actions.cloneFromTemplate(
       makeEvent({

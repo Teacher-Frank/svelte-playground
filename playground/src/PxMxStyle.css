@@ -501,6 +501,11 @@
   z-index: 1000;
 }
 
+.delete-confirm-overlay.waiting,
+.delete-confirm-overlay.waiting * {
+  cursor: wait !important;
+}
+
 .delete-confirm-box {
   background: #b22222;
   color: #fff;
@@ -580,6 +585,12 @@
 
 .delete-confirm-cancel:active {
   transform: scale(0.97);
+}
+
+.delete-confirm-yes:disabled,
+.delete-confirm-cancel:disabled {
+  opacity: 0.65;
+  pointer-events: none;
 }
 
 .workload-controls .action-buttons button:hover {

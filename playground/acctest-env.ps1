@@ -24,7 +24,7 @@ $env:PVE_ADMIN_CONTACT_EMAIL = "thifm@hr.nl"
 # Optional: preferred storage for VM cloud-init disks in automation workflows
 $env:PVE_VM_CLOUDINIT_STORAGE = "local-lvm"
 # Optional: default admin-page auto refresh interval (seconds)
-$env:PLAYGROUND_REFRESH_INTERVAL_SECONDS = "5"
+$env:PLAYGROUND_REFRESH_INTERVAL_SECONDS = "1"
 # Optional: Proxmox hookscript volume ID (<storage>:snippets/<file>)
 $env:PVE_LXC_HOOKSCRIPT_VOLID = "local:snippets/lxc-post-create-hook.sh"
 # Optional: target storage for LXC root filesystem (must support rootdir/container directories)

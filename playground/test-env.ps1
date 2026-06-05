@@ -29,7 +29,7 @@ $env:PVE_ADMIN_CONTACT_EMAIL = "thifm@hr.nl"
 $env:PVE_VM_CLOUDINIT_STORAGE = "local-lvm"
 
 # Optional: default admin-page auto refresh interval (seconds)
-$env:PLAYGROUND_REFRESH_INTERVAL_SECONDS = "5"
+$env:PLAYGROUND_REFRESH_INTERVAL_SECONDS = "1"
 
 #optional: VNC configuration
 # $env:LXC_VNC_BRIDGE_WS_URL=ws://<your-host>:8001

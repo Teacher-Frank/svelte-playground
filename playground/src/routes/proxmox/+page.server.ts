@@ -776,12 +776,12 @@ const executeWorkloadConfigureAction = async (
   }
 
   if (!Number.isFinite(cpuSharePercent) || cpuSharePercent <= 0 || cpuSharePercent > 75) {
-    throw new Error('CPU share must be between 1 and 75 percent.');
+    throw new Error(`CPU share must be between 1 and 75 percent (got ${cpuSharePercent}).`);
   }
 
   const maxMemoryMiB = Math.floor((hostMemoryBytes * 0.75) / (1024 ** 2));
   if (!Number.isFinite(memoryMiB) || memoryMiB < 16 || memoryMiB > maxMemoryMiB) {
-    throw new Error(`Memory must be between 16 and ${maxMemoryMiB} MiB (75% of host memory).`);
+    throw new Error(`Memory must be between 16 and ${maxMemoryMiB} MiB (75% of host memory) (got ${memoryMiB} MiB).`);
   }
 
   const appliedCpuLimit = Number(((hostCpuCount * cpuSharePercent) / 100).toFixed(2));
@@ -918,6 +918,25 @@ const validateStrongPassword = (value: unknown): string | null => {
   if (!/[a-z]/.test(value)) return 'Root password must contain at least one lowercase letter.';
   if (!/[0-9]/.test(value)) return 'Root password must contain at least one digit.';
   if (!/[^A-Za-z0-9]/.test(value)) return 'Root password must contain at least one special character.';
+  return null;
+};
+
+/**
+ * Returns an error message if the name is not a valid Proxmox DNS name, or `null` if it passes.
+ * Proxmox accepts labels (a-z, A-Z, 0-9, hyphens) separated by dots, each label ≤63 chars,
+ * must start and end with alphanumeric, max 253 chars total.
+ */
+const validateProxmoxName = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return 'Name is required.';
+  if (trimmed.length > 253) return `"${trimmed}" is too long (max 253 characters).`;
+  const labelPattern = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
+  const labels = trimmed.split('.');
+  for (const label of labels) {
+    if (!labelPattern.test(label)) {
+      return `"${trimmed}" is not a valid name. Use only letters, digits, hyphens, and dots; each part must start and end with a letter or digit.`;
+    }
+  }
   return null;
 };
 
@@ -1160,7 +1179,7 @@ export const actions: Actions = {
 
       const templateId = Number(templateIdValue);
       if (!Number.isInteger(templateId) || templateId <= 0) {
-        return fail(400, { status: 'error' as const, message: 'Invalid template ID.', formType: 'vm-template' });
+        return fail(400, { status: 'error' as const, message: `Invalid template ID: "${templateIdValue}".`, formType: 'vm-template' });
       }
 
       if (typeof templateNode !== 'string' || templateNode.trim().length === 0) {
@@ -1169,6 +1188,11 @@ export const actions: Actions = {
 
       if (typeof newName !== 'string' || newName.trim().length === 0) {
         return fail(400, { status: 'error' as const, message: 'New VM name is required.', formType: 'vm-template' });
+      }
+
+      const nameError = validateProxmoxName(newName);
+      if (nameError) {
+        return fail(400, { status: 'error' as const, message: `VM name: ${nameError}`, formType: 'vm-template' });
       }
 
       if (typeof ciUser !== 'string' || ciUser.trim().length === 0) {
@@ -1217,7 +1241,7 @@ export const actions: Actions = {
 
       const templateId = Number(templateIdValue);
       if (!Number.isInteger(templateId) || templateId <= 0) {
-        return fail(400, { status: 'error' as const, message: 'Invalid template ID.' });
+        return fail(400, { status: 'error' as const, message: `Invalid template ID: "${templateIdValue}".` });
       }
 
       if (typeof templateNode !== 'string' || templateNode.trim().length === 0) {
@@ -1226,6 +1250,11 @@ export const actions: Actions = {
 
       if (typeof newName !== 'string' || newName.trim().length === 0) {
         return fail(400, { status: 'error' as const, message: 'Template name is required.' });
+      }
+
+      const renameNameError = validateProxmoxName(newName);
+      if (renameNameError) {
+        return fail(400, { status: 'error' as const, message: `Template name: ${renameNameError}` });
       }
 
       const result = await renameVmTemplate(templateId, templateNode.trim(), newName.trim());
@@ -1262,7 +1291,7 @@ export const actions: Actions = {
 
       const templateId = Number(templateIdValue);
       if (!Number.isInteger(templateId) || templateId <= 0) {
-        return fail(400, { status: 'error' as const, message: 'Invalid template ID.', formType: 'lxc-template' });
+        return fail(400, { status: 'error' as const, message: `Invalid template ID: "${templateIdValue}".`, formType: 'lxc-template' });
       }
 
       if (typeof templateNode !== 'string' || templateNode.trim().length === 0) {
@@ -1310,7 +1339,7 @@ export const actions: Actions = {
 
       const templateId = Number(templateIdValue);
       if (!Number.isInteger(templateId) || templateId <= 0) {
-        return fail(400, { status: 'error' as const, message: 'Invalid template ID.', formType: 'lxc-template' });
+        return fail(400, { status: 'error' as const, message: `Invalid template ID: "${templateIdValue}".`, formType: 'lxc-template' });
       }
 
       if (typeof templateNode !== 'string' || templateNode.trim().length === 0) {

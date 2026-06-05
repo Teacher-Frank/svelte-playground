@@ -162,6 +162,7 @@
 
   // Controls visibility of the high-friction delete confirmation dialog.
   let showDeleteConfirm = $state(false);
+  let destroySubmitInFlight = $state(false);
   let showConfigureModal = $state(false);
   let configureSubmitInFlight = $state(false);
   let configToast = $state<{ kind: 'success' | 'error'; message: string } | null>(null);
@@ -196,6 +197,33 @@
     return async ({ update }: { update: () => Promise<void> }) => {
       await update();
       window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
+    };
+  };
+
+  const setWaitCursor = (enabled: boolean): void => {
+    if (typeof document === 'undefined') return;
+    document.body.style.cursor = enabled ? 'wait' : '';
+  };
+
+  const closeDeleteConfirm = (): void => {
+    showDeleteConfirm = false;
+    destroySubmitInFlight = false;
+    setWaitCursor(false);
+  };
+
+  const enhanceDestroySubmit = () => {
+    if (typeof window === 'undefined') return;
+
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+
+    destroySubmitInFlight = true;
+    setWaitCursor(true);
+
+    return async ({ update }: { update: () => Promise<void> }) => {
+      await update();
+      window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
+      closeDeleteConfirm();
     };
   };
 
@@ -325,7 +353,13 @@
 
   {#if showDeleteConfirm}
     <!-- Aggressive confirmation UI to reduce accidental destructive clicks. -->
-    <div class="delete-confirm-overlay" role="alertdialog" aria-modal="true" aria-labelledby="delete-confirm-title">
+    <div
+      class="delete-confirm-overlay"
+      class:waiting={destroySubmitInFlight}
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="delete-confirm-title"
+    >
       <div class="delete-confirm-box">
         <p id="delete-confirm-title" class="delete-confirm-title">
           ⚠️ DANGER !! PERMANENT DELETION !!
@@ -338,14 +372,23 @@
         </p>
         <div class="delete-confirm-actions">
           <!-- Destroy action receives the same workload identifiers as the power actions. -->
-          <form method="POST" action="?/destroy" use:enhance={preserveScrollOnSubmit}>
+          <form method="POST" action="?/destroy" use:enhance={enhanceDestroySubmit}>
             <input name="type" type="hidden" value={selectedWorkload?.type ?? ''} />
             <input name="id" type="hidden" value={selectedWorkload?.id?.toString() ?? ''} />
             <input name="name" type="hidden" value={selectedWorkload?.name ?? ''} />
             <input name="node" type="hidden" value={selectedWorkload?.node ?? ''} />
-            <button type="submit" class="delete-confirm-yes">YES, DESTROY IT!!!</button>
+            <button type="submit" class="delete-confirm-yes" disabled={destroySubmitInFlight}>
+              {destroySubmitInFlight ? 'DESTROYING...' : 'YES, DESTROY IT!!!'}
+            </button>
           </form>
-          <button type="button" class="delete-confirm-cancel" onclick={() => { showDeleteConfirm = false; }}>Cancel</button>
+          <button
+            type="button"
+            class="delete-confirm-cancel"
+            disabled={destroySubmitInFlight}
+            onclick={closeDeleteConfirm}
+          >
+            Cancel
+          </button>
         </div>
       </div>
     </div>
