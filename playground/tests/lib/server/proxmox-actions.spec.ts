@@ -97,6 +97,7 @@ describe('proxmox page server actions', () => {
     process.env.PVE_BASE_URL = 'https://pve.example.com:8006';
     process.env.PVE_API_TOKEN = 'root@pam!token=abc123';
     process.env.PVE_ADMIN_CONTACT_EMAIL = 'infra-admin@example.com';
+    delete process.env.PVE_VM_CLOUDINIT_STORAGE;
 
     mocks.lxcStop.mockResolvedValue('UPID:lxc-stop-task');
     mocks.qemuStop.mockResolvedValue('UPID:vm-stop-task');
@@ -271,6 +272,59 @@ describe('proxmox page server actions', () => {
         ide2: 'ceph-fast:cloudinit',
       }),
     });
+  });
+
+  it('cloneFromTemplate retries once with a fresh VM ID when cloud-init LV already exists', async () => {
+    mocks.nextid.mockResolvedValueOnce(200).mockResolvedValueOnce(201);
+    mocks.request.mockImplementation(async (path: string, method?: string, payload?: Record<string, unknown>) => {
+      if (path === '/nodes/{node}/status') {
+        return {
+          cpuinfo: { cpus: 16 },
+          memory: { total: 64 * 1024 * 1024 * 1024 },
+        };
+      }
+      if (
+        path === '/nodes/{node}/qemu/{vmid}/config' &&
+        method === 'PUT' &&
+        payload?.$path &&
+        (payload.$path as { vmid?: number }).vmid === 200
+      ) {
+        throw new Error('lvcreate \'pve/vm-200-cloudinit\' error: Logical Volume "vm-200-cloudinit" already exists in volume group "pve"');
+      }
+      if (path === '/nodes/{node}/qemu/{vmid}/config' && method === 'PUT') {
+        return null;
+      }
+      if (path === '/nodes/{node}/qemu/{vmid}/config') return 'UPID:rename-task';
+      if (path === '/nodes/{node}/lxc/{vmid}/template') return 'UPID:convert-task';
+      if (path === '/nodes/{node}/qemu/{vmid}/template') return 'UPID:vm-convert-task';
+      if (path === '/nodes/{node}/lxc/{vmid}/config' && payload?.$body) return 'UPID:lxc-config-task';
+      return 'UPID:other-task';
+    });
+
+    const result = await actions.cloneFromTemplate(
+      makeEvent({
+        templateId: '900',
+        templateNode: 'pve1',
+        newName: 'my-vm',
+        ciUser: 'ubuntu',
+        ciPassword: 'StrongPassw0rd!',
+      })
+    );
+
+    expect(mocks.qemuClone).toHaveBeenNthCalledWith(1, {
+      $body: { newid: 200, name: 'my-vm', full: true },
+    });
+    expect(mocks.qemuDelete).toHaveBeenCalledWith({ $query: { purge: true } });
+    expect(mocks.qemuClone).toHaveBeenNthCalledWith(2, {
+      $body: { newid: 201, name: 'my-vm', full: true },
+    });
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
+      $path: { node: 'pve1', vmid: 201 },
+      $body: expect.objectContaining({
+        ide2: 'local-lvm:cloudinit',
+      }),
+    });
+    expect(result.status).toBe('success');
   });
 
   it('cloneFromTemplate rejects a name that is not a valid Proxmox DNS name', async () => {

@@ -874,28 +874,67 @@ const deployVmFromTemplate = async (
   ciPassword: string
 ): Promise<{ cloneUpid: string; startUpid: string }> => {
   const client = await createClient();
-  const newid = await client.api.cluster.nextid() as number;
   const nodeApi: NodeScopedAPI = client.api.nodes.get(templateNode);
   const cloudInitStorage = process.env.PVE_VM_CLOUDINIT_STORAGE?.trim() || 'local-lvm';
 
-  // Full clone — must complete before cloud-init config can be applied.
-  const cloneUpid = await nodeApi.qemu.vmid(templateId).clone({
-    $body: { newid, name: newName, full: true },
-  }) as string;
-  await client.task.wait(cloneUpid);
+  const isCloudInitLvAlreadyExistsError = (error: unknown): boolean => {
+    const message = error instanceof Error ? error.message : String(error);
+    const normalized = message.toLowerCase();
+    return normalized.includes('lvcreate') && normalized.includes('cloudinit') && normalized.includes('already exists');
+  };
 
-  // Apply cloud-init user credentials to the cloned VM.
-  await client.request('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
-    $path: { node: templateNode, vmid: newid },
-    $body: {
-      ide2: `${cloudInitStorage}:cloudinit`,
-      ciuser: ciUser,
-      cipassword: ciPassword,
-    } as Record<string, unknown>,
-  });
+  const cleanupFailedClone = async (vmid: number): Promise<void> => {
+    try {
+      const cleanupUpid = await nodeApi.qemu.vmid(vmid).delete({ $query: { purge: true } }) as string;
+      await client.task.wait(cleanupUpid);
+    } catch (cleanupError) {
+      console.warn(`[proxmox] Failed to clean up partially cloned VM ${vmid}:`, cleanupError);
+    }
+  };
 
-  const startUpid = await nodeApi.qemu.vmid(newid).status.start() as string;
-  return { cloneUpid, startUpid };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const newid = await client.api.cluster.nextid() as number;
+
+    try {
+      // Full clone — must complete before cloud-init config can be applied.
+      const cloneUpid = await nodeApi.qemu.vmid(templateId).clone({
+        $body: { newid, name: newName, full: true },
+      }) as string;
+      await client.task.wait(cloneUpid);
+
+      // Apply cloud-init user credentials to the cloned VM.
+      await client.request('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
+        $path: { node: templateNode, vmid: newid },
+        $body: {
+          ide2: `${cloudInitStorage}:cloudinit`,
+          ciuser: ciUser,
+          cipassword: ciPassword,
+        } as Record<string, unknown>,
+      });
+
+      const startUpid = await nodeApi.qemu.vmid(newid).status.start() as string;
+      return { cloneUpid, startUpid };
+    } catch (error) {
+      if (isCloudInitLvAlreadyExistsError(error)) {
+        await cleanupFailedClone(newid);
+        if (attempt === 0) {
+          console.warn(
+            `[proxmox] Cloud-init LV collision for VM ${newid} on storage ${cloudInitStorage}; retrying deployment with a new VM ID.`
+          );
+          continue;
+        }
+        throw new Error(
+          `Cloud-init LV collision while deploying VM (storage=${cloudInitStorage}, vmid=${newid}). ` +
+          `A stale cloud-init logical volume likely exists. Please contact your administrator.`,
+          { cause: error }
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  throw new Error('Failed to deploy VM after retrying cloud-init configuration.');
 };
 
 /** Renames a QEMU template (or VM) by updating its config name. */
