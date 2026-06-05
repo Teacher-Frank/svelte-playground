@@ -194,6 +194,8 @@ export type ProxmoxResults = {
   containerGuiSupported: boolean;
   /** Human-readable server availability string (e.g. `"online"`, `"unavailable"`). */
   serverStatus: string;
+  /** Default auto-refresh interval for the admin page (seconds). */
+  refreshIntervalSeconds: number;
   /** Timestamp of the most recent successful data refresh, or `null` on first failure. */
   lastSuccessfulRefresh: number | null;
   /** Raw node list from the Proxmox `/nodes` endpoint. */
@@ -233,6 +235,19 @@ const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, message: s
 const getConfiguredNodeName = (): string | undefined => {
   const node = process.env.PVE_NODE?.trim();
   return node ? node : undefined;
+};
+
+const getRefreshIntervalSeconds = (): number => {
+  const raw = process.env.PLAYGROUND_REFRESH_INTERVAL_SECONDS?.trim();
+  if (!raw) return 5;
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 5;
+
+  const normalized = Math.floor(parsed);
+  if (normalized < 1) return 1;
+  if (normalized > 3600) return 3600;
+  return normalized;
 };
 
 /**
@@ -325,6 +340,7 @@ const buildUnavailableResults = (): ProxmoxResults => {
     serverNode: configuredNode ?? 'unknown',
     containerGuiSupported: isContainerGuiSupported(),
     serverStatus: 'offline',
+    refreshIntervalSeconds: getRefreshIntervalSeconds(),
     lastSuccessfulRefresh: null,
     nodes: [],
     version: null,
@@ -518,6 +534,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     serverNode: node,
     containerGuiSupported: isContainerGuiSupported(),
     serverStatus,
+    refreshIntervalSeconds: getRefreshIntervalSeconds(),
     lastSuccessfulRefresh: Date.now(),
     nodes,
     version,
@@ -623,13 +640,54 @@ const parseWorkloadSubmission = (formData: FormData): { type: WorkloadKind; id: 
 };
 
 /** Permanently destroys a VM or LXC container via the Proxmox API. Returns the task UPID. */
-const executeDestroyAction = async (type: WorkloadKind, id: number, node: string): Promise<string> => {
+const isRunningDestroyError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  return normalized.includes('running - destroy failed') || normalized.includes('is running');
+};
+
+const executeDestroyAction = async (
+  type: WorkloadKind,
+  id: number,
+  node: string,
+  workloadStatus?: string
+): Promise<{ destroyUpid: string; stopUpid?: string }> => {
   const client = await createClient();
   const nodeApi = client.api.nodes.get(node);
-  // Proxmox DELETE expects options in query params, not request body.
-  return await (type === 'vm'
-    ? nodeApi.qemu.vmid(id).delete({ $query: { purge: true } })
-    : nodeApi.lxc.id(id).delete({ $query: { purge: true, force: true } })) as string;
+
+  const shouldStop = workloadStatus === 'running';
+  let stopUpid: string | undefined;
+
+  const stopWorkload = async (): Promise<void> => {
+    stopUpid = await (type === 'vm'
+      ? nodeApi.qemu.vmid(id).status.stop()
+      : nodeApi.lxc.id(id).status.stop()) as string;
+    await client.task.wait(stopUpid);
+  };
+
+  if (shouldStop) {
+    await stopWorkload();
+  }
+
+  const runDelete = async (): Promise<string> =>
+    await (type === 'vm'
+      ? nodeApi.qemu.vmid(id).delete({ $query: { purge: true } })
+      : nodeApi.lxc.id(id).delete({ $query: { purge: true, force: true } })) as string;
+
+  let destroyUpid: string;
+  try {
+    // Proxmox DELETE expects options in query params, not request body.
+    destroyUpid = await runDelete();
+  } catch (error) {
+    if (!shouldStop && isRunningDestroyError(error)) {
+      await stopWorkload();
+      destroyUpid = await runDelete();
+    } else {
+      throw error;
+    }
+  }
+
+  return { destroyUpid, stopUpid };
 };
 
 /**
@@ -808,20 +866,6 @@ const buildAction = (action: WorkloadAction) => {
 /**
  * Clones a QEMU VM template, applies cloud-init credentials, and starts the VM.
  */
-const hasCloudInitDriveInVmConfig = (config: Record<string, unknown>): boolean =>
-  Object.values(config).some(
-    (value) => typeof value === 'string' && value.toLowerCase().includes('cloudinit')
-  );
-
-const templateHasCloudInitDrive = async (templateId: number, templateNode: string): Promise<boolean> => {
-  const client = await createClient();
-  const config = await client.request('/nodes/{node}/qemu/{vmid}/config', 'GET', {
-    $path: { node: templateNode, vmid: templateId },
-  }) as Record<string, unknown>;
-
-  return hasCloudInitDriveInVmConfig(config);
-};
-
 const deployVmFromTemplate = async (
   templateId: number,
   templateNode: string,
@@ -832,6 +876,7 @@ const deployVmFromTemplate = async (
   const client = await createClient();
   const newid = await client.api.cluster.nextid() as number;
   const nodeApi: NodeScopedAPI = client.api.nodes.get(templateNode);
+  const cloudInitStorage = process.env.PVE_VM_CLOUDINIT_STORAGE?.trim() || 'local-lvm';
 
   // Full clone — must complete before cloud-init config can be applied.
   const cloneUpid = await nodeApi.qemu.vmid(templateId).clone({
@@ -843,6 +888,7 @@ const deployVmFromTemplate = async (
   await client.request('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
     $path: { node: templateNode, vmid: newid },
     $body: {
+      ide2: `${cloudInitStorage}:cloudinit`,
       ciuser: ciUser,
       cipassword: ciPassword,
     } as Record<string, unknown>,
@@ -1134,20 +1180,6 @@ export const actions: Actions = {
         return fail(400, { status: 'error' as const, message: passwordError, formType: 'vm-template' });
       }
 
-      const hasCloudInitDrive = await templateHasCloudInitDrive(templateId, templateNode.trim());
-      if (!hasCloudInitDrive) {
-        const adminContactEmail = process.env.PVE_ADMIN_CONTACT_EMAIL?.trim();
-        const contactMessage = adminContactEmail
-          ? ` Please contact your administrator at ${adminContactEmail}.`
-          : ' Please contact your administrator.';
-
-        return fail(400, {
-          status: 'error' as const,
-          message: `Template ${templateId} does not have a cloud-init drive attached.${contactMessage}`,
-          formType: 'vm-template'
-        });
-      }
-
       const { cloneUpid, startUpid } = await deployVmFromTemplate(
         templateId,
         templateNode.trim(),
@@ -1310,16 +1342,24 @@ export const actions: Actions = {
 
   /** Permanently destroys a VM or LXC container. */
   destroy: async ({ request }: RequestEvent) => {
-    let selectedWorkload: { type: WorkloadKind; id: number; name?: string; node: string } | undefined;
+    let selectedWorkload: { type: WorkloadKind; id: number; name?: string; node: string; status?: string } | undefined;
     try {
       const formData = await request.formData();
       // Reuse the same parser as power actions so all workload actions validate consistently.
       selectedWorkload = parseWorkloadSubmission(formData);
-      const upid = await executeDestroyAction(selectedWorkload.type, selectedWorkload.id, selectedWorkload.node);
+      const { destroyUpid, stopUpid } = await executeDestroyAction(
+        selectedWorkload.type,
+        selectedWorkload.id,
+        selectedWorkload.node,
+        selectedWorkload.status
+      );
       const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
+      const stopPrefix = stopUpid
+        ? `Stopped ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''} — task ${stopUpid}. `
+        : '';
       return {
         status: 'success' as const,
-        message: `Destroyed ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''} — task ${upid}.`,
+        message: `${stopPrefix}Destroyed ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''} — task ${destroyUpid}.`,
         workloadType: selectedWorkload.type,
         formType: selectedWorkload.type
       };

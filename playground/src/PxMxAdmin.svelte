@@ -7,17 +7,6 @@
   import PxMxLxcTemplateList from './PxMxLxcTemplateList.svelte';
   import PxMxWorkloadList from './PxMxWorkloadList.svelte';
 
-  // Controls how often the UI refreshes Proxmox data (in seconds)
-  let STATUS_REFRESH_SECONDS = $state(5);
-  // Toggle for enabling/disabling auto-refresh
-  let REFRESH_ENABLED = $state(true);
-
-  // Derived: Calculate refresh interval in ms from seconds
-  const REFRESH_INTERVAL_MS = $derived.by(() => {
-    const seconds = Number(STATUS_REFRESH_SECONDS);
-    return (Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 1) * 1000;
-  });
-
   type Workload = {
     id?: number | string;
     name?: string;
@@ -55,6 +44,7 @@
     serverNode: string;
     containerGuiSupported: boolean;
     serverStatus: string;
+    refreshIntervalSeconds: number;
     lastSuccessfulRefresh: number | null;
     nodes: unknown;
     version: unknown;
@@ -91,11 +81,35 @@
     } | null;
   } = $props();
 
+  // Controls how often the UI refreshes Proxmox data (in seconds)
+  let STATUS_REFRESH_SECONDS = $state(5);
+  // Toggle for enabling/disabling auto-refresh
+  let REFRESH_ENABLED = $state(true);
+  let refreshIntervalInitialized = $state(false);
+
+  // Derived: Calculate refresh interval in ms from seconds
+  const REFRESH_INTERVAL_MS = $derived.by(() => {
+    const seconds = Number(STATUS_REFRESH_SECONDS);
+    return (Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 1) * 1000;
+  });
+
   // Derived: Split form state for each type of action so only the relevant subcomponent receives feedback
   const templateForm = $derived(form?.formType === 'vm-template' ? form : null);
   const lxcTemplateForm = $derived(form?.formType === 'lxc-template' ? form : null);
   const vmForm = $derived(form?.formType === 'vm' ? form : null);
   const containerForm = $derived(form?.formType === 'container' ? form : null);
+
+  $effect(() => {
+    if (refreshIntervalInitialized) {
+      return;
+    }
+
+    const configuredSeconds = data.results?.refreshIntervalSeconds;
+    if (Number.isFinite(configuredSeconds)) {
+      STATUS_REFRESH_SECONDS = Math.max(1, Math.floor(configuredSeconds as number));
+    }
+    refreshIntervalInitialized = true;
+  });
 
   const lxcGuestTemplates = $derived(
     (data.results?.containers ?? []).filter(

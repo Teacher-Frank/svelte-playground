@@ -30,6 +30,7 @@ This is the canonical environment variable inventory for the playground. When ad
 ### 1.4 Diagnostics and benchmarking
 
 - `PLAYGROUND_PROFILE_LOAD`: Enables timing/profile logs for Proxmox page load paths when set to `true`.
+- `PLAYGROUND_REFRESH_INTERVAL_SECONDS`: Default auto-refresh interval for the PxMxAdmin screen, in seconds (minimum `1`, maximum `3600`, default `5`).
 - `PLAYGROUND_DEV_BENCH_RUNS`: Number of benchmark runs for `npm run bench:dev-startup` (default `4`).
 - `PLAYGROUND_DEV_BENCH_BASE_PORT`: Base port used by dev-startup benchmarking (default `45173`).
 
@@ -55,11 +56,14 @@ Bridge runtime configuration details are in the **Webserver Configuration** sect
 - `PVE_INSECURE_TLS=true`.
 - `PVE_ADMIN_CONTACT_EMAIL=thifm@hr.nl`.
 - `PVE_VM_CLOUDINIT_STORAGE=local-lvm`.
+- `PLAYGROUND_REFRESH_INTERVAL_SECONDS=5`.
 - `PVE_LXC_HOOKSCRIPT_VOLID=local:snippets/lxc-post-create-hook.sh`.
 - `PVE_LXC_ROOTFS_STORAGE=local-lvm`.
 - `LXC_VNC_BRIDGE_DERIVE_FROM_IPV4=true`, `LXC_VNC_BRIDGE_WS_SCHEME=ws`, and `LXC_VNC_BRIDGE_WS_PORT=8001`.
 
-## 2. Initial setup
+## 2. Proxmox configuration
+
+### 2.1 Initial setup
 
 Before using the playground against a Proxmox node:
 
@@ -73,9 +77,74 @@ Before using the playground against a Proxmox node:
 7. Download the default templates for virtual machines and LXC containers.
 8. Validate one test container deployment before regular use.
 
-## 3. Operations and configuration
+### 2.2 Enable nesting at container creation
 
-### 3.1 Webserver Configuration
+When creating a new container (API or CLI), set `nesting=1`.
+
+API example:
+
+```
+POST /api2/json/nodes/<node>/lxc
+features=nesting=1
+```
+
+CLI example:
+
+```
+pct create <VMID> ... -features nesting=1
+```
+
+### 2.3 Add device passthrough and mount entries
+
+After creation, append these lines to `/etc/pve/lxc/<VMID>.conf`:
+
+```
+lxc.cgroup2.devices.allow: c 226:* rwm
+lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir
+```
+
+### 2.4 Mandatory post-create hook script
+
+Create this script on every Proxmox host where LXC containers will be deployed.
+
+Path:
+
+`/var/lib/vz/snippets/lxc-post-create-hook.sh`
+
+Script content:
+
+```bash
+#!/bin/bash
+if [ "$2" = "post-create" ]; then
+  VMID="$1"
+  CONF="/etc/pve/lxc/$VMID.conf"
+  echo "lxc.cgroup2.devices.allow: c 226:* rwm" >> "$CONF"
+  echo "lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir" >> "$CONF"
+fi
+```
+
+Make it executable:
+
+```
+chmod +x /var/lib/vz/snippets/lxc-post-create-hook.sh
+```
+
+Deployment uses a Proxmox hookscript volume ID, not a host path. Default value:
+
+```
+local:snippets/lxc-post-create-hook.sh
+```
+
+If your snippets storage is not `local`, set `PVE_LXC_HOOKSCRIPT_VOLID` accordingly (example: `fast-ssd:snippets/lxc-post-create-hook.sh`).
+
+### 2.5 Troubleshooting
+
+- If Xorg fails with `no screens found`, ensure the dummy video driver is installed and configured.
+- Restart the container after changing container config files.
+
+## 3. Webserver configuration
+
+### 3.1 Webserver configuration
 
 Configure the playground webserver with derived IPv4 bridge mode for LXC GUI sessions.
 
@@ -120,7 +189,7 @@ If the VNC page stays on "Submitting credentials...":
 
 If verbose output shows `Target closed connection` immediately, the backend VNC auth handshake is failing. Restart VNC via `~/.local/bin/vnc-boot.sh` and retry.
 
-### 3.3 VNC Configuration
+### 3.3 VNC configuration
 
 The datalab playground uses derived IPv4 bridge mode for LXC GUI sessions.
 Configure bridge environment variables in the **Webserver Configuration** section above.
@@ -132,71 +201,8 @@ Operational notes:
 - If no container IPv4 is available yet, the GUI action remains disabled until discovery completes.
 - Restart the playground server after changing bridge variables.
 
-### 3.4 Proxmox configuration
+### 3.4 Other
 
-#### 3.4.1 Enable nesting at container creation
-
-When creating a new container (API or CLI), set `nesting=1`.
-
-API example:
-
-```
-POST /api2/json/nodes/<node>/lxc
-features=nesting=1
-```
-
-CLI example:
-
-```
-pct create <VMID> ... -features nesting=1
-```
-
-#### 3.4.2 Add device passthrough and mount entries
-
-After creation, append these lines to `/etc/pve/lxc/<VMID>.conf`:
-
-```
-lxc.cgroup2.devices.allow: c 226:* rwm
-lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir
-```
-
-#### 3.4.3 Mandatory post-create hook script
-
-Create this script on every Proxmox host where LXC containers will be deployed.
-
-Path:
-
-`/var/lib/vz/snippets/lxc-post-create-hook.sh`
-
-Script content:
-
-```bash
-#!/bin/bash
-if [ "$2" = "post-create" ]; then
-  VMID="$1"
-  CONF="/etc/pve/lxc/$VMID.conf"
-  echo "lxc.cgroup2.devices.allow: c 226:* rwm" >> "$CONF"
-  echo "lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir" >> "$CONF"
-fi
-```
-
-Make it executable:
-
-```
-chmod +x /var/lib/vz/snippets/lxc-post-create-hook.sh
-```
-
-Deployment uses a Proxmox hookscript volume ID, not a host path. Default value:
-
-```
-local:snippets/lxc-post-create-hook.sh
-```
-
-If your snippets storage is not `local`, set `PVE_LXC_HOOKSCRIPT_VOLID` accordingly (example: `fast-ssd:snippets/lxc-post-create-hook.sh`).
-
-#### 3.4.4 Troubleshooting
-
-- If Xorg fails with `no screens found`, ensure the dummy video driver is installed and configured.
-- Restart the container after changing container config files.
+- This section is intentionally minimal; place Proxmox host/container guidance in section 2 and web runtime guidance in section 3.
 
 Note: this guide is intended for Proxmox administrators only.

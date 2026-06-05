@@ -24,6 +24,7 @@
     configuredNodeExists: true,
     serverNode: 'pve1',
     serverStatus: 'online',
+    refreshIntervalSeconds: 5,
     lastSuccessfulRefresh: Date.now(),
     nodes: [],
     version: {},

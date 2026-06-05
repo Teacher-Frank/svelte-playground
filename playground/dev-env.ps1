@@ -23,6 +23,9 @@ $env:PVE_ADMIN_CONTACT_EMAIL = "thifm@hr.nl"
 # Optional: preferred storage for VM cloud-init disks in automation workflows
 $env:PVE_VM_CLOUDINIT_STORAGE = "local-lvm"
 
+# Optional: default admin-page auto refresh interval (seconds)
+$env:PLAYGROUND_REFRESH_INTERVAL_SECONDS = "5"
+
 # Optional: Set Node.js environment
 $env:NODE_ENV = "development"
 
@@ -31,6 +34,7 @@ Write-Host "PVE_BASE_URL=$($env:PVE_BASE_URL)"
 Write-Host "PVE_NODE=$($env:PVE_NODE)"
 Write-Host "PVE_ADMIN_CONTACT_EMAIL=$($env:PVE_ADMIN_CONTACT_EMAIL)"
 Write-Host "PVE_VM_CLOUDINIT_STORAGE=$($env:PVE_VM_CLOUDINIT_STORAGE)"
+Write-Host "PLAYGROUND_REFRESH_INTERVAL_SECONDS=$($env:PLAYGROUND_REFRESH_INTERVAL_SECONDS)"
 
 # Resolve repo paths from this script location.
 $playgroundRoot = Split-Path -Parent $PSCommandPath
