@@ -29,7 +29,6 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
 
   try {
     const baseUrl = process.env.PVE_BASE_URL;
-    // Prefer token auth when configured; fall back to username/password login.
     const apiToken = process.env.PVE_API_TOKEN?.trim() || undefined;
     const username = process.env.PVE_USERNAME?.trim() || undefined;
     const password = process.env.PVE_PASSWORD?.trim() || undefined;
@@ -47,13 +46,7 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
     const agent = insecureTls ? new Agent({ rejectUnauthorized: false }) : undefined;
 
     let client: InstanceType<typeof Client>;
-    if (apiToken) {
-      client = new Client({
-        baseUrl,
-        apiToken,
-        agent
-      });
-    } else if (username && password) {
+    if (username && password) {
       client = new Client({
         baseUrl,
         username,
@@ -63,8 +56,16 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
       });
       await client.login();
     } else {
-      browserWs.close(1011, 'No Proxmox credentials configured');
+      const authMode = apiToken ? 'api-token' : 'none';
+      browserWs.close(
+        1011,
+        `Unsupported terminal auth mode '${authMode}'. Configure PVE_USERNAME and PVE_PASSWORD.`
+      );
       return;
+    }
+
+    if (apiToken) {
+      console.warn('[proxmox-terminal-ws] PVE_API_TOKEN is set but ignored for terminal sessions. Using username/password login.');
     }
 
     const terminal = client.helpers.terminal(vmid);
