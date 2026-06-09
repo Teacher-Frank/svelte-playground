@@ -8,6 +8,9 @@
     status?: 'success' | 'error';
     workloadType?: 'vm' | 'container';
     formType?: 'vm-template' | 'lxc-template' | 'vm' | 'container';
+    deployWorkloadName?: string;
+    deployTaskNode?: string;
+    deployTaskUpids?: string[];
   };
 
   let {

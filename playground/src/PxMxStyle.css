@@ -396,6 +396,11 @@
   border-color: #d97706;
 }
 
+.workload-controls .template-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 /* Terminal icon artwork has more fill than play/stop/restart, so scale it down a touch. */
 .workload-controls .terminal-btn img {
   width: 1.05rem;
@@ -423,13 +428,11 @@
 .workload-controls .terminal-btn[aria-disabled='true'] {
   cursor: not-allowed;
   opacity: 0.55;
-  pointer-events: none;
 }
 
 .workload-controls .vnc-btn[aria-disabled='true'] {
   cursor: not-allowed;
   opacity: 0.55;
-  pointer-events: none;
 }
 
 .workload-controls .vnc-btn img {

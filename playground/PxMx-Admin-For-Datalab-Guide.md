@@ -38,6 +38,8 @@ This is the canonical environment variable inventory for the playground. When ad
 
 - `PVE_ADMIN_CONTACT_EMAIL`: Admin contact email shown to users when VM deploy is blocked because the selected template does not have a cloud-init drive attached. Example: `thifm@hr.nl`.
 - `PVE_VM_CLOUDINIT_STORAGE`: Preferred storage name for VM cloud-init disks in automation workflows (example: `local-lvm`).
+- `PVE_VM_NETWORK_BRIDGE`: Bridge used when VM deploy must add a missing NIC (`net0`) to a cloned VM (default: `vmbr0`).
+- `PVE_VM_NETWORK_MODEL`: Proxmox NIC model used when VM deploy must add a missing NIC (`net0`) to a cloned VM (default: `virtio`).
 
 ### 1.6 LXC VNC bridge variables
 
@@ -56,6 +58,8 @@ Bridge runtime configuration details are in the **Webserver Configuration** sect
 - `PVE_INSECURE_TLS=true`.
 - `PVE_ADMIN_CONTACT_EMAIL=thifm@hr.nl`.
 - `PVE_VM_CLOUDINIT_STORAGE=local-lvm`.
+- `PVE_VM_NETWORK_BRIDGE=vmbr0`.
+- `PVE_VM_NETWORK_MODEL=virtio`.
 - `PLAYGROUND_REFRESH_INTERVAL_SECONDS=5`.
 - `PVE_LXC_HOOKSCRIPT_VOLID=local:snippets/lxc-post-create-hook.sh`.
 - `PVE_LXC_ROOTFS_STORAGE=local-lvm`.

@@ -15,6 +15,7 @@
     memorylimit?: number;
     hostMaxCpu?: number;
     hostMaxMemory?: number;
+    deployTaskUpids?: string[];
   };
 
   let {
@@ -102,6 +103,19 @@
     return `${Math.round(bytes / mib)} MiB`;
   };
 
+  const statusClass = (status?: string): string => {
+    const normalized = (status ?? '').trim().toLowerCase();
+    return normalized === 'deploying' ? 'status-deploying' : 'status-default';
+  };
+
+  const deployingTooltip = (workload: Workload): string | undefined => {
+    if (workload.status !== 'deploying' || !workload.deployTaskUpids?.length) {
+      return undefined;
+    }
+
+    return `Tasks: ${workload.deployTaskUpids.join(', ')}`;
+  };
+
   let dismissed = $state(false);
   $effect(() => {
     // Reset dismissal when server action feedback changes so each new result is
@@ -139,7 +153,10 @@
                   >
                     <span class="col-id">{workload.id ?? 'Unknown'}</span>
                     <span class="col-name">{workload.name ?? unnamedLabel}</span>
-                    <span>{workload.status ?? '-'}</span>
+                    <span
+                      class={statusClass(workload.status)}
+                      title={deployingTooltip(workload)}
+                    >{workload.status ?? '-'}</span>
                     <span>{workload.node ?? '-'}</span>
                     <span>{formatContainerIp(workload)}</span>
                     <span>{formatCpuLimit(workload)}</span>
@@ -159,7 +176,7 @@
               <li class="container-action-row">
                 <PxMxWorkloadControls
                   compact={true}
-                  disabled={workload.id == null}
+                  disabled={workload.id == null || workload.status === 'deploying'}
                   containerGuiEnabled={containerGuiEnabled}
                   selectedWorkload={{
                     type: kind,
@@ -200,7 +217,10 @@
             >
               <span class="col-id">{workload.id ?? 'Unknown'}</span>
               <span class="col-name">{workload.name ?? unnamedLabel}</span>
-              <span>{workload.status ?? '-'}</span>
+              <span
+                class={statusClass(workload.status)}
+                title={deployingTooltip(workload)}
+              >{workload.status ?? '-'}</span>
               <span>{workload.node ?? '-'}</span>
               <span>{formatUptime(workload.uptime)}</span>
             </button>
@@ -208,7 +228,7 @@
             <!-- Forward row context directly so action forms submit authoritative node/type/id values. -->
             <PxMxWorkloadControls
               compact={true}
-              disabled={workload.id == null}
+              disabled={workload.id == null || workload.status === 'deploying'}
               containerGuiEnabled={containerGuiEnabled}
               selectedWorkload={{
                 type: kind,
@@ -274,6 +294,48 @@
 
   .dismiss-btn:hover {
     opacity: 1;
+  }
+
+  .status-default {
+    color: inherit;
+  }
+
+  .status-deploying {
+    align-items: center;
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    border-radius: 999px;
+    color: #9a3412;
+    display: inline-flex;
+    font-size: 0.8rem;
+    font-weight: 600;
+    gap: 0.35rem;
+    line-height: 1;
+    padding: 0.2rem 0.55rem;
+    text-transform: uppercase;
+  }
+
+  .status-deploying::before {
+    animation: deploying-pulse 1.2s ease-in-out infinite;
+    background: #ea580c;
+    border-radius: 50%;
+    content: '';
+    display: inline-block;
+    height: 0.45rem;
+    width: 0.45rem;
+  }
+
+  @keyframes deploying-pulse {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scale(0.85);
+    }
+
+    50% {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
 </style>

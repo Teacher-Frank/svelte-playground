@@ -119,4 +119,18 @@ describe('PxMxAdmin tab form state', () => {
     await expect.element(page.getByText('10.0.0.51')).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'converted-template' })).not.toBeInTheDocument();
   });
+
+  it('shows a transient deploying VM row after deployment submit starts', { timeout: 30_000 }, async () => {
+    render(PxMxAdmin, { data: makeData() });
+
+    await page.getByRole('tab', { name: 'Virtual Machines' }).click();
+    await page.getByRole('button', { name: 'Deploy VM from template' }).click();
+
+    await page.getByPlaceholder('New VM name').fill('vm-deploying-test');
+    await page.getByPlaceholder('e.g. ubuntu, debian').fill('ubuntu');
+    await page.getByPlaceholder('Cloud-init password').fill('StrongPassw0rd!');
+    await page.getByRole('button', { name: 'Deploy', exact: true }).click();
+
+    await expect.element(page.getByRole('button', { name: 'vm-deploying-test' })).toBeVisible();
+  });
 });

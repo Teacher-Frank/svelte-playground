@@ -49,7 +49,9 @@
     workloads,
     containerTemplates = [],
     form,
-    serverNode
+    serverNode,
+    onDeployStarted,
+    onDeployFailed,
   }: {
     workloads: LxcTemplate[];
     containerTemplates?: GuestTemplate[];
@@ -58,6 +60,8 @@
       message?: string;
       status?: 'success' | 'error';
     } | null;
+    onDeployStarted?: (payload: { name: string; node?: string; taskUpids?: string[] }) => void;
+    onDeployFailed?: (payload: { name: string; node?: string }) => void;
   } = $props();
 
   // For storage-based LXC templates, just use the array as-is.
@@ -136,6 +140,7 @@
   let lxcNameInput: HTMLInputElement | null = $state(null);
   let submitInFlight = $state(false);
   let pendingMessage = $state<string | null>(null);
+  let pendingDeployContext = $state<{ name: string; node?: string } | null>(null);
 
   const needsRootPassword = $derived(activeAction === 'deploy-storage');
 
@@ -207,12 +212,36 @@
         submitInFlight = true;
         pendingMessage = pendingSubmitMessage();
         dismissed = false;
+        if (activeAction === 'deploy-storage' || activeAction === 'deploy-lxc') {
+          const payload = {
+            name: requestedName.trim(),
+            node: activeTemplateRow?.templateNode ?? serverNode,
+          };
+          pendingDeployContext = payload;
+          onDeployStarted?.(payload);
+        } else {
+          pendingDeployContext = null;
+        }
       },
       onSubmitEnd: (result: EnhanceResult | undefined) => {
         submitInFlight = false;
+        if (result?.type === 'success' && pendingDeployContext) {
+          const upids = Array.isArray(result.data?.deployTaskUpids)
+            ? result.data?.deployTaskUpids.filter((upid): upid is string => typeof upid === 'string' && upid.trim().length > 0)
+            : [];
+          onDeployStarted?.({
+            name: result.data?.deployWorkloadName?.trim() || pendingDeployContext.name,
+            node: result.data?.deployTaskNode?.trim() || pendingDeployContext.node,
+            taskUpids: upids,
+          });
+        }
         if (result?.type === 'failure') {
           pendingMessage = null;
+          if (pendingDeployContext) {
+            onDeployFailed?.(pendingDeployContext);
+          }
         }
+        pendingDeployContext = null;
       },
     });
   };

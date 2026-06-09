@@ -279,14 +279,16 @@ const createClient = async (): Promise<Client> => {
 
   if (!baseUrl) throw new Error('Missing PVE_BASE_URL');
 
+  const resolvedBaseUrl = baseUrl.trim();
+
   const agent = insecureTls ? new Agent({ rejectUnauthorized: false }) : undefined;
 
   if (apiToken) {
-    return new Client({ baseUrl, apiToken, agent });
+    return new Client({ baseUrl: resolvedBaseUrl, apiToken, agent });
   }
 
   if (username && password) {
-    const client = new Client({ baseUrl, username, password, realm, agent });
+    const client = new Client({ baseUrl: resolvedBaseUrl, username, password, realm, agent });
     await client.login();
     return client;
   }
@@ -323,10 +325,6 @@ const resolveNodeContext = (nodes: ClusterNode[], preferredNode?: string): Resol
     `First 3 nodes: ${JSON.stringify(nodes.slice(0, 3))}`
   );
 };
-
-// ---------------------------------------------------------------------------
-// Page data loading
-// ---------------------------------------------------------------------------
 
 let hasLoggedHost = false;
 
@@ -717,7 +715,7 @@ const executeConvertToTemplateAction = async (
     type === 'vm' ? '/nodes/{node}/qemu/{vmid}/template' : '/nodes/{node}/lxc/{vmid}/template',
     'POST',
     {
-    $path: { node, vmid: id },
+      $path: { node, vmid: id },
     }
   ) as string;
 
@@ -876,65 +874,107 @@ const deployVmFromTemplate = async (
   const client = await createClient();
   const nodeApi: NodeScopedAPI = client.api.nodes.get(templateNode);
   const cloudInitStorage = process.env.PVE_VM_CLOUDINIT_STORAGE?.trim() || 'local-lvm';
+  const vmNetworkBridge = process.env.PVE_VM_NETWORK_BRIDGE?.trim() || 'vmbr0';
+  const vmNetworkModel = process.env.PVE_VM_NETWORK_MODEL?.trim() || 'virtio';
 
-  const isCloudInitLvAlreadyExistsError = (error: unknown): boolean => {
+  const hasTargetCloudInitVolume = async (vmid: number): Promise<boolean> => {
+    try {
+      const contentList = await nodeApi.storage.get(cloudInitStorage).content.list({
+        $query: { vmid },
+      }) as Array<{ volid?: string }>;
+
+      return contentList.some((entry) => entry.volid === `${cloudInitStorage}:vm-${vmid}-cloudinit`);
+    } catch (error) {
+      console.warn(
+        `[proxmox] Unable to verify cloud-init volume state for VM ${vmid} on storage ${cloudInitStorage}:`,
+        error
+      );
+      return false;
+    }
+  };
+
+  const isCloudInitCollisionError = async (vmid: number, error: unknown): Promise<boolean> => {
     const message = error instanceof Error ? error.message : String(error);
     const normalized = message.toLowerCase();
-    return normalized.includes('lvcreate') && normalized.includes('cloudinit') && normalized.includes('already exists');
+    if (!normalized.includes('lvcreate') || !normalized.includes('cloudinit') || !normalized.includes('already exists')) {
+      return false;
+    }
+
+    return await hasTargetCloudInitVolume(vmid);
   };
 
-  const cleanupFailedClone = async (vmid: number): Promise<void> => {
-    try {
-      const cleanupUpid = await nodeApi.qemu.vmid(vmid).delete({ $query: { purge: true } }) as string;
-      await client.task.wait(cleanupUpid);
-    } catch (cleanupError) {
-      console.warn(`[proxmox] Failed to clean up partially cloned VM ${vmid}:`, cleanupError);
+  const newid = await client.api.cluster.nextid() as number;
+
+  try {
+    // Full clone — must complete before cloud-init config can be applied.
+    const cloneUpid = await nodeApi.qemu.vmid(templateId).clone({
+      $body: { newid, name: newName, full: true },
+    }) as string;
+    await client.task.wait(cloneUpid);
+
+    const clonedConfig = await client.request('/nodes/{node}/qemu/{vmid}/config', 'GET', {
+      $path: { node: templateNode, vmid: newid },
+    }) as Record<string, unknown>;
+
+    const diskKeyPattern = /^(ide|sata|scsi|virtio)\d+$/;
+    const hasCloudInitDisk = Object.entries(clonedConfig).some(([key, value]) =>
+      diskKeyPattern.test(key) && typeof value === 'string' && value.toLowerCase().includes('cloudinit')
+    );
+    const hasNetworkInterface = Object.entries(clonedConfig).some(([key, value]) =>
+      /^net\d+$/.test(key) && typeof value === 'string' && value.trim().length > 0
+    );
+    const hasIpConfig0 = typeof clonedConfig.ipconfig0 === 'string' && clonedConfig.ipconfig0.trim().length > 0;
+    if (hasCloudInitDisk) {
+      console.info(
+        `[proxmox] Cloned VM ${newid} already has a cloud-init disk; skipping ide2 reattach and only updating cloud-init credentials.`
+      );
     }
-  };
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const newid = await client.api.cluster.nextid() as number;
-
-    try {
-      // Full clone — must complete before cloud-init config can be applied.
-      const cloneUpid = await nodeApi.qemu.vmid(templateId).clone({
-        $body: { newid, name: newName, full: true },
-      }) as string;
-      await client.task.wait(cloneUpid);
-
-      // Apply cloud-init user credentials to the cloned VM.
-      await client.request('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
-        $path: { node: templateNode, vmid: newid },
-        $body: {
-          ide2: `${cloudInitStorage}:cloudinit`,
-          ciuser: ciUser,
-          cipassword: ciPassword,
-        } as Record<string, unknown>,
-      });
-
-      const startUpid = await nodeApi.qemu.vmid(newid).status.start() as string;
-      return { cloneUpid, startUpid };
-    } catch (error) {
-      if (isCloudInitLvAlreadyExistsError(error)) {
-        await cleanupFailedClone(newid);
-        if (attempt === 0) {
-          console.warn(
-            `[proxmox] Cloud-init LV collision for VM ${newid} on storage ${cloudInitStorage}; retrying deployment with a new VM ID.`
-          );
-          continue;
-        }
-        throw new Error(
-          `Cloud-init LV collision while deploying VM (storage=${cloudInitStorage}, vmid=${newid}). ` +
-          `A stale cloud-init logical volume likely exists. Please contact your administrator.`,
-          { cause: error }
-        );
-      }
-
-      throw error;
+    if (!hasNetworkInterface) {
+      console.info(
+        `[proxmox] Cloned VM ${newid} has no net* interface; adding net0=${vmNetworkModel},bridge=${vmNetworkBridge}.`
+      );
     }
+    if (!hasIpConfig0) {
+      console.info(
+        `[proxmox] Cloned VM ${newid} has no ipconfig0 cloud-init network setting; applying ipconfig0=ip=dhcp.`
+      );
+    }
+
+    // Apply cloud-init user credentials to the cloned VM. Only attach ide2 when
+    // the clone does not already contain a cloud-init disk from the template.
+    const configBody: Record<string, unknown> = {
+      ciuser: ciUser,
+      cipassword: ciPassword,
+    };
+    if (!hasCloudInitDisk) {
+      configBody.ide2 = `${cloudInitStorage}:cloudinit`;
+    }
+    if (!hasNetworkInterface) {
+      configBody.net0 = `${vmNetworkModel},bridge=${vmNetworkBridge}`;
+    }
+    if (!hasIpConfig0) {
+      configBody.ipconfig0 = 'ip=dhcp';
+    }
+
+    await client.request('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
+      $path: { node: templateNode, vmid: newid },
+      $body: configBody,
+    });
+
+    const startUpid = await nodeApi.qemu.vmid(newid).status.start() as string;
+    return { cloneUpid, startUpid };
+  } catch (error) {
+    if (await isCloudInitCollisionError(newid, error)) {
+      throw new Error(
+        `Cloud-init LV collision while deploying VM (storage=${cloudInitStorage}, vmid=${newid}). ` +
+        `The target cloud-init volume already exists for this VM ID. ` +
+        `Please verify the cloud-init volume state with your administrator.`,
+        { cause: error }
+      );
+    }
+
+    throw error;
   }
-
-  throw new Error('Failed to deploy VM after retrying cloud-init configuration.');
 };
 
 /** Renames a QEMU template (or VM) by updating its config name. */
@@ -1254,7 +1294,10 @@ export const actions: Actions = {
       return {
         status: 'success' as const,
         message: `Cloned template ${templateId} as "${newName.trim()}" — clone task ${cloneUpid}. Started VM — start task ${startUpid}.`,
-        formType: 'vm-template'
+        formType: 'vm-template',
+        deployWorkloadName: newName.trim(),
+        deployTaskNode: templateNode.trim(),
+        deployTaskUpids: [cloneUpid, startUpid]
       };
     } catch (error) {
       return fail(500, {
@@ -1352,7 +1395,10 @@ export const actions: Actions = {
         message:
           `Cloned guest template ${templateId} as "${newName.trim()}" — clone task ${cloneUpid}. ` +
           `Started container ${newName.trim()} — start task ${startUpid}.`,
-        formType: 'lxc-template'
+        formType: 'lxc-template',
+        deployWorkloadName: newName.trim(),
+        deployTaskNode: templateNode.trim(),
+        deployTaskUpids: [cloneUpid, startUpid]
       };
     } catch (error) {
       return fail(500, {
@@ -1473,7 +1519,10 @@ export const actions: Actions = {
       return {
         status: 'success' as const,
         message: `Deploying LXC template "${templateVolid}" as "${newName.trim()}" — task ${upid}.`,
-        formType: 'lxc-template'
+        formType: 'lxc-template',
+        deployWorkloadName: newName.trim(),
+        deployTaskNode: templateNode.trim(),
+        deployTaskUpids: [upid]
       };
     } catch (error) {
       return fail(500, {

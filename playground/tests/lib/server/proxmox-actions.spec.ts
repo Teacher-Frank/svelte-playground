@@ -11,7 +11,16 @@ const mocks = vi.hoisted(() => {
   const qemuClone = vi.fn();
   const taskWait = vi.fn();
   const request = vi.fn();
+  const storageContentList = vi.fn();
+  const storageGet = vi.fn(() => ({
+    content: {
+      list: storageContentList,
+    },
+  }));
   const nodeGet = vi.fn(() => ({
+    storage: {
+      get: storageGet,
+    },
     qemu: {
       vmid: vi.fn(() => ({
         status: {
@@ -47,6 +56,8 @@ const mocks = vi.hoisted(() => {
     qemuClone,
     taskWait,
     request,
+    storageContentList,
+    storageGet,
     nodeGet,
     nextid
   };
@@ -93,7 +104,7 @@ const makeEvent = (fields: Record<string, string>) => {
 
 describe('proxmox page server actions', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     process.env.PVE_BASE_URL = 'https://pve.example.com:8006';
     process.env.PVE_API_TOKEN = 'root@pam!token=abc123';
     process.env.PVE_ADMIN_CONTACT_EMAIL = 'infra-admin@example.com';
@@ -109,6 +120,7 @@ describe('proxmox page server actions', () => {
     mocks.lxcClone.mockResolvedValue('UPID:lxc-clone-task');
     mocks.taskWait.mockResolvedValue([]);
     mocks.nextid.mockResolvedValue(200);
+    mocks.storageContentList.mockResolvedValue([]);
     mocks.request.mockImplementation(async (path: string, method?: string, payload?: Record<string, unknown>) => {
       if (path === '/nodes/{node}/status') {
         return {
@@ -116,6 +128,7 @@ describe('proxmox page server actions', () => {
           memory: { total: 64 * 1024 * 1024 * 1024 },
         };
       }
+      if (path === '/nodes/{node}/qemu/{vmid}/config' && method === 'GET') return {};
       if (path === '/nodes/{node}/lxc/{vmid}/template') return 'UPID:convert-task';
       if (path === '/nodes/{node}/qemu/{vmid}/template') return 'UPID:vm-convert-task';
       if (path === '/nodes/{node}/lxc/{vmid}/config' && payload?.$body) return 'UPID:lxc-config-task';
@@ -251,6 +264,12 @@ describe('proxmox page server actions', () => {
     expect(result.status).toBe('success');
     expect(result.message).toContain('UPID:vm-clone-task');
     expect(result.message).toContain('UPID:vm-start-task');
+    expect((result as { deployWorkloadName: string }).deployWorkloadName).toBe('my-vm');
+    expect((result as { deployTaskNode: string }).deployTaskNode).toBe('pve1');
+    expect((result as { deployTaskUpids: string[] }).deployTaskUpids).toEqual([
+      'UPID:vm-clone-task',
+      'UPID:vm-start-task',
+    ]);
   });
 
   it('cloneFromTemplate attaches cloud-init drive using configured storage env var', async () => {
@@ -274,7 +293,86 @@ describe('proxmox page server actions', () => {
     });
   });
 
-  it('cloneFromTemplate retries once with a fresh VM ID when cloud-init LV already exists', async () => {
+  it('cloneFromTemplate adds net0 and ipconfig0 when cloned VM has no network config', async () => {
+    mocks.request.mockImplementation(async (path: string, method?: string, payload?: Record<string, unknown>) => {
+      if (path === '/nodes/{node}/qemu/{vmid}/config' && method === 'GET') {
+        return {
+          ide2: 'local-lvm:cloudinit,media=cdrom',
+        };
+      }
+      if (path === '/nodes/{node}/qemu/{vmid}/config' && method === 'PUT') {
+        return null;
+      }
+      if (path === '/nodes/{node}/qemu/{vmid}/config') return 'UPID:rename-task';
+      if (path === '/nodes/{node}/lxc/{vmid}/template') return 'UPID:convert-task';
+      if (path === '/nodes/{node}/qemu/{vmid}/template') return 'UPID:vm-convert-task';
+      if (path === '/nodes/{node}/lxc/{vmid}/config' && payload?.$body) return 'UPID:lxc-config-task';
+      return 'UPID:other-task';
+    });
+
+    await actions.cloneFromTemplate(
+      makeEvent({
+        templateId: '900',
+        templateNode: 'pve1',
+        newName: 'my-vm',
+        ciUser: 'ubuntu',
+        ciPassword: 'StrongPassw0rd!',
+      })
+    );
+
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
+      $path: { node: 'pve1', vmid: 200 },
+      $body: {
+        ciuser: 'ubuntu',
+        cipassword: 'StrongPassw0rd!',
+        net0: 'virtio,bridge=vmbr0',
+        ipconfig0: 'ip=dhcp',
+      },
+    });
+  });
+
+  it('cloneFromTemplate does not reattach cloud-init when clone already has one', async () => {
+    mocks.request.mockImplementation(async (path: string, method?: string, payload?: Record<string, unknown>) => {
+      if (path === '/nodes/{node}/qemu/{vmid}/config' && method === 'GET') {
+        return {
+          ide2: 'local-lvm:cloudinit,media=cdrom',
+          net0: 'virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0',
+          ipconfig0: 'ip=dhcp',
+        };
+      }
+      if (path === '/nodes/{node}/qemu/{vmid}/config' && method === 'PUT') {
+        return null;
+      }
+      if (path === '/nodes/{node}/qemu/{vmid}/config') return 'UPID:rename-task';
+      if (path === '/nodes/{node}/lxc/{vmid}/template') return 'UPID:convert-task';
+      if (path === '/nodes/{node}/qemu/{vmid}/template') return 'UPID:vm-convert-task';
+      if (path === '/nodes/{node}/lxc/{vmid}/config' && payload?.$body) return 'UPID:lxc-config-task';
+      return 'UPID:other-task';
+    });
+
+    await actions.cloneFromTemplate(
+      makeEvent({
+        templateId: '900',
+        templateNode: 'pve1',
+        newName: 'my-vm',
+        ciUser: 'ubuntu',
+        ciPassword: 'StrongPassw0rd!',
+      })
+    );
+
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
+      $path: { node: 'pve1', vmid: 200 },
+      $body: {
+        ciuser: 'ubuntu',
+        cipassword: 'StrongPassw0rd!',
+      },
+    });
+  });
+
+  it('cloneFromTemplate fails without retrying when cloud-init LV already exists', async () => {
+    mocks.storageContentList.mockResolvedValueOnce([
+      { volid: 'local-lvm:vm-200-cloudinit' },
+    ]);
     mocks.nextid.mockResolvedValueOnce(200).mockResolvedValueOnce(201);
     mocks.request.mockImplementation(async (path: string, method?: string, payload?: Record<string, unknown>) => {
       if (path === '/nodes/{node}/status') {
@@ -314,17 +412,48 @@ describe('proxmox page server actions', () => {
     expect(mocks.qemuClone).toHaveBeenNthCalledWith(1, {
       $body: { newid: 200, name: 'my-vm', full: true },
     });
-    expect(mocks.qemuDelete).toHaveBeenCalledWith({ $query: { purge: true } });
-    expect(mocks.qemuClone).toHaveBeenNthCalledWith(2, {
-      $body: { newid: 201, name: 'my-vm', full: true },
-    });
+    expect(mocks.qemuDelete).not.toHaveBeenCalled();
+    expect(mocks.qemuClone).toHaveBeenCalledTimes(1);
     expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
-      $path: { node: 'pve1', vmid: 201 },
-      $body: expect.objectContaining({
-        ide2: 'local-lvm:cloudinit',
-      }),
+      $path: { node: 'pve1', vmid: 200 },
+      $body: expect.objectContaining({ ide2: 'local-lvm:cloudinit' }),
     });
-    expect(result.status).toBe('success');
+    expect((result as { status: number }).status).toBe(500);
+    expect((result as { data: { message: string } }).data.message).toContain('Cloud-init LV collision while deploying VM');
+  });
+
+  it('cloneFromTemplate does not classify template cloud-init volumes as a collision', async () => {
+    mocks.storageContentList.mockResolvedValueOnce([
+      { volid: 'local-lvm:vm-9000-cloudinit' },
+      { volid: 'local-lvm:vm-9001-cloudinit' },
+    ]);
+
+    mocks.request.mockImplementation(async (path: string, method?: string) => {
+      if (path === '/nodes/{node}/status') {
+        return {
+          cpuinfo: { cpus: 16 },
+          memory: { total: 64 * 1024 * 1024 * 1024 },
+        };
+      }
+      if (path === '/nodes/{node}/qemu/{vmid}/config' && method === 'PUT') {
+        throw new Error('lvcreate \'pve/vm-101-cloudinit\' error: Logical Volume "vm-101-cloudinit" already exists in volume group "pve"');
+      }
+      return 'UPID:other-task';
+    });
+
+    const result = await actions.cloneFromTemplate(
+      makeEvent({
+        templateId: '9001',
+        templateNode: 'pve1',
+        newName: 'my-vm',
+        ciUser: 'ubuntu',
+        ciPassword: 'StrongPassw0rd!',
+      })
+    );
+
+    expect((result as { status: number }).status).toBe(500);
+    expect((result as { data: { message: string } }).data.message).not.toContain('Cloud-init LV collision while deploying VM');
+    expect((result as { data: { message: string } }).data.message).toContain('Logical Volume "vm-101-cloudinit" already exists');
   });
 
   it('cloneFromTemplate rejects a name that is not a valid Proxmox DNS name', async () => {
@@ -412,6 +541,12 @@ describe('proxmox page server actions', () => {
     expect(result.status).toBe('success');
     expect(result.message).toContain('Cloned guest template 210 as "cloned-ct"');
     expect(result.message).toContain('Started container cloned-ct');
+    expect((result as { deployWorkloadName: string }).deployWorkloadName).toBe('cloned-ct');
+    expect((result as { deployTaskNode: string }).deployTaskNode).toBe('pve1');
+    expect((result as { deployTaskUpids: string[] }).deployTaskUpids).toEqual([
+      'UPID:lxc-clone-task',
+      'UPID:start-task',
+    ]);
   });
 
   it('renameLxcGuestTemplate updates guest template hostname', async () => {

@@ -22,6 +22,21 @@
     template?: number | boolean;
   };
 
+  type DeployWorkloadKind = 'vm' | 'container';
+
+  type DeployingWorkload = {
+    key: string;
+    kind: DeployWorkloadKind;
+    name: string;
+    node?: string;
+    startedAt: number;
+    taskUpids: string[];
+    // Earliest time at which resolution may be considered. Prevents the deploying
+    // row from disappearing in the same reactive cycle that task UPIDs arrive,
+    // which happens when both tasks complete during the server action's execution time.
+    resolveNotBefore: number;
+  };
+
 
   type LxcTemplate = {
     storage: string;
@@ -78,6 +93,9 @@
       workloadAction?: 'start' | 'stop' | 'restart';
       workloadType?: 'vm' | 'container';
       formType?: 'vm-template' | 'lxc-template' | 'vm' | 'container';
+      deployWorkloadName?: string;
+      deployTaskNode?: string;
+      deployTaskUpids?: string[];
     } | null;
   } = $props();
 
@@ -117,15 +135,232 @@
     )
   );
 
-  const lxcWorkloads = $derived(
+  const lxcWorkloadsFromServer = $derived(
     (data.results?.containers ?? []).filter(
       (container) => !(container.template === 1 || container.template === true || container.isTemplate === true)
     )
   );
 
-  const vmWorkloads = $derived(
+  const vmWorkloadsFromServer = $derived(
     (data.results?.vms ?? []).filter((vm) => !vm.template && !vm.isTemplate)
   );
+
+  let deployingWorkloads = $state<DeployingWorkload[]>([]);
+  let lastHandledDeploySignature = $state<string | null>(null);
+
+  const makeDeployingKey = (kind: DeployWorkloadKind, name: string): string =>
+    `${kind}:${name.trim().toLowerCase()}`;
+
+  const normalizeUpids = (taskUpids?: string[]): string[] =>
+    (taskUpids ?? []).filter((upid) => typeof upid === 'string' && upid.trim().length > 0);
+
+  const isTaskActive = (upid: string): boolean | undefined => {
+    const task = data.results?.recentTasks.find((item) => item.upid === upid);
+    if (!task) {
+      return undefined;
+    }
+
+    if (typeof task.endtime === 'number' && task.endtime > 0) {
+      return false;
+    }
+
+    const normalizedStatus = (task.status ?? '').trim().toLowerCase();
+    if (
+      normalizedStatus === 'ok' ||
+      normalizedStatus === 'stopped' ||
+      normalizedStatus === 'error' ||
+      normalizedStatus === 'warnings'
+    ) {
+      return false;
+    }
+
+    return true;
+  };
+
+  const isDeployResolved = (pending: DeployingWorkload): boolean => {
+    const now = Date.now();
+    const ageMs = now - pending.startedAt;
+
+    // Hard cap: never hold a deploying entry beyond 10 minutes regardless of task state.
+    if (ageMs > 10 * 60 * 1000) {
+      return true;
+    }
+
+    // Always show deploying for at least the minimum window. This prevents the entry
+    // from being pruned in the same reactive cycle that task UPIDs arrive — which
+    // happens when both tasks complete during the server action's own execution time.
+    if (now < pending.resolveNotBefore) {
+      return false;
+    }
+
+    const pendingName = pending.name.trim().toLowerCase();
+    const pendingNode = (pending.node ?? '').trim().toLowerCase();
+    const source = pending.kind === 'vm' ? vmWorkloadsFromServer : lxcWorkloadsFromServer;
+
+    const workloadExists = source.some((workload) => {
+      const workloadName = (workload.name ?? '').trim().toLowerCase();
+      if (workloadName !== pendingName) {
+        return false;
+      }
+      if (pendingNode.length === 0) {
+        return true;
+      }
+      return (workload.node ?? '').trim().toLowerCase() === pendingNode;
+    });
+
+    if (pending.taskUpids.length > 0) {
+      const states = pending.taskUpids.map((upid) => isTaskActive(upid));
+      // At least one task still actively running — keep deploying.
+      if (states.some((state) => state === true)) {
+        return false;
+      }
+      // Resolve once no tracked task is actively running and the workload exists.
+      // Some task UPIDs may never appear in recentTasks (or may age out), so
+      // requiring every task state to be explicitly false can leave stale rows.
+      if (workloadExists) {
+        return workloadExists;
+      }
+      // Some tasks not yet visible in recentTasks — keep deploying.
+      return false;
+    }
+
+    // No task IDs yet (optimistic phase before server responds) — keep deploying.
+    return false;
+  };
+
+  const isShadowedByDeployingWorkload = (workload: Workload, kind: DeployWorkloadKind): boolean => {
+    const workloadName = (workload.name ?? '').trim().toLowerCase();
+    if (workloadName.length === 0) {
+      return false;
+    }
+
+    return deployingWorkloads.some((pending) => {
+      if (pending.kind !== kind) {
+        return false;
+      }
+
+      if (pending.name.trim().toLowerCase() !== workloadName) {
+        return false;
+      }
+
+      const pendingNode = (pending.node ?? '').trim().toLowerCase();
+      const workloadNode = (workload.node ?? '').trim().toLowerCase();
+      return pendingNode.length === 0 || pendingNode === workloadNode;
+    });
+  };
+
+  const DEPLOY_MIN_VISIBLE_MS = 30_000;
+
+  function markDeployingWorkload(kind: DeployWorkloadKind, name: string, node?: string, taskUpids?: string[]): void {
+    const normalizedName = name.trim();
+    if (normalizedName.length === 0) {
+      return;
+    }
+
+    const key = makeDeployingKey(kind, normalizedName);
+    const normalizedUpids = normalizeUpids(taskUpids);
+    const existing = deployingWorkloads.find((pending) => pending.key === key);
+    const isUpgrade = normalizedUpids.length > 0 && existing?.taskUpids.length === 0;
+    deployingWorkloads = [
+      ...deployingWorkloads.filter((pending) => pending.key !== key),
+      {
+        key,
+        kind,
+        name: normalizedName,
+        node,
+        startedAt: existing?.startedAt ?? Date.now(),
+        taskUpids: normalizedUpids.length > 0 ? normalizedUpids : (existing?.taskUpids ?? []),
+        // Reset the minimum visibility window when task UPIDs first arrive so
+        // tasks that complete during server execution are still shown as deploying.
+        resolveNotBefore: isUpgrade
+          ? Date.now() + DEPLOY_MIN_VISIBLE_MS
+          : (existing?.resolveNotBefore ?? Date.now() + DEPLOY_MIN_VISIBLE_MS),
+      },
+    ];
+  }
+
+  function clearDeployingWorkload(kind: DeployWorkloadKind, name: string): void {
+    const normalizedName = name.trim();
+    if (normalizedName.length === 0) {
+      return;
+    }
+    const key = makeDeployingKey(kind, normalizedName);
+    deployingWorkloads = deployingWorkloads.filter((pending) => pending.key !== key);
+  }
+
+  $effect(() => {
+    const filtered = deployingWorkloads.filter((pending) => !isDeployResolved(pending));
+    const isUnchanged =
+      filtered.length === deployingWorkloads.length &&
+      filtered.every((pending, index) => pending.key === deployingWorkloads[index]?.key);
+
+    if (!isUnchanged) {
+      deployingWorkloads = filtered;
+    }
+  });
+
+  const deployingVmWorkloads = $derived(
+    deployingWorkloads
+      .filter((pending) => pending.kind === 'vm')
+      .map((pending, index) => ({
+        id: `deploying-vm-${pending.startedAt}-${index}`,
+        name: pending.name,
+        node: pending.node ?? '-',
+        status: 'deploying',
+        uptime: 0,
+        deployTaskUpids: pending.taskUpids,
+      }))
+  );
+
+  const deployingLxcWorkloads = $derived(
+    deployingWorkloads
+      .filter((pending) => pending.kind === 'container')
+      .map((pending, index) => ({
+        id: `deploying-lxc-${pending.startedAt}-${index}`,
+        name: pending.name,
+        node: pending.node ?? '-',
+        status: 'deploying',
+        uptime: 0,
+        deployTaskUpids: pending.taskUpids,
+      }))
+  );
+
+  const vmWorkloads = $derived([
+    ...deployingVmWorkloads,
+    ...vmWorkloadsFromServer.filter((workload) => !isShadowedByDeployingWorkload(workload, 'vm')),
+  ]);
+  const lxcWorkloads = $derived([
+    ...deployingLxcWorkloads,
+    ...lxcWorkloadsFromServer.filter((workload) => !isShadowedByDeployingWorkload(workload, 'container')),
+  ]);
+
+  $effect(() => {
+    if (form?.status !== 'success') {
+      return;
+    }
+
+    if ((form.formType !== 'vm-template' && form.formType !== 'lxc-template') || typeof form.deployWorkloadName !== 'string') {
+      return;
+    }
+
+    const deploySignature = [
+      form.formType,
+      form.deployWorkloadName,
+      form.deployTaskNode ?? '',
+      ...(form.deployTaskUpids ?? []),
+    ].join('|');
+    if (deploySignature === lastHandledDeploySignature) {
+      return;
+    }
+    lastHandledDeploySignature = deploySignature;
+
+    markDeployingWorkload(
+      form.formType === 'vm-template' ? 'vm' : 'container',
+      form.deployWorkloadName,
+      form.deployTaskNode,
+      form.deployTaskUpids
+    );
+  });
 
   let lastContainerIpRefreshActionId = $state<string | null>(null);
 
@@ -269,7 +504,16 @@
             role="tabpanel"
             aria-labelledby="tab-vms"
           >
-            <PxMxVMTemplateList workloads={data.results.vms} form={templateForm} />
+            <PxMxVMTemplateList
+              workloads={data.results.vms}
+              form={templateForm}
+              onDeployStarted={({ name, node, taskUpids }: { name: string; node?: string; taskUpids?: string[] }) => {
+                markDeployingWorkload('vm', name, node, taskUpids);
+              }}
+              onDeployFailed={({ name }: { name: string; node?: string }) => {
+                clearDeployingWorkload('vm', name);
+              }}
+            />
             <PxMxWorkloadList
               kind="vm"
               workloads={vmWorkloads}
@@ -287,6 +531,12 @@
               containerTemplates={lxcGuestTemplates}
               serverNode={data.results.serverNode}
               form={lxcTemplateForm}
+              onDeployStarted={({ name, node, taskUpids }: { name: string; node?: string; taskUpids?: string[] }) => {
+                markDeployingWorkload('container', name, node, taskUpids);
+              }}
+              onDeployFailed={({ name }: { name: string; node?: string }) => {
+                clearDeployingWorkload('container', name);
+              }}
             />
             <PxMxWorkloadList
               kind="container"

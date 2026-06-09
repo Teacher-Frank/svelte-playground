@@ -29,9 +29,13 @@
     containerGuiEnabled?: boolean;
   } = $props();
 
+  const controlsDisabled = $derived(
+    disabled || selectedWorkload?.status === 'deploying'
+  );
+
   // Terminal is only useful when the selected guest is currently running.
   const terminalEnabled = $derived(
-    !disabled &&
+    !controlsDisabled &&
     selectedWorkload?.status === 'running' &&
     selectedWorkload?.id != null &&
     selectedWorkload?.node != null
@@ -49,7 +53,7 @@
   // GUI/VNC access is only shown as active when the selected workload is
   // running and the backend can provide a real GUI bridge for that type.
   const vncEnabled = $derived(
-    !disabled &&
+    !controlsDisabled &&
     supportsGuiAccess &&
     hasResolvedContainerIp &&
     selectedWorkload?.status === 'running' &&
@@ -71,7 +75,7 @@
 
   // Destructive actions are allowed whenever a concrete workload is selected.
   const deleteEnabled = $derived(
-    !disabled &&
+    !controlsDisabled &&
     selectedWorkload?.id != null &&
     selectedWorkload?.node != null
   );
@@ -79,7 +83,7 @@
   // Conversion applies to any selected VM/container; running workloads are
   // stopped server-side before conversion.
   const convertToTemplateEnabled = $derived(
-    !disabled &&
+    !controlsDisabled &&
     (selectedWorkload?.type === 'container' || selectedWorkload?.type === 'vm') &&
     selectedWorkload?.id != null &&
     selectedWorkload?.node != null
@@ -103,7 +107,7 @@
   );
 
   const configureEnabled = $derived(
-    !disabled &&
+    !controlsDisabled &&
     (selectedWorkload?.type === 'container' || selectedWorkload?.type === 'vm') &&
     selectedWorkload?.id != null &&
     selectedWorkload?.node != null &&
@@ -251,6 +255,14 @@
       }
     };
   };
+
+  $effect(() => {
+    if (!controlsDisabled) {
+      return;
+    }
+    showDeleteConfirm = false;
+    showConfigureModal = false;
+  });
 </script>
 
 <div class="workload-controls" class:compact>
@@ -266,15 +278,15 @@
     <input name="node" type="hidden" value={selectedWorkload?.node ?? ''} />
     <input name="status" type="hidden" value={selectedWorkload?.status ?? ''} />
 
-    <button formaction="?/start" title="Start" aria-label="Start" disabled={disabled}>
+    <button formaction="?/start" title="Start" aria-label="Start" disabled={controlsDisabled}>
       <img src="/play.svg" alt="" aria-hidden="true" />
     </button>
 
-    <button formaction="?/stop" title="Stop" aria-label="Stop" disabled={disabled}>
+    <button formaction="?/stop" title="Stop" aria-label="Stop" disabled={controlsDisabled}>
       <img src="/stop.svg" alt="" aria-hidden="true" />
     </button>
 
-    <button formaction="?/restart" title="Restart" aria-label="Restart" disabled={disabled}>
+    <button formaction="?/restart" title="Restart" aria-label="Restart" disabled={controlsDisabled}>
       <img src="/restart.svg" alt="" aria-hidden="true" />
     </button>
   </form>
@@ -377,14 +389,14 @@
             <input name="id" type="hidden" value={selectedWorkload?.id?.toString() ?? ''} />
             <input name="name" type="hidden" value={selectedWorkload?.name ?? ''} />
             <input name="node" type="hidden" value={selectedWorkload?.node ?? ''} />
-            <button type="submit" class="delete-confirm-yes" disabled={destroySubmitInFlight}>
+            <button type="submit" class="delete-confirm-yes" disabled={destroySubmitInFlight || controlsDisabled}>
               {destroySubmitInFlight ? 'DESTROYING...' : 'YES, DESTROY IT!!!'}
             </button>
           </form>
           <button
             type="button"
             class="delete-confirm-cancel"
-            disabled={destroySubmitInFlight}
+            disabled={destroySubmitInFlight || controlsDisabled}
             onclick={closeDeleteConfirm}
           >
             Cancel
@@ -440,11 +452,11 @@
           <p class="config-hint">Host memory: {hostMemoryMiB.toLocaleString()} MiB • Max memory: {maxMemoryMiB.toLocaleString()} MiB</p>
 
           <div class="config-modal-actions">
-            <button type="submit" class="config-ok-btn" disabled={configureSubmitInFlight}>OK</button>
+            <button type="submit" class="config-ok-btn" disabled={configureSubmitInFlight || controlsDisabled}>OK</button>
             <button
               type="button"
               class="config-cancel-btn"
-              disabled={configureSubmitInFlight}
+              disabled={configureSubmitInFlight || controlsDisabled}
               onclick={() => { showConfigureModal = false; }}
             >
               Cancel
