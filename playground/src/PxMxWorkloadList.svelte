@@ -119,10 +119,35 @@
   };
 
   let dismissed = $state(false);
+  let dismissTimeout: ReturnType<typeof setTimeout> | null = null;
   $effect(() => {
     // Reset dismissal when server action feedback changes so each new result is
     // visible at least once and cannot be hidden by a previous dismiss click.
     if (form?.message) dismissed = false;
+  });
+
+  $effect(() => {
+    if (dismissTimeout) {
+      clearTimeout(dismissTimeout);
+      dismissTimeout = null;
+    }
+
+    if (!form?.message || form.workloadType !== kind || dismissed) {
+      return;
+    }
+
+    // Auto-dismiss status bars after 10 seconds unless the user closes earlier.
+    dismissTimeout = setTimeout(() => {
+      dismissed = true;
+      dismissTimeout = null;
+    }, 10_000);
+
+    return () => {
+      if (dismissTimeout) {
+        clearTimeout(dismissTimeout);
+        dismissTimeout = null;
+      }
+    };
   });
 </script>
 

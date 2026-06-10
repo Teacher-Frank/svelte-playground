@@ -141,6 +141,9 @@
   let submitInFlight = $state(false);
   let pendingMessage = $state<string | null>(null);
   let pendingDeployContext = $state<{ name: string; node?: string } | null>(null);
+  let pendingMessageTimeout: ReturnType<typeof setTimeout> | null = null;
+  let resultMessageTimeout: ReturnType<typeof setTimeout> | null = null;
+  let warningMessageTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const needsRootPassword = $derived(activeAction === 'deploy-storage');
 
@@ -201,6 +204,75 @@
       dismissed = false;
       pendingMessage = null;
     }
+  });
+
+  $effect(() => {
+    if (pendingMessageTimeout) {
+      clearTimeout(pendingMessageTimeout);
+      pendingMessageTimeout = null;
+    }
+
+    if (!pendingMessage) {
+      return;
+    }
+
+    pendingMessageTimeout = setTimeout(() => {
+      pendingMessage = null;
+      pendingMessageTimeout = null;
+    }, 10_000);
+
+    return () => {
+      if (pendingMessageTimeout) {
+        clearTimeout(pendingMessageTimeout);
+        pendingMessageTimeout = null;
+      }
+    };
+  });
+
+  $effect(() => {
+    if (resultMessageTimeout) {
+      clearTimeout(resultMessageTimeout);
+      resultMessageTimeout = null;
+    }
+
+    if (!form?.message || dismissed) {
+      return;
+    }
+
+    resultMessageTimeout = setTimeout(() => {
+      dismissed = true;
+      resultMessageTimeout = null;
+    }, 10_000);
+
+    return () => {
+      if (resultMessageTimeout) {
+        clearTimeout(resultMessageTimeout);
+        resultMessageTimeout = null;
+      }
+    };
+  });
+
+  $effect(() => {
+    if (warningMessageTimeout) {
+      clearTimeout(warningMessageTimeout);
+      warningMessageTimeout = null;
+    }
+
+    if (!hasUbuntu2404Template || ubuntuNoticeDismissed) {
+      return;
+    }
+
+    warningMessageTimeout = setTimeout(() => {
+      ubuntuNoticeDismissed = true;
+      warningMessageTimeout = null;
+    }, 10_000);
+
+    return () => {
+      if (warningMessageTimeout) {
+        clearTimeout(warningMessageTimeout);
+        warningMessageTimeout = null;
+      }
+    };
   });
 
   const enhanceTemplateDialogSubmit = () => {

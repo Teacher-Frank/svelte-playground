@@ -205,7 +205,7 @@
     configToastTimeout = setTimeout(() => {
       configToast = null;
       configToastTimeout = null;
-    }, 2500);
+    }, 10_000);
   };
 
   const preserveScrollOnSubmit = () => {

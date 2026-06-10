@@ -65,6 +65,8 @@
   let submitInFlight = $state(false);
   let pendingMessage = $state<string | null>(null);
   let pendingDeployContext = $state<{ name: string; node?: string } | null>(null);
+  let pendingMessageTimeout: ReturnType<typeof setTimeout> | null = null;
+  let resultMessageTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const vmDialogTitle = $derived.by(() => {
     const templateName = activeTemplate?.name ?? activeTemplate?.id?.toString() ?? 'template';
@@ -108,6 +110,52 @@
       dismissed = false;
       pendingMessage = null;
     }
+  });
+
+  $effect(() => {
+    if (pendingMessageTimeout) {
+      clearTimeout(pendingMessageTimeout);
+      pendingMessageTimeout = null;
+    }
+
+    if (!pendingMessage) {
+      return;
+    }
+
+    pendingMessageTimeout = setTimeout(() => {
+      pendingMessage = null;
+      pendingMessageTimeout = null;
+    }, 10_000);
+
+    return () => {
+      if (pendingMessageTimeout) {
+        clearTimeout(pendingMessageTimeout);
+        pendingMessageTimeout = null;
+      }
+    };
+  });
+
+  $effect(() => {
+    if (resultMessageTimeout) {
+      clearTimeout(resultMessageTimeout);
+      resultMessageTimeout = null;
+    }
+
+    if (!form?.message || dismissed) {
+      return;
+    }
+
+    resultMessageTimeout = setTimeout(() => {
+      dismissed = true;
+      resultMessageTimeout = null;
+    }, 10_000);
+
+    return () => {
+      if (resultMessageTimeout) {
+        clearTimeout(resultMessageTimeout);
+        resultMessageTimeout = null;
+      }
+    };
   });
 
   const enhanceVmDialogSubmit = () => {
