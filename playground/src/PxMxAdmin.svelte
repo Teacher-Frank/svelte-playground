@@ -367,7 +367,7 @@
   let lastContainerIpRefreshActionId = $state<string | null>(null);
 
   $effect(() => {
-    if (form?.status !== 'success' || form.workloadType !== 'container') {
+    if (form?.status !== 'success' || (form.workloadType !== 'container' && form.workloadType !== 'vm')) {
       return;
     }
 
@@ -381,7 +381,7 @@
     }
     lastContainerIpRefreshActionId = actionId;
 
-    // Refresh in the background a few times after boot/reboot so container
+    // Refresh in the background a few times after boot/reboot so guest
     // networking can settle and interface-derived IPv4 data appears quickly.
     const timeouts = [0, 1500, 4000, 8000].map((delayMs) =>
       setTimeout(() => {

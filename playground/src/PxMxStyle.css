@@ -234,6 +234,11 @@
   grid-template-columns: 5rem minmax(10rem, 2fr) 7rem 7rem 6rem;
 }
 
+.pxmx-admin .workload-header.vm-kind,
+.pxmx-admin .workload-row-button.vm-kind {
+  grid-template-columns: 5rem minmax(14rem, 2.8fr) 7rem 7rem minmax(8rem, 1.2fr) 6rem;
+}
+
 .pxmx-admin .workload-header.container-kind,
 .pxmx-admin .workload-row-button.container-kind {
   grid-template-columns: 5rem minmax(14rem, 2.8fr) 7rem 7rem minmax(8rem, 1.2fr) 7rem minmax(8rem, 1fr) 6rem;

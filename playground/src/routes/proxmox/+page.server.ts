@@ -12,6 +12,11 @@ export type WorkloadAction = 'start' | 'stop' | 'restart';
 
 const PROXMOX_REQUEST_TIMEOUT_MS = 8000;
 const PROFILE_PROXMOX_LOAD = process.env.PLAYGROUND_PROFILE_LOAD === 'true';
+const VM_AGENT_RETRY_DELAY_MS = 60_000;
+
+// Track transient VM guest-agent failures to avoid logging the same expected
+// error on every refresh cycle.
+const vmAgentRetryAfterById = new Map<number, number>();
 
 const nowMs = (): number => Number(process.hrtime.bigint()) / 1_000_000;
 
@@ -38,7 +43,7 @@ export type Workload = {
   status?: string;
   /** Seconds the workload has been running, or `0` when stopped. */
   uptime?: number;
-  /** Primary IPv4 address discovered from container interfaces, when available. */
+  /** Primary IPv4 address discovered from guest interfaces, when available. */
   primaryIp?: string;
   /** Configured CPU limit for containers, when available from API payloads. */
   cpulimit?: number;
@@ -64,6 +69,11 @@ type LxcInterface = {
   inet?: string;
   'ip-addresses'?: LxcIpAddress[];
   name?: string;
+};
+
+type VmAgentInterface = {
+  name?: string;
+  'ip-addresses'?: LxcIpAddress[];
 };
 
 /** A Proxmox cluster node as returned by the `/nodes` API endpoint. */
@@ -148,6 +158,51 @@ const extractPrimaryContainerIPv4 = (interfaces: LxcInterface[]): string | undef
   }
 
   return undefined;
+};
+
+const extractPrimaryGuestIPv4 = (
+  interfaces: Array<{ inet?: string; 'ip-addresses'?: LxcIpAddress[] }>
+): string | undefined => {
+  for (const iface of interfaces) {
+    const ipAddresses = Array.isArray(iface['ip-addresses']) ? iface['ip-addresses'] : [];
+    for (const ipAddress of ipAddresses) {
+      const value = ipAddress['ip-address'];
+      if (typeof value !== 'string' || !isIPv4Address(value)) continue;
+      if (value.startsWith('127.') || value.startsWith('169.254.')) continue;
+      return value;
+    }
+  }
+
+  for (const iface of interfaces) {
+    const fallback = iface.inet;
+    if (typeof fallback !== 'string' || !isIPv4Address(fallback)) continue;
+    if (fallback.startsWith('127.') || fallback.startsWith('169.254.')) continue;
+    return fallback;
+  }
+
+  return undefined;
+};
+
+const getErrorMessage = (err: unknown): string => {
+  if (err instanceof Error) {
+    const stack = typeof err.stack === 'string' ? err.stack : '';
+    return `${err.message}\n${stack}`;
+  }
+
+  const asString = String(err);
+  let serialized = '';
+  try {
+    serialized = JSON.stringify(err);
+  } catch {
+    // Ignore serialization errors and fall back to String(err).
+  }
+
+  return `${asString}\n${serialized}`;
+};
+
+const isGuestAgentUnavailableError = (err: unknown): boolean => {
+  const message = getErrorMessage(err).toLowerCase();
+  return /qemu guest agent is not running|guest agent is not running|qga command failed|http\s*500.*guest agent/i.test(message);
 };
 
 /** An LXC container template available in Proxmox storage. */
@@ -486,6 +541,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
 
   // --- Load node-level data (errors are logged but do not abort the load) ---
   const containerPrimaryIpById = new Map<number, string>();
+  const vmPrimaryIpById = new Map<number, string>();
   const nodeDataStartedAt = nowMs();
   const [lxcTemplates, vmsRaw, containersRaw, tasksRaw] = await Promise.all([
     listLxcTemplates(nodeApi),
@@ -513,6 +569,11 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     .map((container) => Number(container.vmid))
     .filter((vmid) => Number.isInteger(vmid) && vmid > 0);
 
+  const runningVmIds = (vms as Array<Record<string, unknown>>)
+    .filter((vm) => vm.status === 'running')
+    .map((vm) => Number(vm.vmid))
+    .filter((vmid) => Number.isInteger(vmid) && vmid > 0);
+
   if (runningContainerIds.length > 0) {
     const containerIpFetchStartedAt = nowMs();
     await Promise.all(
@@ -529,6 +590,48 @@ const loadResults = async (): Promise<ProxmoxResults> => {
       })
     );
     logLoadTiming('container_ip_fetch', containerIpFetchStartedAt, `count=${runningContainerIds.length}`);
+  }
+
+  if (runningVmIds.length > 0) {
+    const vmIpFetchStartedAt = nowMs();
+    await Promise.all(
+      runningVmIds.map(async (vmid) => {
+        const retryAfter = vmAgentRetryAfterById.get(vmid);
+        if (typeof retryAfter === 'number' && retryAfter > Date.now()) {
+          return;
+        }
+
+        try {
+          const agentData = await client.request('/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces', 'GET', {
+            $path: { node, vmid },
+          }) as { result?: VmAgentInterface[] } | VmAgentInterface[];
+
+          const interfaces = Array.isArray(agentData)
+            ? agentData
+            : (Array.isArray(agentData.result) ? agentData.result : []);
+
+          const primaryIp = extractPrimaryGuestIPv4(interfaces);
+          if (primaryIp) {
+            vmPrimaryIpById.set(vmid, primaryIp);
+            vmAgentRetryAfterById.delete(vmid);
+          }
+        } catch (err) {
+          // QEMU guest agent can be unavailable on some VMs; avoid spamming logs
+          // every refresh and retry after a short cooldown.
+          if (isGuestAgentUnavailableError(err)) {
+            const retryAfter = Date.now() + VM_AGENT_RETRY_DELAY_MS;
+            vmAgentRetryAfterById.set(vmid, retryAfter);
+            console.info(
+              `[proxmox] Guest agent unavailable for VM ${vmid}; suppressing repeated checks for ${Math.round(VM_AGENT_RETRY_DELAY_MS / 1000)}s.`
+            );
+            return;
+          }
+
+          console.warn(`[proxmox] Failed to query guest interfaces for VM ${vmid}:`, err);
+        }
+      })
+    );
+    logLoadTiming('vm_ip_fetch', vmIpFetchStartedAt, `count=${runningVmIds.length}`);
   }
 
   const currentNode = clusterNodes.find((entry) => entry.node === node);
@@ -588,6 +691,9 @@ const loadResults = async (): Promise<ProxmoxResults> => {
           memorylimit:
             toPositiveNumber(vm.memory) ??
             toPositiveNumber(vm.maxmem),
+          primaryIp: Number.isInteger(vm.vmid)
+            ? vmPrimaryIpById.get(vm.vmid as number)
+            : undefined,
           hostMaxCpu: hostCapacity?.maxcpu,
           hostMaxMemory: hostCapacity?.maxmem,
           hostMaxStorage: hostCapacity?.maxdisk,

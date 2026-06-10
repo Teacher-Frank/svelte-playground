@@ -60,13 +60,13 @@
   const emptyStateLabel = $derived(kind === 'vm' ? 'No virtual machines found.' : 'No containers found.');
   const unnamedLabel = $derived(kind === 'vm' ? 'Unnamed VM' : 'Unnamed container');
 
-  const formatContainerIp = (workload: Workload): string => {
+  const formatWorkloadIp = (workload: Workload): string => {
     if (workload.primaryIp && workload.primaryIp.trim().length > 0) {
       return workload.primaryIp;
     }
 
-    // Running containers may need a short settle period before interfaces report
-    // a usable IPv4; show '?' while discovery is still in progress.
+    // Running guests may need a short settle period before interfaces/guest agent
+    // report a usable IPv4; show '?' while discovery is still in progress.
     if (workload.status === 'running') {
       return '?';
     }
@@ -185,7 +185,7 @@
                       title={deployingTooltip(workload)}
                     >{workload.status ?? '-'}</span>
                     <span>{workload.node ?? '-'}</span>
-                    <span>{formatContainerIp(workload)}</span>
+                    <span>{formatWorkloadIp(workload)}</span>
                     <span>{formatCpuLimit(workload)}</span>
                     <span>{formatMemoryLimit(workload)}</span>
                     <span>{formatUptime(workload.uptime)}</span>
@@ -234,6 +234,7 @@
               <span class="col-name">Name</span>
               <span>Status</span>
               <span>Node</span>
+              <span>IP</span>
               <span>Uptime</span>
             </div>
             <ul class="workload-list">
@@ -251,6 +252,7 @@
                       title={deployingTooltip(workload)}
                     >{workload.status ?? '-'}</span>
                     <span>{workload.node ?? '-'}</span>
+                    <span>{formatWorkloadIp(workload)}</span>
                     <span>{formatUptime(workload.uptime)}</span>
                   </button>
                 </li>

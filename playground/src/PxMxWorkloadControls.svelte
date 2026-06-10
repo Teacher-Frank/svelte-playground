@@ -47,9 +47,8 @@
     selectedWorkload?.type === 'vm' || containerGuiEnabled
   );
 
-  const hasResolvedContainerIp = $derived(
-    selectedWorkload?.type !== 'container' ||
-    (typeof selectedWorkload?.primaryIp === 'string' && selectedWorkload.primaryIp.trim().length > 0)
+  const hasResolvedWorkloadIp = $derived(
+    typeof selectedWorkload?.primaryIp === 'string' && selectedWorkload.primaryIp.trim().length > 0
   );
 
   // GUI/VNC access is only shown as active when the selected workload is
@@ -57,7 +56,7 @@
   const vncEnabled = $derived(
     !controlsDisabled &&
     supportsGuiAccess &&
-    hasResolvedContainerIp &&
+    hasResolvedWorkloadIp &&
     selectedWorkload?.status === 'running' &&
     selectedWorkload?.id != null &&
     selectedWorkload?.node != null
@@ -68,8 +67,12 @@
       return 'GUI is not available for containers without an LXC VNC bridge';
     }
 
-    if (selectedWorkload?.type === 'container' && !hasResolvedContainerIp) {
+    if (selectedWorkload?.type === 'container' && !hasResolvedWorkloadIp) {
       return 'Waiting for container IPv4 address before enabling GUI (VNC)';
+    }
+
+    if (selectedWorkload?.type === 'vm' && !hasResolvedWorkloadIp) {
+      return 'Waiting for VM IPv4 address before enabling GUI (VNC)';
     }
 
     return 'Open GUI (VNC)';
@@ -327,7 +330,7 @@
   <a
     class="vnc-btn"
     href={vncEnabled
-      ? `/proxmox/vnc?vmid=${encodeURIComponent(selectedWorkload!.id!)}&node=${encodeURIComponent(selectedWorkload!.node!)}&type=${encodeURIComponent(selectedWorkload!.type)}${selectedWorkload!.name ? `&name=${encodeURIComponent(selectedWorkload!.name)}` : ''}${selectedWorkload!.type === 'container' && selectedWorkload!.primaryIp ? `&ip=${encodeURIComponent(selectedWorkload!.primaryIp)}` : ''}`
+      ? `/proxmox/vnc?vmid=${encodeURIComponent(selectedWorkload!.id!)}&node=${encodeURIComponent(selectedWorkload!.node!)}&type=${encodeURIComponent(selectedWorkload!.type)}${selectedWorkload!.name ? `&name=${encodeURIComponent(selectedWorkload!.name)}` : ''}${selectedWorkload!.primaryIp ? `&ip=${encodeURIComponent(selectedWorkload!.primaryIp)}` : ''}`
       : undefined}
     target={vncEnabled ? '_blank' : undefined}
     rel={vncEnabled ? 'noopener noreferrer' : undefined}

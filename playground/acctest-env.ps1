@@ -30,23 +30,17 @@ $env:PVE_LXC_HOOKSCRIPT_VOLID = "local:snippets/lxc-post-create-hook.sh"
 # Optional: target storage for LXC root filesystem (must support rootdir/container directories)
 $env:PVE_LXC_ROOTFS_STORAGE = "local-lvm"
 
-#optional: VNC configuration
-# $env:LXC_VNC_BRIDGE_WS_URL=ws://<your-host>:8001
-# $env:LXC_VNC_BRIDGE_ALLOWED_HOSTS=<your-host>:8001,<other-host>:9001
-# Optional placeholder variant: ws://{ip}:8001 (or use {ipv4})
-# Optional derived mode (when no explicit URL template is provided):
-#   LXC_VNC_BRIDGE_DERIVE_FROM_IPV4=true
-#   LXC_VNC_BRIDGE_WS_SCHEME=ws
-#   LXC_VNC_BRIDGE_WS_PORT=8001
-#   LXC_VNC_BRIDGE_WS_PATH=
-$env:LXC_VNC_BRIDGE_DERIVE_FROM_IPV4='true'
-$env:LXC_VNC_BRIDGE_WS_SCHEME='ws'
-$env:LXC_VNC_BRIDGE_WS_PORT='8001'
-$env:LXC_VNC_BRIDGE_WS_PATH=''
-# Keep this empty to let derived mode build ws://<container-ip>:<port>.
-$env:LXC_VNC_BRIDGE_WS_URL=''
-# Allowlist is not needed in derived mode; proxy validates IPv4 + configured port.
-$env:LXC_VNC_BRIDGE_ALLOWED_HOSTS=''
+# Optional: LXC VNC web bridge (derived mode)
+# The app derives ws://<container-ip>:<port> from each container IPv4 address.
+# Keep websockify listening on the same port on each reachable container/host target.
+$env:LXC_VNC_BRIDGE_DERIVE_FROM_IPV4 = "true"
+$env:LXC_VNC_BRIDGE_WS_SCHEME = "ws"
+$env:LXC_VNC_BRIDGE_WS_PORT = "8001"
+$env:LXC_VNC_BRIDGE_WS_PATH = ""
+
+# Leave explicit URL/allowlist empty in derived mode.
+$env:LXC_VNC_BRIDGE_WS_URL = ""
+$env:LXC_VNC_BRIDGE_ALLOWED_HOSTS = ""
 
 # Optional: Set Node.js environment
 $env:NODE_ENV = "development"
@@ -59,6 +53,8 @@ Write-Host "PVE_VM_CLOUDINIT_STORAGE=$($env:PVE_VM_CLOUDINIT_STORAGE)"
 Write-Host "PLAYGROUND_REFRESH_INTERVAL_SECONDS=$($env:PLAYGROUND_REFRESH_INTERVAL_SECONDS)"
 Write-Host "PVE_LXC_HOOKSCRIPT_VOLID=$($env:PVE_LXC_HOOKSCRIPT_VOLID)"
 Write-Host "PVE_LXC_ROOTFS_STORAGE=$($env:PVE_LXC_ROOTFS_STORAGE)"
+Write-Host "LXC_VNC_BRIDGE_WS_URL=$($env:LXC_VNC_BRIDGE_WS_URL)"
+Write-Host "LXC_VNC_BRIDGE_ALLOWED_HOSTS=$($env:LXC_VNC_BRIDGE_ALLOWED_HOSTS)"
 
 # Resolve repo paths from this script location.
 $playgroundRoot = Split-Path -Parent $PSCommandPath

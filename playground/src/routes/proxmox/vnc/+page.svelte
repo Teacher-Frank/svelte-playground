@@ -16,6 +16,7 @@
   let credentialError = $state<string | null>(null);
   let rfbSession: import('@novnc/novnc').default | undefined = $state();
   let reconnectInProgress = $state(false);
+  let autoCredentialsSubmitted = $state(false);
   let reconnectSession: (() => Promise<void>) | undefined;
 
   $effect(() => {
@@ -32,10 +33,7 @@
   const showOverlay = $derived(statusState !== 'connected');
   const showCredentialPrompt = $derived(statusState === 'credentials');
 
-  const requiresUsername = $derived.by(() => {
-    if (requestedCredentialTypes.includes('username')) return true;
-    return data.type === 'vm';
-  });
+  const requiresUsername = $derived(requestedCredentialTypes.includes('username'));
 
   const requiresPassword = $derived(requestedCredentialTypes.length === 0 || requestedCredentialTypes.includes('password'));
   const requiresTarget = $derived(requestedCredentialTypes.includes('target'));
@@ -129,6 +127,7 @@
         clearConnectWatchdog();
         statusText = 'Connected';
         statusState = 'connected';
+        autoCredentialsSubmitted = false;
         requestedCredentialTypes = [];
         credentialError = null;
       });
@@ -157,8 +156,34 @@
         if (disposed) return;
         const detail = (event as CustomEvent<{ types?: string[] }>).detail;
         requestedCredentialTypes = Array.isArray(detail?.types) ? detail.types : [];
-        statusText = 'Server requested credentials to continue GUI login. Use the temporary VNC password unless instructed otherwise.';
-        statusState = 'credentials';
+
+        // Native Proxmox VNC issues short-lived ticket credentials server-side.
+        // If available, submit them automatically so operators are not asked to
+        // enter a password they never see.
+        if (!autoCredentialsSubmitted && typeof data.vncPassword === 'string' && data.vncPassword.length > 0) {
+          const autoCredentials: RFBCredentials = { password: data.vncPassword };
+          if (data.vncUsername && data.vncUsername.trim().length > 0) {
+            autoCredentials.username = data.vncUsername.trim();
+          }
+
+          autoCredentialsSubmitted = true;
+          statusText = 'Submitting VNC session credentials...';
+          statusState = 'connecting';
+          credentialError = null;
+
+          try {
+            rfb.sendCredentials(autoCredentials);
+            return;
+          } catch {
+            // Fall through to explicit prompt if automatic submission fails.
+          }
+        }
+
+        statusText =
+          typeof data.vncPassword === 'string' && data.vncPassword.length > 0
+            ? 'GUI session authentication failed. Click Reconnect to request a new Proxmox session ticket.'
+            : 'Server requested credentials. Use the guest VNC password configured with vncpasswd.';
+        statusState = typeof data.vncPassword === 'string' && data.vncPassword.length > 0 ? 'warning' : 'credentials';
         credentialError = null;
       });
 
@@ -171,10 +196,17 @@
 
         // Force explicit operator retry after security failure because continuing
         // with a half-negotiated session can create ambiguous auth loops.
-        // Bridge-backed containers are usually password-only auth.
-        requestedCredentialTypes = data.type === 'container' ? ['password'] : ['username', 'password'];
-        credentialError = statusText;
-        statusState = 'credentials';
+        // Most bridge-backed and native sessions here are password-only unless
+        // the server explicitly requests additional fields.
+        requestedCredentialTypes = ['password'];
+        if (typeof data.vncPassword === 'string' && data.vncPassword.length > 0) {
+          credentialError = null;
+          statusText = 'Proxmox VNC ticket authentication failed. Click Reconnect to request a fresh ticket.';
+          statusState = 'warning';
+        } else {
+          credentialError = statusText;
+          statusState = 'credentials';
+        }
       });
     };
 

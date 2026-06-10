@@ -131,6 +131,47 @@ describe('template action controls', () => {
     await expect.element(vncButton).toHaveAttribute('aria-disabled', 'false');
   });
 
+  it('keeps VNC disabled for running VMs until primary IP is resolved', async () => {
+    render(PxMxWorkloadControls, {
+      selectedWorkload: {
+        type: 'vm',
+        id: 106,
+        name: 'resolving-ip-vm',
+        node: 'pve1',
+        status: 'running',
+      },
+      selectedLabel: 'resolving-ip-vm (VM 106)',
+      compact: true,
+    });
+
+    const vncButton = page.getByLabelText(
+      'Waiting for VM IPv4 address before enabling GUI (VNC)'
+    );
+
+    await expect.element(vncButton).toBeVisible();
+    await expect.element(vncButton).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('enables VNC for running VMs when primary IP is available', async () => {
+    render(PxMxWorkloadControls, {
+      selectedWorkload: {
+        type: 'vm',
+        id: 107,
+        name: 'ready-ip-vm',
+        node: 'pve1',
+        status: 'running',
+        primaryIp: '10.0.0.77',
+      },
+      selectedLabel: 'ready-ip-vm (VM 107)',
+      compact: true,
+    });
+
+    const vncButton = page.getByRole('link', { name: 'Open GUI (VNC)' });
+
+    await expect.element(vncButton).toBeVisible();
+    await expect.element(vncButton).toHaveAttribute('aria-disabled', 'false');
+  });
+
   it('renders deploy and rename icon buttons for VM templates', async () => {
     render(PxMxVMTemplateList, {
       workloads: [
