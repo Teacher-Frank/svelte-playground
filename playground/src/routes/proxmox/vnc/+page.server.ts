@@ -11,15 +11,6 @@ type LxcInterface = {
   }>;
 };
 
-type VmAgentInterface = {
-  name?: string;
-  'ip-addresses'?: Array<{
-    'ip-address'?: string;
-    'ip-address-type'?: string;
-  }>;
-  'hardware-address'?: string;
-};
-
 const isIPv4Address = (value: string): boolean => {
   const parts = value.split('.');
   if (parts.length !== 4) return false;
@@ -50,21 +41,6 @@ const extractPrimaryContainerIPv4 = (interfaces: LxcInterface[]): string | undef
     if (typeof inet !== 'string' || !isIPv4Address(inet)) continue;
     if (inet.startsWith('127.') || inet.startsWith('169.254.')) continue;
     return inet;
-  }
-
-  return undefined;
-};
-
-const extractPrimaryVmIPv4 = (interfaces: VmAgentInterface[]): string | undefined => {
-  for (const iface of interfaces) {
-    const ipAddresses = Array.isArray(iface['ip-addresses']) ? iface['ip-addresses'] : [];
-    for (const ipAddress of ipAddresses) {
-      if (ipAddress['ip-address-type'] !== 'ipv4') continue;
-      const value = ipAddress['ip-address'];
-      if (typeof value !== 'string' || !isIPv4Address(value)) continue;
-      if (value.startsWith('127.') || value.startsWith('169.254.')) continue;
-      return value;
-    }
   }
 
   return undefined;
@@ -152,9 +128,8 @@ export const load: PageServerLoad = async ({ url }) => {
   const bridgeTemplate = process.env.LXC_VNC_BRIDGE_WS_URL?.trim();
   const deriveBridgeFromIpv4 = process.env.LXC_VNC_BRIDGE_DERIVE_FROM_IPV4 === 'true';
   let nativeFallbackReason: string | undefined;
-  // When bridge mode is configured, bypass Proxmox vncproxy and connect noVNC
-  // to an operator-managed websockify endpoint derived from guest networking.
-  if (bridgeTemplate || deriveBridgeFromIpv4) {
+  // VMs always use native Proxmox vncproxy flow. Bridge mode is container-only.
+  if (type === 'container' && (bridgeTemplate || deriveBridgeFromIpv4)) {
     let bridgeWsUrl: string | undefined;
     try {
       const primaryIpv4 = (() => {
@@ -168,26 +143,12 @@ export const load: PageServerLoad = async ({ url }) => {
       if (!resolvedIpv4) {
         const client = await createClient();
         const nodeApi = client.api.nodes.get(node);
-        if (type === 'container') {
-          const interfaces = await nodeApi.lxc.id(vmid).interfaces() as LxcInterface[];
-          resolvedIpv4 = extractPrimaryContainerIPv4(interfaces);
-        } else {
-          const agentData = await client.request('/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces', 'GET', {
-            $path: { node, vmid },
-          }) as { result?: VmAgentInterface[] } | VmAgentInterface[];
-
-          const interfaces = Array.isArray(agentData)
-            ? agentData
-            : (Array.isArray(agentData.result) ? agentData.result : []);
-          resolvedIpv4 = extractPrimaryVmIPv4(interfaces);
-        }
+        const interfaces = await nodeApi.lxc.id(vmid).interfaces() as LxcInterface[];
+        resolvedIpv4 = extractPrimaryContainerIPv4(interfaces);
       }
 
       if (!resolvedIpv4) {
-        if (type === 'container') {
-          error(503, 'Unable to determine container IPv4 address for GUI bridge.');
-        }
-        throw new Error('Unable to determine VM IPv4 address for GUI bridge.');
+        error(503, 'Unable to determine container IPv4 address for GUI bridge.');
       }
 
       if (bridgeTemplate) {
@@ -200,12 +161,8 @@ export const load: PageServerLoad = async ({ url }) => {
         throw err;
       }
 
-      // Keep VM console access available when guest IP discovery/agent is
-      // unavailable by falling back to native Proxmox vncproxy flow.
-      if (type === 'container') {
-        console.error('[vnc-page] Invalid LXC bridge websocket settings:', err);
-        error(500, 'Invalid LXC bridge websocket configuration.');
-      }
+      console.error('[vnc-page] Invalid LXC bridge websocket settings:', err);
+      error(500, 'Invalid LXC bridge websocket configuration.');
 
       nativeFallbackReason = summarizeError(err);
     }
@@ -223,8 +180,10 @@ export const load: PageServerLoad = async ({ url }) => {
     }
 
     nativeFallbackReason ??= 'Bridge URL could not be resolved';
-  } else {
+  } else if (type === 'container') {
     nativeFallbackReason = 'Derived bridge mode is not configured';
+  } else {
+    nativeFallbackReason = 'VMs always use native Proxmox VNC';
   }
 
   console.info(`[vnc-page] Using native Proxmox VNC for ${type} ${vmid}: ${nativeFallbackReason}`);

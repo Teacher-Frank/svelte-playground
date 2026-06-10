@@ -105,4 +105,18 @@ describe('proxmox vnc page bridge resolution', () => {
 
     await expect(load(event)).rejects.toMatchObject({ status: 503 });
   });
+
+  it('always uses native Proxmox VNC for VM workloads', async () => {
+    const event = {
+      url: new URL('http://localhost/proxmox/vnc?vmid=101&node=pve1&type=vm&ip=10.9.8.7&name=vm101'),
+    } as Parameters<typeof load>[0];
+
+    const result = await load(event);
+
+    expect(result.type).toBe('vm');
+    expect(result.upstreamWsUrl).toBe('wss://pve.example.com:8006/api2/json/nodes/pve1/qemu/100/vncwebsocket');
+    expect(result.vncPassword).toBe('pw');
+    expect(result.vncUsername).toBe('root@pam');
+    expect(mocks.interfaces).not.toHaveBeenCalled();
+  });
 });
