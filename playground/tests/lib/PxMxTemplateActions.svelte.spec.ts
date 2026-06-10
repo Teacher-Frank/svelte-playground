@@ -57,7 +57,7 @@ describe('template action controls', () => {
       compact: true,
     });
 
-    const configureButton = page.getByRole('button', { name: 'Configure VM CPU cores and memory' });
+    const configureButton = page.getByRole('button', { name: 'Configure VM CPU, memory, and storage' });
     const convertButton = page.getByRole('button', { name: 'Stop and convert VM to template' });
 
     await expect.element(configureButton).toBeVisible();

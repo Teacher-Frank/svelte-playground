@@ -18,6 +18,8 @@
     memorylimit?: number;
     hostMaxCpu?: number;
     hostMaxMemory?: number;
+    hostMaxStorage?: number;
+    hostAvailableStorage?: number;
     isTemplate?: boolean;
     template?: number | boolean;
   };

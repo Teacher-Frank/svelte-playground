@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
-import type { WebSocket as WsWebSocket, WebSocketServer } from 'ws';
+import type { RawData, WebSocket as WsWebSocket, WebSocketServer } from 'ws';
 
 // Proxmox terminal proxy flow:
 // 1) Intercept HTTP upgrade requests for /proxmox/terminal/ws.
@@ -12,7 +12,7 @@ import type { WebSocket as WsWebSocket, WebSocketServer } from 'ws';
 async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams): Promise<void> {
   // Lazy imports keep SSR/startup lightweight and avoid loading terminal
   // dependencies until the upgrade route is actually used.
-  const { Client, openTerminalBridge } = await import('pve-client');
+  const { Client } = await import('pve-client');
   const { Agent } = await import('node:https');
 
   const vmidStr = params.get('vmid');
@@ -69,27 +69,78 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
     }
 
     const terminal = client.helpers.terminal(vmid);
-    await openTerminalBridge(terminal, browserWs, {
+    const session = await terminal.open({
       // Keep reconnecting so brief termproxy/socket interruptions recover automatically.
       rejectUnauthorized: !insecureTls,
       reconnect: true,
       reconnectIntervalMs: 1500,
       reconnectMaxAttempts: Number.POSITIVE_INFINITY
-    }, {
-      onErrorFrame: (err) => Buffer.from(`\r\n\x1b[31mProxmox error: ${err.message}\x1b[0m\r\n`),
-      closeReasonOnSessionClose: 'Proxmox terminal closed',
-      // Keep a one-time Enter nudge so shells like pwsh render prompt on open.
-      enablePromptNudge: true,
-      // Force stdin through binary lane so control sequences are preserved.
-      allowTextInputFrames: false,
-      // Keep a single stable raw-leaning bridge policy.
-      enableInputRepairCompatibility: false,
-      coalesceNavigationRepeats: false,
-      normalizeSs3CursorKeys: false,
-      simplifyModifiedCursorKeys: false,
-      // Handy for debugging: uncomment to enable per-session bridge traces.
-      // trace: traceTerminal,
-      // traceLabel: `vmid:${vmid}`
+    });
+
+    const decoder = new TextDecoder();
+
+    const safeCloseBrowser = (code: number, reason: string): void => {
+      if (browserWs.readyState === browserWs.OPEN || browserWs.readyState === browserWs.CONNECTING) {
+        browserWs.close(code, reason);
+      }
+    };
+
+    const tryParseResizeFrame = (text: string): { cols: number; rows: number } | undefined => {
+      try {
+        const parsed = JSON.parse(text) as { type?: string; cols?: unknown; rows?: unknown };
+        const cols = Number(parsed.cols);
+        const rows = Number(parsed.rows);
+        if (parsed.type !== 'resize' || !Number.isInteger(cols) || !Number.isInteger(rows) || cols <= 0 || rows <= 0) {
+          return undefined;
+        }
+        return { cols, rows };
+      } catch {
+        return undefined;
+      }
+    };
+
+    const toUtf8Text = (payload: RawData): string => {
+      if (typeof payload === 'string') return payload;
+      if (Buffer.isBuffer(payload)) return payload.toString('utf8');
+      if (payload instanceof ArrayBuffer) return decoder.decode(new Uint8Array(payload));
+      if (Array.isArray(payload)) return Buffer.concat(payload.map((part) => Buffer.from(part))).toString('utf8');
+      return decoder.decode(payload);
+    };
+
+    session.on('data', (chunk) => {
+      if (browserWs.readyState === browserWs.OPEN) {
+        browserWs.send(chunk);
+      }
+    });
+
+    session.on('error', (err) => {
+      if (browserWs.readyState === browserWs.OPEN) {
+        browserWs.send(Buffer.from(`\r\n\x1b[31mProxmox error: ${err.message}\x1b[0m\r\n`));
+      }
+    });
+
+    session.on('close', () => {
+      safeCloseBrowser(1000, 'Proxmox terminal closed');
+    });
+
+    browserWs.on('message', (payload: RawData) => {
+      const text = toUtf8Text(payload);
+      const resize = tryParseResizeFrame(text);
+
+      if (resize) {
+        session.emit('resize', resize.cols, resize.rows);
+        return;
+      }
+
+      session.write(text);
+    });
+
+    browserWs.on('close', () => {
+      session.close();
+    });
+
+    browserWs.on('error', () => {
+      session.close();
     });
   } catch (err) {
     console.error('[proxmox-terminal-ws] Setup error:', err);

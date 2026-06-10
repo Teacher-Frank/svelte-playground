@@ -15,6 +15,8 @@
     memorylimit?: number;
     hostMaxCpu?: number;
     hostMaxMemory?: number;
+    hostMaxStorage?: number;
+    hostAvailableStorage?: number;
     deployTaskUpids?: string[];
   };
 
@@ -189,6 +191,8 @@
                     memorylimit: workload.memorylimit,
                     hostMaxCpu: workload.hostMaxCpu,
                     hostMaxMemory: workload.hostMaxMemory,
+                    hostMaxStorage: workload.hostMaxStorage,
+                    hostAvailableStorage: workload.hostAvailableStorage,
                   }}
                 />
               </li>
@@ -197,55 +201,69 @@
         </div>
       </div>
     {:else}
-      <div class="vm-header-row">
-        <div class="workload-header">
-          <span class="col-id">ID</span>
-          <span class="col-name">Name</span>
-          <span>Status</span>
-          <span>Node</span>
-          <span>Uptime</span>
+      <div class="vm-list-layout">
+        <div class="vm-table-wrap">
+          <div class="vm-table-content">
+            <div class="workload-header vm-kind">
+              <span class="col-id">ID</span>
+              <span class="col-name">Name</span>
+              <span>Status</span>
+              <span>Node</span>
+              <span>Uptime</span>
+            </div>
+            <ul class="workload-list">
+              <!-- Key rows by workload id to preserve control state predictably during refreshes. -->
+              {#each workloads as workload (workload.id)}
+                <li>
+                  <button
+                    class="workload-row-button vm-kind"
+                    type="button"
+                  >
+                    <span class="col-id">{workload.id ?? 'Unknown'}</span>
+                    <span class="col-name">{workload.name ?? unnamedLabel}</span>
+                    <span
+                      class={statusClass(workload.status)}
+                      title={deployingTooltip(workload)}
+                    >{workload.status ?? '-'}</span>
+                    <span>{workload.node ?? '-'}</span>
+                    <span>{formatUptime(workload.uptime)}</span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          </div>
         </div>
-        <span class="actions-header">Actions</span>
-      </div>
-      <ul class="workload-list">
-        <!-- Key rows by workload id to preserve control state predictably during refreshes. -->
-        {#each workloads as workload (workload.id)}
-          <li class="vm-row">
-            <button
-              class="workload-row-button"
-              type="button"
-            >
-              <span class="col-id">{workload.id ?? 'Unknown'}</span>
-              <span class="col-name">{workload.name ?? unnamedLabel}</span>
-              <span
-                class={statusClass(workload.status)}
-                title={deployingTooltip(workload)}
-              >{workload.status ?? '-'}</span>
-              <span>{workload.node ?? '-'}</span>
-              <span>{formatUptime(workload.uptime)}</span>
-            </button>
 
-            <!-- Forward row context directly so action forms submit authoritative node/type/id values. -->
-            <PxMxWorkloadControls
-              compact={true}
-              disabled={workload.id == null || workload.status === 'deploying'}
-              containerGuiEnabled={containerGuiEnabled}
-              selectedWorkload={{
-                type: kind,
-                id: workload.id,
-                name: workload.name,
-                node: workload.node,
-                status: workload.status,
-                primaryIp: workload.primaryIp,
-                cpulimit: workload.cpulimit,
-                memorylimit: workload.memorylimit,
-                hostMaxCpu: workload.hostMaxCpu,
-                hostMaxMemory: workload.hostMaxMemory,
-              }}
-            />
-          </li>
-        {/each}
-      </ul>
+        <div class="vm-actions-pane">
+          <span class="actions-header">Actions</span>
+          <ul class="vm-actions-list">
+            {#each workloads as workload (workload.id)}
+              <li class="vm-action-row">
+                <!-- Forward row context directly so action forms submit authoritative node/type/id values. -->
+                <PxMxWorkloadControls
+                  compact={true}
+                  disabled={workload.id == null || workload.status === 'deploying'}
+                  containerGuiEnabled={containerGuiEnabled}
+                  selectedWorkload={{
+                    type: kind,
+                    id: workload.id,
+                    name: workload.name,
+                    node: workload.node,
+                    status: workload.status,
+                    primaryIp: workload.primaryIp,
+                    cpulimit: workload.cpulimit,
+                    memorylimit: workload.memorylimit,
+                    hostMaxCpu: workload.hostMaxCpu,
+                    hostMaxMemory: workload.hostMaxMemory,
+                    hostMaxStorage: workload.hostMaxStorage,
+                    hostAvailableStorage: workload.hostAvailableStorage,
+                  }}
+                />
+              </li>
+            {/each}
+          </ul>
+        </div>
+      </div>
     {/if}
   {:else}
     <p>{emptyStateLabel}</p>

@@ -48,6 +48,10 @@ export type Workload = {
   hostMaxCpu?: number;
   /** Host memory capacity (bytes) for the workload node. */
   hostMaxMemory?: number;
+  /** Host storage capacity (bytes) for the workload node. */
+  hostMaxStorage?: number;
+  /** Currently available host storage (bytes) for the workload node. */
+  hostAvailableStorage?: number;
 };
 
 type LxcIpAddress = {
@@ -72,6 +76,10 @@ export type ClusterNode = {
   maxcpu?: number;
   /** Host memory capacity in bytes. */
   maxmem?: number;
+  /** Host storage capacity in bytes. */
+  maxdisk?: number;
+  /** Host storage currently used in bytes. */
+  disk?: number;
 };
 
 /** Case-insensitive alphabetical comparator for workloads, used when sorting VM/container lists. */
@@ -93,6 +101,16 @@ const toPositiveNumber = (value: unknown): number | undefined => {
       : (typeof value === 'string' ? Number(value.trim()) : NaN);
 
   if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return parsed;
+};
+
+const toNonNegativeNumber = (value: unknown): number | undefined => {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : (typeof value === 'string' ? Number(value.trim()) : NaN);
+
+  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
   return parsed;
 };
 
@@ -430,6 +448,8 @@ const loadResults = async (): Promise<ProxmoxResults> => {
       status: typeof entry.status === 'string' ? entry.status : undefined,
       maxcpu: toPositiveNumber(entry.maxcpu),
       maxmem: toPositiveNumber(entry.maxmem),
+      maxdisk: toPositiveNumber(entry.maxdisk),
+      disk: toNonNegativeNumber(entry.disk),
     }));
   } catch (err) {
     console.error('[proxmox] Failed to parse cluster nodes:', err);
@@ -512,10 +532,25 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   }
 
   const currentNode = clusterNodes.find((entry) => entry.node === node);
-  const nodeCapacityByName = new Map<string, { maxcpu?: number; maxmem?: number }>(
+  const nodeCapacityByName = new Map<string, { maxcpu?: number; maxmem?: number; maxdisk?: number; availableStorage?: number }>(
     clusterNodes
       .filter((entry): entry is ClusterNode & { node: string } => typeof entry.node === 'string')
-      .map((entry) => [entry.node, { maxcpu: entry.maxcpu, maxmem: entry.maxmem }])
+      .map((entry) => {
+        const availableStorage =
+          typeof entry.maxdisk === 'number' && typeof entry.disk === 'number'
+            ? Math.max(0, entry.maxdisk - entry.disk)
+            : undefined;
+
+        return [
+          entry.node,
+          {
+            maxcpu: entry.maxcpu,
+            maxmem: entry.maxmem,
+            maxdisk: entry.maxdisk,
+            availableStorage,
+          },
+        ];
+      })
   );
   const serverStatus = typeof currentNode?.status === 'string' ? currentNode.status : 'unknown';
 
@@ -555,6 +590,8 @@ const loadResults = async (): Promise<ProxmoxResults> => {
             toPositiveNumber(vm.maxmem),
           hostMaxCpu: hostCapacity?.maxcpu,
           hostMaxMemory: hostCapacity?.maxmem,
+          hostMaxStorage: hostCapacity?.maxdisk,
+          hostAvailableStorage: hostCapacity?.availableStorage,
         };
       })
       .sort(compareByName) as Workload[],
@@ -575,6 +612,8 @@ const loadResults = async (): Promise<ProxmoxResults> => {
             toPositiveNumber(container.memory) ?? toPositiveNumber(container.maxmem),
           hostMaxCpu: hostCapacity?.maxcpu,
           hostMaxMemory: hostCapacity?.maxmem,
+          hostMaxStorage: hostCapacity?.maxdisk,
+          hostAvailableStorage: hostCapacity?.availableStorage,
           primaryIp: Number.isInteger(container.vmid)
             ? containerPrimaryIpById.get(container.vmid as number)
             : undefined,
@@ -755,8 +794,9 @@ const executeWorkloadConfigureAction = async (
   id: number,
   node: string,
   cpuSharePercent: number,
-  memoryMiB: number
-): Promise<{ upid?: string; appliedCpuLimit: number; appliedMemoryMiB: number; appliedCpuCores?: number }> => {
+  memoryMiB: number,
+  storageGiB?: number
+): Promise<{ upid?: string; appliedCpuLimit: number; appliedMemoryMiB: number; appliedCpuCores?: number; appliedStorageGiB?: number; storageTaskUpid?: string }> => {
   const client = await createClient();
 
   const nodeStatus = await client.request('/nodes/{node}/status', 'GET', {
@@ -768,6 +808,10 @@ const executeWorkloadConfigureAction = async (
 
   const memoryInfo = nodeStatus.memory as Record<string, unknown> | undefined;
   const hostMemoryBytes = toPositiveNumber(memoryInfo?.total);
+
+  const rootfsInfo = nodeStatus.rootfs as Record<string, unknown> | undefined;
+  const hostStorageTotalBytes = toPositiveNumber(rootfsInfo?.total);
+  const hostStorageAvailableBytes = toNonNegativeNumber(rootfsInfo?.avail);
 
   if (!hostCpuCount || !hostMemoryBytes) {
     throw new Error(`Could not resolve host capacity for node ${node}.`);
@@ -782,8 +826,24 @@ const executeWorkloadConfigureAction = async (
     throw new Error(`Memory must be between 16 and ${maxMemoryMiB} MiB (75% of host memory) (got ${memoryMiB} MiB).`);
   }
 
+  const shouldResizeStorage = typeof storageGiB === 'number' && Number.isFinite(storageGiB) && storageGiB > 0;
+  if (shouldResizeStorage) {
+    if (!hostStorageTotalBytes || hostStorageAvailableBytes == null) {
+      throw new Error(`Could not resolve host storage capacity for node ${node}.`);
+    }
+
+    const requestedStorageBytes = storageGiB * (1024 ** 3);
+    if (requestedStorageBytes > hostStorageAvailableBytes) {
+      const availableGiB = Math.floor(hostStorageAvailableBytes / (1024 ** 3));
+      throw new Error(
+        `Storage increase exceeds available node storage: requested +${storageGiB} GiB, available ${availableGiB} GiB on node ${node}.`
+      );
+    }
+  }
+
   const appliedCpuLimit = Number(((hostCpuCount * cpuSharePercent) / 100).toFixed(2));
   const appliedMemoryMiB = Math.floor(memoryMiB);
+  let storageTaskUpid: string | undefined;
 
   if (type === 'container') {
     const result = await client.request('/nodes/{node}/lxc/{vmid}/config', 'PUT', {
@@ -794,10 +854,24 @@ const executeWorkloadConfigureAction = async (
       },
     });
 
+    if (shouldResizeStorage) {
+      const resizeResult = await client.request('/nodes/{node}/lxc/{vmid}/resize', 'PUT', {
+        $path: { node, vmid: id },
+        $body: {
+          disk: 'rootfs',
+          size: `+${Math.floor(storageGiB!)}G`,
+        },
+      });
+
+      storageTaskUpid = typeof resizeResult === 'string' ? resizeResult : undefined;
+    }
+
     return {
       upid: typeof result === 'string' ? result : undefined,
       appliedCpuLimit,
       appliedMemoryMiB,
+      appliedStorageGiB: shouldResizeStorage ? Math.floor(storageGiB!) : undefined,
+      storageTaskUpid,
     };
   }
 
@@ -810,11 +884,36 @@ const executeWorkloadConfigureAction = async (
     },
   });
 
+  if (shouldResizeStorage) {
+    const vmConfig = await client.request('/nodes/{node}/qemu/{vmid}/config', 'GET', {
+      $path: { node, vmid: id },
+    }) as Record<string, unknown>;
+
+    const vmDiskKey = Object.keys(vmConfig)
+      .find((key) => /^(scsi|virtio|sata|ide)\d+$/i.test(key) && typeof vmConfig[key] === 'string' && !String(vmConfig[key]).toLowerCase().includes('cloudinit'));
+
+    if (!vmDiskKey) {
+      throw new Error(`Unable to resolve a resizable VM disk for vmid ${id} on node ${node}.`);
+    }
+
+    const resizeResult = await client.request('/nodes/{node}/qemu/{vmid}/resize', 'PUT', {
+      $path: { node, vmid: id },
+      $body: {
+        disk: vmDiskKey,
+        size: `+${Math.floor(storageGiB!)}G`,
+      },
+    });
+
+    storageTaskUpid = typeof resizeResult === 'string' ? resizeResult : undefined;
+  }
+
   return {
     upid: typeof result === 'string' ? result : undefined,
     appliedCpuLimit,
     appliedMemoryMiB,
     appliedCpuCores,
+    appliedStorageGiB: shouldResizeStorage ? Math.floor(storageGiB!) : undefined,
+    storageTaskUpid,
   };
 };
 
@@ -1126,7 +1225,7 @@ export const load: PageServerLoad = async () => {
  * | `start` | `type`, `id`, `node`, `name?`, `status?` | Powers on a VM or container. |
  * | `stop` | `type`, `id`, `node`, `name?`, `status?` | Powers off a VM or container. |
  * | `restart` | `type`, `id`, `node`, `name?`, `status?` | Reboots a VM or container. |
- * | `configureWorkload` | `type`, `id`, `node`, `cpuSharePercent`, `memoryMiB` | Applies workload CPU/memory settings capped to 75% of host capacity. |
+ * | `configureWorkload` | `type`, `id`, `node`, `cpuSharePercent`, `memoryMiB`, `storageGiB?` | Applies workload CPU/memory settings capped to 75% of host capacity and optionally grows guest storage. |
  * | `convertToTemplate` | `type`, `id`, `node`, `name?`, `status?` | Stops a running VM/LXC (if needed) and converts it into a template. |
  * | `cloneFromTemplate` | `templateId`, `templateNode`, `newName` | Clones a QEMU template to a new full VM. |
  * | `renameVmTemplate` | `templateId`, `templateNode`, `newName` | Renames a QEMU template. |
@@ -1143,7 +1242,7 @@ export const actions: Actions = {
   stop: buildAction('stop'),
   restart: buildAction('restart'),
 
-  /** Updates VM/LXC CPU/memory limits while enforcing a 75% host-capacity ceiling. */
+  /** Updates VM/LXC CPU/memory limits while enforcing a 75% host-capacity ceiling, with optional storage expansion. */
   configureWorkload: async ({ request }: RequestEvent) => {
     let selectedWorkload: { type: WorkloadKind; id: number; name?: string; node: string; status?: string } | undefined;
     try {
@@ -1152,6 +1251,7 @@ export const actions: Actions = {
 
       const cpuShareRaw = formData.get('cpuSharePercent');
       const memoryRaw = formData.get('memoryMiB');
+      const storageRaw = formData.get('storageGiB');
 
       if (typeof cpuShareRaw !== 'string' || cpuShareRaw.trim().length === 0) {
         return fail(400, {
@@ -1173,25 +1273,40 @@ export const actions: Actions = {
 
       const cpuSharePercent = Number(cpuShareRaw);
       const memoryMiB = Number(memoryRaw);
+      const storageGiB = typeof storageRaw === 'string' && storageRaw.trim().length > 0
+        ? Number(storageRaw)
+        : undefined;
 
-      const { upid, appliedCpuLimit, appliedMemoryMiB, appliedCpuCores } = await executeWorkloadConfigureAction(
+      if (storageGiB != null && (!Number.isFinite(storageGiB) || storageGiB < 1)) {
+        return fail(400, {
+          status: 'error' as const,
+          message: `Storage increase must be at least 1 GiB (got ${JSON.stringify(storageRaw)}).`,
+          workloadType: selectedWorkload.type,
+          formType: selectedWorkload.type
+        });
+      }
+
+      const { upid, appliedCpuLimit, appliedMemoryMiB, appliedCpuCores, appliedStorageGiB, storageTaskUpid } = await executeWorkloadConfigureAction(
         selectedWorkload.type,
         selectedWorkload.id,
         selectedWorkload.node,
         cpuSharePercent,
-        memoryMiB
+        memoryMiB,
+        storageGiB
       );
 
       const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
       const cpuSummary = selectedWorkload.type === 'vm'
         ? `cores=${appliedCpuCores ?? Math.max(1, Math.round(appliedCpuLimit))}`
         : `cpulimit=${appliedCpuLimit}`;
+      const storageSummary = appliedStorageGiB ? `, storage=+${appliedStorageGiB} GiB` : '';
+      const taskSummary = [upid, storageTaskUpid].filter((task): task is string => typeof task === 'string' && task.length > 0);
 
       return {
         status: 'success' as const,
-        message: upid
-          ? `Updated ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''}: ${cpuSummary}, memory=${appliedMemoryMiB} MiB — task ${upid}.`
-          : `Updated ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''}: ${cpuSummary}, memory=${appliedMemoryMiB} MiB.`,
+        message: taskSummary.length > 0
+          ? `Updated ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''}: ${cpuSummary}, memory=${appliedMemoryMiB} MiB${storageSummary} — task${taskSummary.length > 1 ? 's' : ''} ${taskSummary.join(', ')}.`
+          : `Updated ${kindLabel} ${selectedWorkload.id}${selectedWorkload.name ? ` (${selectedWorkload.name})` : ''}: ${cpuSummary}, memory=${appliedMemoryMiB} MiB${storageSummary}.`,
         upid,
         workloadType: selectedWorkload.type,
         formType: selectedWorkload.type

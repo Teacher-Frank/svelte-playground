@@ -13,6 +13,8 @@
     memorylimit?: number;
     hostMaxCpu?: number;
     hostMaxMemory?: number;
+    hostMaxStorage?: number;
+    hostAvailableStorage?: number;
   };
 
   let {
@@ -126,6 +128,18 @@
       : 0
   );
 
+  const hostStorageGiB = $derived(
+    typeof selectedWorkload?.hostMaxStorage === 'number' && Number.isFinite(selectedWorkload.hostMaxStorage)
+      ? Math.floor(selectedWorkload.hostMaxStorage / (1024 ** 3))
+      : 0
+  );
+
+  const hostAvailableStorageGiB = $derived(
+    typeof selectedWorkload?.hostAvailableStorage === 'number' && Number.isFinite(selectedWorkload.hostAvailableStorage)
+      ? Math.floor(selectedWorkload.hostAvailableStorage / (1024 ** 3))
+      : 0
+  );
+
   const maxCpuSharePercent = 75;
 
   const maxMemoryMiB = $derived(
@@ -160,8 +174,8 @@
       return 'Host capacity is unavailable for this node';
     }
     return selectedWorkload?.type === 'vm'
-      ? 'Configure VM CPU cores and memory'
-      : 'Configure container CPU and memory';
+      ? 'Configure VM CPU, memory, and storage'
+      : 'Configure container CPU, memory, and storage';
   });
 
   // Controls visibility of the high-friction delete confirmation dialog.
@@ -174,10 +188,12 @@
 
   let cpuSharePercent = $state(25);
   let memoryMiB = $state(1024);
+  let storageGiB = $state(1);
 
   const openConfigureModal = () => {
     cpuSharePercent = defaultCpuSharePercent;
     memoryMiB = defaultMemoryMiB;
+    storageGiB = hostAvailableStorageGiB > 0 ? 1 : 0;
     showConfigureModal = true;
   };
 
@@ -411,7 +427,7 @@
       <div class="config-modal-box">
         <h3 id="config-modal-title">Workload Configuration</h3>
         <p class="config-modal-subtitle">
-          Set required CPU share and memory. Maximum allowed is 75% of the host.
+          Set required CPU share, memory, and optional storage expansion. CPU/memory limits remain capped at 75% of host capacity.
         </p>
 
         <form
@@ -450,6 +466,19 @@
             required
           />
           <p class="config-hint">Host memory: {hostMemoryMiB.toLocaleString()} MiB • Max memory: {maxMemoryMiB.toLocaleString()} MiB</p>
+
+          <label class="config-label" for="storage-gib">Add storage (GiB)</label>
+          <input
+            id="storage-gib"
+            name="storageGiB"
+            type="number"
+            min="0"
+            max={hostAvailableStorageGiB}
+            step="1"
+            bind:value={storageGiB}
+            disabled={hostAvailableStorageGiB <= 0}
+          />
+          <p class="config-hint">Host storage: {hostStorageGiB.toLocaleString()} GiB total • {hostAvailableStorageGiB.toLocaleString()} GiB available</p>
 
           <div class="config-modal-actions">
             <button type="submit" class="config-ok-btn" disabled={configureSubmitInFlight || controlsDisabled}>OK</button>

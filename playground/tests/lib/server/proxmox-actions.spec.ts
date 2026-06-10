@@ -126,6 +126,7 @@ describe('proxmox page server actions', () => {
         return {
           cpuinfo: { cpus: 16 },
           memory: { total: 64 * 1024 * 1024 * 1024 },
+          rootfs: { total: 500 * 1024 * 1024 * 1024, avail: 200 * 1024 * 1024 * 1024 },
         };
       }
       if (path === '/nodes/{node}/qemu/{vmid}/config' && method === 'GET') return {};
@@ -229,6 +230,28 @@ describe('proxmox page server actions', () => {
 
     expect(result.status).toBe('success');
     expect(result.message).toContain('Updated VM 110 (build-vm): cores=8, memory=4096 MiB');
+  });
+
+  it('configureWorkload optionally expands container storage', async () => {
+    const result = await actions.configureWorkload(
+      makeEvent({
+        type: 'container',
+        id: '203',
+        node: 'pve1',
+        name: 'disk-ct',
+        cpuSharePercent: '25',
+        memoryMiB: '1024',
+        storageGiB: '10',
+      })
+    );
+
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/lxc/{vmid}/resize', 'PUT', {
+      $path: { node: 'pve1', vmid: 203 },
+      $body: { disk: 'rootfs', size: '+10G' },
+    });
+
+    expect(result.status).toBe('success');
+    expect(result.message).toContain('storage=+10 GiB');
   });
 
   it('cloneFromTemplate clones, applies cloud-init credentials, and starts the VM', async () => {

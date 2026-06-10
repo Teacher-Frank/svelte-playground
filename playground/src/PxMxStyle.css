@@ -113,6 +113,14 @@
   --container-row-min-height: 3.3rem;
 }
 
+.pxmx-admin .vm-list-layout {
+  align-items: start;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) var(--actions-col-width);
+  --vm-row-min-height: 3.3rem;
+}
+
 .pxmx-admin .container-table-wrap {
   overflow-x: auto;
   padding-bottom: 0.25rem;
@@ -122,7 +130,20 @@
   min-width: 70rem;
 }
 
+.pxmx-admin .vm-table-wrap {
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.pxmx-admin .vm-table-content {
+  min-width: 42rem;
+}
+
 .pxmx-admin .container-actions-pane {
+  min-width: var(--actions-col-width);
+}
+
+.pxmx-admin .vm-actions-pane {
   min-width: var(--actions-col-width);
 }
 
@@ -131,7 +152,17 @@
   margin-bottom: 0.5rem;
 }
 
+.pxmx-admin .vm-actions-pane .actions-header {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
 .pxmx-admin .container-actions-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.pxmx-admin .vm-actions-list {
   display: grid;
   gap: 0.5rem;
 }
@@ -142,37 +173,57 @@
   min-height: var(--container-row-min-height);
 }
 
+.pxmx-admin .vm-action-row {
+  align-items: center;
+  display: flex;
+  min-height: var(--vm-row-min-height);
+}
+
 .pxmx-admin .workload-header.container-kind .col-id,
 .pxmx-admin .workload-row-button.container-kind .col-id,
 .pxmx-admin .workload-header.container-kind .col-name,
-.pxmx-admin .workload-row-button.container-kind .col-name {
+.pxmx-admin .workload-row-button.container-kind .col-name,
+.pxmx-admin .workload-header.vm-kind .col-id,
+.pxmx-admin .workload-row-button.vm-kind .col-id,
+.pxmx-admin .workload-header.vm-kind .col-name,
+.pxmx-admin .workload-row-button.vm-kind .col-name {
   position: sticky;
 }
 
 .pxmx-admin .workload-header.container-kind .col-id,
-.pxmx-admin .workload-row-button.container-kind .col-id {
+.pxmx-admin .workload-row-button.container-kind .col-id,
+.pxmx-admin .workload-header.vm-kind .col-id,
+.pxmx-admin .workload-row-button.vm-kind .col-id {
   left: 1rem;
   z-index: 3;
 }
 
 .pxmx-admin .workload-header.container-kind .col-name,
-.pxmx-admin .workload-row-button.container-kind .col-name {
+.pxmx-admin .workload-row-button.container-kind .col-name,
+.pxmx-admin .workload-header.vm-kind .col-name,
+.pxmx-admin .workload-row-button.vm-kind .col-name {
   left: 7rem;
   z-index: 3;
 }
 
 .pxmx-admin .workload-header.container-kind .col-id,
-.pxmx-admin .workload-header.container-kind .col-name {
+.pxmx-admin .workload-header.container-kind .col-name,
+.pxmx-admin .workload-header.vm-kind .col-id,
+.pxmx-admin .workload-header.vm-kind .col-name {
   background: #f5f5f5;
 }
 
 .pxmx-admin .workload-row-button.container-kind .col-id,
-.pxmx-admin .workload-row-button.container-kind .col-name {
+.pxmx-admin .workload-row-button.container-kind .col-name,
+.pxmx-admin .workload-row-button.vm-kind .col-id,
+.pxmx-admin .workload-row-button.vm-kind .col-name {
   background: #fff;
 }
 
 .pxmx-admin .workload-header.container-kind .col-name,
-.pxmx-admin .workload-row-button.container-kind .col-name {
+.pxmx-admin .workload-row-button.container-kind .col-name,
+.pxmx-admin .workload-header.vm-kind .col-name,
+.pxmx-admin .workload-row-button.vm-kind .col-name {
   box-shadow: 6px 0 6px -6px rgba(0, 0, 0, 0.25);
 }
 
@@ -192,11 +243,8 @@
   white-space: nowrap;
 }
 
-.pxmx-admin .vm-header-row {
-  align-items: center;
-  display: grid;
-  gap: 0.75rem;
-  grid-template-columns: minmax(0, 1fr) var(--actions-col-width);
+.pxmx-admin .workload-header.vm-kind span {
+  white-space: nowrap;
 }
 
 .pxmx-admin .actions-header {
@@ -206,13 +254,6 @@
   letter-spacing: 0.04em;
   text-align: center;
   text-transform: uppercase;
-}
-
-.pxmx-admin .vm-row {
-  align-items: center;
-  display: grid;
-  gap: 0.75rem;
-  grid-template-columns: minmax(0, 1fr) var(--actions-col-width);
 }
 
 .pxmx-admin .workload-header {
@@ -241,7 +282,18 @@
   min-height: var(--container-row-min-height);
 }
 
+.pxmx-admin .workload-row-button.vm-kind {
+  align-items: center;
+  min-height: var(--vm-row-min-height);
+}
+
 .pxmx-admin .workload-row-button.container-kind span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pxmx-admin .workload-row-button.vm-kind span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
