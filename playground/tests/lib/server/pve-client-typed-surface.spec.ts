@@ -27,7 +27,7 @@ function makeClient() {
 }
 
 describe('pve-client typed surface canary tests', () => {
-	it.fails('README path-based status sample should be exposed on node API', async () => {
+	it('README path-based status sample should be exposed on node API', async () => {
 		const { client } = makeClient();
 		const nodeApi: unknown = client.api.nodes.get('pve');
 

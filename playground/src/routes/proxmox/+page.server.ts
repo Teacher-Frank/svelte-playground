@@ -27,7 +27,7 @@ const logLoadTiming = (stage: string, startedAt: number, details?: string): void
   console.info(`[proxmox][timing] ${stage}=${elapsedMs}ms${details ? ` ${details}` : ''}`);
 };
 
-const isContainerGuiSupported = (): boolean =>
+const isGuestGuiBridgeConfigured = (): boolean =>
   Boolean(process.env.LXC_VNC_BRIDGE_WS_URL?.trim()) ||
   process.env.LXC_VNC_BRIDGE_DERIVE_FROM_IPV4 === 'true';
 
@@ -263,8 +263,8 @@ export type ProxmoxResults = {
   configuredNodeExists: boolean;
   /** Hostname of the cluster node actually used for API calls. */
   serverNode: string;
-  /** Whether LXC GUI/VNC access is configured via an external bridge. */
-  containerGuiSupported: boolean;
+  /** Whether guest GUI/VNC access is configured via an external bridge (for containers and VMs). */
+  guestGuiBridgeSupported: boolean;
   /** Human-readable server availability string (e.g. `"online"`, `"unavailable"`). */
   serverStatus: string;
   /** Default auto-refresh interval for the admin page (seconds). */
@@ -409,7 +409,7 @@ const buildUnavailableResults = (): ProxmoxResults => {
     configuredNode: configuredNode ?? 'unset',
     configuredNodeExists: false,
     serverNode: configuredNode ?? 'unknown',
-    containerGuiSupported: isContainerGuiSupported(),
+    guestGuiBridgeSupported: isGuestGuiBridgeConfigured(),
     serverStatus: 'offline',
     refreshIntervalSeconds: getRefreshIntervalSeconds(),
     lastSuccessfulRefresh: null,
@@ -545,15 +545,15 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   const nodeDataStartedAt = nowMs();
   const [lxcTemplates, vmsRaw, containersRaw, tasksRaw] = await Promise.all([
     listLxcTemplates(nodeApi),
-    nodeApi.qemu.list().catch((err) => {
+    nodeApi.qemu.list().catch((err: unknown) => {
       console.error('[proxmox] Failed to list VMs:', err);
       return [] as Workload[];
     }),
-    nodeApi.lxc.list().catch((err) => {
+    nodeApi.lxc.list().catch((err: unknown) => {
       console.error('[proxmox] Failed to list containers:', err);
       return [] as Workload[];
     }),
-    nodeApi.tasks.list({ $query: { limit: 10, source: 'all' } }).catch((err) => {
+    nodeApi.tasks.list({ $query: { limit: 10, source: 'all' } }).catch((err: unknown) => {
       console.error('[proxmox] Failed to list tasks:', err);
       return [] as Array<Record<string, unknown>>;
     }),
@@ -668,7 +668,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     configuredNode: getConfiguredNodeName() ?? 'unset',
     configuredNodeExists,
     serverNode: node,
-    containerGuiSupported: isContainerGuiSupported(),
+    guestGuiBridgeSupported: isGuestGuiBridgeConfigured(),
     serverStatus,
     refreshIntervalSeconds: getRefreshIntervalSeconds(),
     lastSuccessfulRefresh: Date.now(),

@@ -59,7 +59,7 @@
     configuredNode: string;
     configuredNodeExists: boolean;
     serverNode: string;
-    containerGuiSupported: boolean;
+    guestGuiBridgeSupported: boolean;
     serverStatus: string;
     refreshIntervalSeconds: number;
     lastSuccessfulRefresh: number | null;
@@ -544,7 +544,7 @@
               kind="container"
               workloads={lxcWorkloads}
               form={containerForm}
-              containerGuiEnabled={data.results.containerGuiSupported}
+              containerGuiEnabled={data.results.guestGuiBridgeSupported}
             />
           </div>
         {/if}

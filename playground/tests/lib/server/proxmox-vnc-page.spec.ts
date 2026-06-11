@@ -96,7 +96,7 @@ describe('proxmox vnc page bridge resolution', () => {
     expect(mocks.interfaces).toHaveBeenCalledTimes(1);
   });
 
-  it('returns 503 when no container IPv4 can be resolved', async () => {
+  it('returns 503 when no IPv4 can be resolved for the container', async () => {
     mocks.interfaces.mockResolvedValue([]);
 
     const event = {
@@ -106,7 +106,7 @@ describe('proxmox vnc page bridge resolution', () => {
     await expect(load(event)).rejects.toMatchObject({ status: 503 });
   });
 
-  it('always uses native Proxmox VNC for VM workloads', async () => {
+  it('uses bridge mode for VMs when derive-from-IPv4 is configured', async () => {
     const event = {
       url: new URL('http://localhost/proxmox/vnc?vmid=101&node=pve1&type=vm&ip=10.9.8.7&name=vm101'),
     } as Parameters<typeof load>[0];
@@ -114,9 +114,8 @@ describe('proxmox vnc page bridge resolution', () => {
     const result = await load(event);
 
     expect(result.type).toBe('vm');
-    expect(result.upstreamWsUrl).toBe('wss://pve.example.com:8006/api2/json/nodes/pve1/qemu/100/vncwebsocket');
-    expect(result.vncPassword).toBe('pw');
-    expect(result.vncUsername).toBe('root@pam');
+    expect(result.upstreamWsUrl).toBe('ws://10.9.8.7:8001');
+    // VMs do not go through the guest-agent lookup when IP is provided in query
     expect(mocks.interfaces).not.toHaveBeenCalled();
   });
 });

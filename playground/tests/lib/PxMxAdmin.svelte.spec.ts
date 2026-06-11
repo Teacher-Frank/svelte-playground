@@ -26,7 +26,7 @@ const makeData = () => ({
     configuredNode: 'pve1',
     configuredNodeExists: true,
     serverNode: 'pve1',
-    containerGuiSupported: false,
+    guestGuiBridgeSupported: false,
     serverStatus: 'online',
     refreshIntervalSeconds: 5,
     lastSuccessfulRefresh: Date.now(),
