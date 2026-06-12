@@ -281,11 +281,12 @@ describe('proxmox page server actions', () => {
       }),
     });
 
-    // Guest agent cicommand is configured on the cloudinit endpoint
-    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/cloudinit', 'PUT', {
+    // Guest agent is enabled in config body (no cicommand - not a supported Proxmox API parameter)
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
       $path: { node: 'pve1', vmid: 200 },
       $body: expect.objectContaining({
-        cicommand: expect.stringContaining('qemu-guest-agent'),
+        ciuser: 'ubuntu',
+        cipassword: 'StrongPassw0rd!',
       }),
     });
 
@@ -293,8 +294,6 @@ describe('proxmox page server actions', () => {
     expect(mocks.qemuStart).toHaveBeenCalledTimes(1);
 
     expect(result.status).toBe('success');
-    expect(result.message).toContain('UPID:vm-clone-task');
-    expect(result.message).toContain('UPID:vm-start-task');
     expect((result as { deployWorkloadName: string }).deployWorkloadName).toBe('my-vm');
     expect((result as { deployTaskNode: string }).deployTaskNode).toBe('pve1');
     expect((result as { deployTaskUpids: string[] }).deployTaskUpids).toEqual([

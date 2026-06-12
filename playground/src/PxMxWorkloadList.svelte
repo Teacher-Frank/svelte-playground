@@ -136,7 +136,12 @@
       return;
     }
 
-    // Auto-dismiss status bars after 10 seconds unless the user closes earlier.
+    // Auto-dismiss success bars after 10 seconds. Error messages stay until
+    // the user dismisses them so failures are always visible for review.
+    if (form.status !== 'success') {
+      return;
+    }
+
     dismissTimeout = setTimeout(() => {
       dismissed = true;
       dismissTimeout = null;

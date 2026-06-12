@@ -145,6 +145,11 @@
       return;
     }
 
+    // Auto-dismiss success feedback. Error messages stay until dismissed.
+    if (form.status !== 'success') {
+      return;
+    }
+
     resultMessageTimeout = setTimeout(() => {
       dismissed = true;
       resultMessageTimeout = null;

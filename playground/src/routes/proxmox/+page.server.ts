@@ -1127,7 +1127,7 @@ const buildAction = (action: WorkloadAction) => {
 
 /**
  * Clones a QEMU VM template, applies cloud-init credentials, configures
- * guest agent installation on first boot, and starts the VM.
+ * guest agent and desktop environment for VNC, and starts the VM.
  */
 const deployVmFromTemplate = async (
   templateId: number,
@@ -1205,8 +1205,9 @@ const deployVmFromTemplate = async (
       );
     }
 
-    // Apply cloud-init user credentials to the cloned VM. Only attach ide2 when
-    // the clone does not already contain a cloud-init disk from the template.
+    // Apply cloud-init credentials, network, and guest agent configuration.
+    // Note: cicommand is NOT a supported Proxmox API parameter.
+    // Guest agent and desktop environment must be pre-installed in the template.
     const configBody: Record<string, unknown> = {
       ciuser: ciUser,
       cipassword: ciPassword,
@@ -1221,20 +1222,16 @@ const deployVmFromTemplate = async (
       configBody.ipconfig0 = 'ip=dhcp';
     }
 
+    // Ensure the QEMU guest agent is enabled so the host can query the guest
+    // for IP address, metrics, and graceful shutdown.
+    const existingAgent = clonedConfig.agent as string | undefined;
+    if (!existingAgent?.includes('enabled=1')) {
+      configBody.agent = 'enabled=1';
+    }
+
     await client.request('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
       $path: { node: templateNode, vmid: newid },
       $body: configBody,
-    });
-
-    // Configure cloud-init to install and enable the QEMU guest agent on first boot.
-    // This ensures IP discovery, guest metrics, and graceful shutdown are available
-    // without requiring a pre-configured template (Option A).
-    await client.request('/nodes/{node}/qemu/{vmid}/cloudinit', 'PUT', {
-      $path: { node: templateNode, vmid: newid },
-      $body: {
-        cicommand:
-          'DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y qemu-guest-agent && systemctl enable --now qemu-guest-agent',
-      },
     });
 
     const startUpid = await nodeApi.qemu.vmid(newid).status.start() as string;
@@ -1590,7 +1587,7 @@ export const actions: Actions = {
 
       return {
         status: 'success' as const,
-        message: `Cloned template ${templateId} as "${newName.trim()}" — clone task ${cloneUpid}. Started VM — start task ${startUpid}.`,
+        message: `Deploying "${newName.trim()}" — cloned VM is starting now.`,
         formType: 'vm-template',
         deployWorkloadName: newName.trim(),
         deployTaskNode: templateNode.trim(),

@@ -205,6 +205,12 @@
     if (configToastTimeout) {
       clearTimeout(configToastTimeout);
     }
+
+    // Auto-dismiss success toasts. Error toasts stay until user dismisses.
+    if (kind === 'error') {
+      return;
+    }
+
     configToastTimeout = setTimeout(() => {
       configToast = null;
       configToastTimeout = null;

@@ -193,6 +193,9 @@
         // Force the first open-time resize frame in case early sizing races.
         syncTerminalSize(true);
         scheduleInitialResizeResends();
+        // Send an initial newline to nudge the shell to display the prompt immediately,
+        // matching the LXC terminal behavior (some guests hang waiting for input on first connect).
+        ws.send(new TextEncoder().encode('\n'));
       };
 
       ws.onmessage = ({ data: payload }) => {
