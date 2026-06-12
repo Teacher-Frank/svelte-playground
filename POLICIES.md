@@ -39,6 +39,12 @@ This file is the authoritative policy source for this workspace.
 - If raw endpoint access is needed, use `client.request()` directly with typed path/args. Report this so a decision can be made whether a named type API is needed.
 - Keep server-side terminal/WebSocket responsibility in `pve-client`; keep playground integration thin.
 
+## Priority 4a: Fail Fast
+- Prefer early, detectable failures over silent fallbacks. A compile-time type error is better than a runtime `undefined`.
+- Wired API surfaces (typed methods) are preferred over workarounds that only fail at runtime.
+- When a prerequisite is missing (typed method, environment variable, node identity), fail with a clear, actionable error message — never default to `undefined` or continue with degraded behavior.
+- Use canary tests to guarantee that documented API surfaces remain exposed (`pve-client-typed-surface.spec.ts` pattern).
+
 ## Priority 5: Proxmox Behavioral Directives
 - Use real node identity for all actions; never submit fallback node values like `unknown`.
 - For node-scoped workload lists, use typed node APIs.
