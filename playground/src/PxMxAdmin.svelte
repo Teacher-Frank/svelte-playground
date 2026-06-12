@@ -79,6 +79,7 @@
       user: string;
       upid: string;
     }[];
+    notifications: string[];
   };
 
 
@@ -366,8 +367,10 @@
 
   let lastContainerIpRefreshActionId = $state<string | null>(null);
 
+  // Effect: Trigger staggered re-fetches after a container starts/restarts so guest
+  // networking can settle and interface-derived IPv4 data appears quickly.
   $effect(() => {
-    if (form?.status !== 'success' || (form.workloadType !== 'container' && form.workloadType !== 'vm')) {
+    if (form?.status !== 'success' || form.workloadType !== 'container') {
       return;
     }
 
@@ -381,8 +384,6 @@
     }
     lastContainerIpRefreshActionId = actionId;
 
-    // Refresh in the background a few times after boot/reboot so guest
-    // networking can settle and interface-derived IPv4 data appears quickly.
     const timeouts = [0, 1500, 4000, 8000].map((delayMs) =>
       setTimeout(() => {
         void invalidateAll();
@@ -449,6 +450,15 @@
 </script>
 
   <main class="pxmx-admin">
+    <!-- Toast notifications from server (e.g., DHCP→static conversions) -->
+    {#if data.results?.notifications?.length}
+      <div role="alert" class="action-status success" aria-live="polite">
+        {#each data.results.notifications as msg}
+          <p>{msg}</p>
+        {/each}
+      </div>
+    {/if}
+
     <h1>Proxmox VE Client</h1>
     {#if data.results}
       {#if data.error}

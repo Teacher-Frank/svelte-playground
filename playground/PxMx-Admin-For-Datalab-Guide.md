@@ -163,21 +163,55 @@ pvesm list <cloudinit-storage> | grep "vm-<vmid>-cloudinit"
 
 If deploy fails with a cloud-init LV collision, remove or reconcile the stale cloud-init volume for that VMID before retrying.
 
-#### VNC enablement for VMs
+#### DHCP to static IP conversion (automatic)
 
-VM GUI in the playground supports two modes:
+Every VM deployed from a template initially receives a DHCP address (`ipconfig0=ip=dhcp`).
+Once the guest agent is running and reports the first discovered IPv4 address (on each
+page refresh), the playground automatically converts the VM's `ipconfig0` to a static IP
+using the discovered address and subnet prefix (e.g., `ip=145.24.222.128/24`).
 
-1. Native Proxmox VM VNC (default for VM route).
-2. Optional guest-side websockify bridge mode (`8001 -> 5901`) when bridge-mode env variables are enabled globally.
+This happens without any user interaction. A green toast notification appears at the top
+of the admin page confirming the conversion (e.g., "Converted VM my-vm (145.24.222.128/24) to static IP").
 
-Native VM VNC checks:
+Manual override (if the automatic conversion fails):
 
 ```bash
-qm config <vmid> | grep -i agent
-qm agent <vmid> ping
+qm set <vmid> --ipconfig0 ip=145.24.222.128/24
 ```
 
-Install and persist guest agent inside Ubuntu VM:
+#### QEMU guest agent
+
+The QEMU guest agent enables the playground to discover VM IP addresses, collect guest-side metrics, and perform graceful shutdowns. Without it, VM IPs stay `?` in the UI and the automatic DHCP→static conversion cannot trigger.
+
+The playground supports two methods:
+
+**Option A: Pre-install in template (recommended for shared templates)**
+
+Install `qemu-guest-agent` inside the base template before converting it to a Proxmox template.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y qemu-guest-agent
+sudo systemctl enable --now qemu-guest-agent
+sudo systemctl is-active qemu-guest-agent
+```
+
+Enable guest-agent support on the template (Proxmox GUI or CLI):
+
+```bash
+qm set <template-vmid> --agent 1
+```
+
+Every VM cloned from this template will inherit the agent configuration.
+
+**Option B: Automatic install via cloud-init (implemented in playground)**
+
+The playground deploy flow uses Proxmox's cloud-init `cicommand` to automatically install
+and enable `qemu-guest-agent` on the VM's first boot. No manual intervention or template
+preparation is required. The same cloud-init flow is what allows the automatic DHCP→static
+conversion to work.
+
+Manual installation (for VMs where the automatic install failed):
 
 ```bash
 sudo apt-get update
@@ -188,8 +222,9 @@ sudo systemctl is-active qemu-guest-agent
 
 Notes:
 
-- If guest agent is not running, VM IP derivation in the playground can stay `?`.
-- Proxmox-side guest-agent support must be enabled for the VM (`agent: 1`).
+- If guest agent is not running, VM IP derivation in the playground will stay `?`.
+- Proxmox-side guest-agent support must be enabled for the VM (`agent: 1`). The deploy flow sets this automatically.
+- The automatic DHCP→static conversion runs once per VM on the next page load after the guest agent first reports an IP.
 
 Optional guest-side VNC bridge mode (only when intentionally using websockify path):
 

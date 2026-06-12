@@ -55,6 +55,7 @@ const makeData = () => ({
       },
     ] as LxcTemplate[],
     recentTasks: [],
+    notifications: [],
   },
   error: null,
 });

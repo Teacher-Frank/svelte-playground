@@ -254,7 +254,7 @@ describe('proxmox page server actions', () => {
     expect(result.message).toContain('storage=+10 GiB');
   });
 
-  it('cloneFromTemplate clones, applies cloud-init credentials, and starts the VM', async () => {
+  it('cloneFromTemplate clones, applies cloud-init credentials, configures guest agent, and starts the VM', async () => {
     const result = await actions.cloneFromTemplate(
       makeEvent({
         templateId: '900',
@@ -278,6 +278,14 @@ describe('proxmox page server actions', () => {
         ide2: 'local-lvm:cloudinit',
         ciuser: 'ubuntu',
         cipassword: 'StrongPassw0rd!',
+      }),
+    });
+
+    // Guest agent cicommand is configured on the cloudinit endpoint
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/cloudinit', 'PUT', {
+      $path: { node: 'pve1', vmid: 200 },
+      $body: expect.objectContaining({
+        cicommand: expect.stringContaining('qemu-guest-agent'),
       }),
     });
 

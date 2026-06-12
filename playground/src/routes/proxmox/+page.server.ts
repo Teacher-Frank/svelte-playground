@@ -18,6 +18,10 @@ const VM_AGENT_RETRY_DELAY_MS = 60_000;
 // error on every refresh cycle.
 const vmAgentRetryAfterById = new Map<number, number>();
 
+// Track newly deployed VMs (deployed with DHCP) so we can convert their first
+// discovered DHCP IP to a static IP on the next page load after guest agent reports it.
+const pendingStaticConversion = new Map<number, { name: string; node: string }>();
+
 const nowMs = (): number => Number(process.hrtime.bigint()) / 1_000_000;
 
 const logLoadTiming = (stage: string, startedAt: number, details?: string): void => {
@@ -160,6 +164,31 @@ const extractPrimaryContainerIPv4 = (interfaces: LxcInterface[]): string | undef
   return undefined;
 };
 
+const extractPrimaryGuestIPv4WithPrefix = (
+  interfaces: Array<{ inet?: string; 'ip-addresses'?: LxcIpAddress[] }>
+): { ip: string; cidr: string } | undefined => {
+  for (const iface of interfaces) {
+    const ipAddresses = Array.isArray(iface['ip-addresses']) ? iface['ip-addresses'] : [];
+    for (const ipAddress of ipAddresses) {
+      const value = ipAddress['ip-address'];
+      if (typeof value !== 'string' || !isIPv4Address(value)) continue;
+      if (value.startsWith('127.') || value.startsWith('169.254.')) continue;
+      const prefix = ipAddress.prefix;
+      const cidr = typeof prefix === 'number' ? String(prefix) : '24';
+      return { ip: value, cidr };
+    }
+  }
+
+  for (const iface of interfaces) {
+    const fallback = iface.inet;
+    if (typeof fallback !== 'string' || !isIPv4Address(fallback)) continue;
+    if (fallback.startsWith('127.') || fallback.startsWith('169.254.')) continue;
+    return { ip: fallback, cidr: '24' };
+  }
+
+  return undefined;
+};
+
 const extractPrimaryGuestIPv4 = (
   interfaces: Array<{ inet?: string; 'ip-addresses'?: LxcIpAddress[] }>
 ): string | undefined => {
@@ -285,6 +314,8 @@ export type ProxmoxResults = {
   lxcTemplates: LxcTemplate[];
   /** Most-recent task log entries from the cluster. */
   recentTasks: RecentTask[];
+  /** Server-generated notifications (e.g., DHCP→static IP conversions) for one-time display. */
+  notifications: string[];
 };
 
 // ---------------------------------------------------------------------------
@@ -419,7 +450,8 @@ const buildUnavailableResults = (): ProxmoxResults => {
     vms: [],
     containers: [],
     lxcTemplates: [],
-    recentTasks: []
+    recentTasks: [],
+    notifications: []
   };
 };
 
@@ -592,6 +624,9 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     logLoadTiming('container_ip_fetch', containerIpFetchStartedAt, `count=${runningContainerIds.length}`);
   }
 
+  // Placeholder for notifications generated during page load (e.g., IP converted to static).
+  let notifications: string[] = [];
+
   if (runningVmIds.length > 0) {
     const vmIpFetchStartedAt = nowMs();
     await Promise.all(
@@ -614,6 +649,29 @@ const loadResults = async (): Promise<ProxmoxResults> => {
           if (primaryIp) {
             vmPrimaryIpById.set(vmid, primaryIp);
             vmAgentRetryAfterById.delete(vmid);
+
+            // Auto-convert DHCP IP to static for newly deployed VMs.
+            const pendingEntry = pendingStaticConversion.get(vmid);
+            if (pendingEntry) {
+              try {
+                const ipInfo = extractPrimaryGuestIPv4WithPrefix(interfaces);
+                if (ipInfo) {
+                  const staticConfig = `ip=${ipInfo.ip}/${ipInfo.cidr}`;
+                  await client.request('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
+                    $path: { node: pendingEntry.node, vmid },
+                    $body: { ipconfig0: staticConfig },
+                  });
+                  notifications.push(`Converted VM ${pendingEntry.name} (${ipInfo.ip}/${ipInfo.cidr}) to static IP`);
+                  console.info(
+                    `[proxmox] Converted VM ${vmid} (${pendingEntry.name}) from DHCP to static IP ${ipInfo.ip}/${ipInfo.cidr}.`
+                  );
+                }
+              } catch (err) {
+                console.warn(`[proxmox] Failed to convert VM ${vmid} to static IP:`, err);
+              } finally {
+                pendingStaticConversion.delete(vmid);
+              }
+            }
           }
         } catch (err) {
           // QEMU guest agent can be unavailable on some VMs; avoid spamming logs
@@ -740,7 +798,8 @@ const loadResults = async (): Promise<ProxmoxResults> => {
         upid: String(task.upid ?? '')
       }))
       .sort((a, b) => b.starttime - a.starttime) // most-recent first
-      .slice(0, 10)
+      .slice(0, 10),
+    notifications
   };
 };
 
@@ -1067,7 +1126,8 @@ const buildAction = (action: WorkloadAction) => {
 };
 
 /**
- * Clones a QEMU VM template, applies cloud-init credentials, and starts the VM.
+ * Clones a QEMU VM template, applies cloud-init credentials, configures
+ * guest agent installation on first boot, and starts the VM.
  */
 const deployVmFromTemplate = async (
   templateId: number,
@@ -1166,7 +1226,23 @@ const deployVmFromTemplate = async (
       $body: configBody,
     });
 
+    // Configure cloud-init to install and enable the QEMU guest agent on first boot.
+    // This ensures IP discovery, guest metrics, and graceful shutdown are available
+    // without requiring a pre-configured template (Option A).
+    await client.request('/nodes/{node}/qemu/{vmid}/cloudinit', 'PUT', {
+      $path: { node: templateNode, vmid: newid },
+      $body: {
+        cicommand:
+          'DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y qemu-guest-agent && systemctl enable --now qemu-guest-agent',
+      },
+    });
+
     const startUpid = await nodeApi.qemu.vmid(newid).status.start() as string;
+
+    // Queue this VM for DHCP → static conversion. The next pageServerLoad that
+    // discovers a guest-agent IP will apply a static ipconfig0.
+    pendingStaticConversion.set(newid, { name: newName, node: templateNode });
+
     return { cloneUpid, startUpid };
   } catch (error) {
     if (await isCloudInitCollisionError(newid, error)) {
