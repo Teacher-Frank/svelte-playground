@@ -56,9 +56,12 @@ This file is the authoritative policy source for this workspace.
 ## Priority 7: Environment and Tooling Directives
 - On Windows test runs, redirect `TEMP`/`TMP` to `.vitest/tmp` when needed to avoid `mkdtemp` failures.
 - Build `pve-client` before running playground if `pve-client/dist` is missing.
-- In `pve-client` ESM TS setup, use explicit `.js` extensions for relative imports.
+ In `pve-client` ESM TS setup, use explicit `.js` extensions for relative imports.
 - Keep wrapper script docs/help synchronized with actual parameter names.
 - All playground environment variables must be documented in `svelte-playground/playground/PxMx-Admin-For-Datalab-Guide.md`.
+- **Never run `npm run dev` directly.** Always start the dev server via `acctest-env.ps1`
+  from the `svelte-playground/playground` directory to ensure all environment variables
+  are set and `pve-client` is built.
 
 ## Priority 7a: Error Message Policy
 - When an error is caused by a wrong or rejected value, always include the actual value in the error message so that users and developers can identify the problem without additional investigation.
