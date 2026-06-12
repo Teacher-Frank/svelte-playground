@@ -2,6 +2,14 @@
 
 This file is the authoritative policy source for this workspace.
 
+## Workspace Operations
+
+- **Multi-machine workflow**: Work is split across two machines on a weekly rotation.
+  - **Fri–Tue**: Primary development station.
+  - **Wed–Thu**: Surface Pro in Rotterdam.
+- Always run `git pull` before starting a session on either machine.
+- Re-read `AGENTS.md` and `POLICIES.md` at the start of each session.
+
 ## Priority 1: Single Source of Truth
 - `POLICIES.md` is the only authoritative policy file in the repository.
 - Do not create or maintain duplicate policy files (for example, `policy.md` or mirrored variants).
@@ -71,8 +79,11 @@ This file is the authoritative policy source for this workspace.
 
 ## Priority 9: Canonical Runbook
 - Unless the user specifies otherwise, run commands from `svelte-playground/playground` for playground changes and from `pve-client` for library changes.
-- Playground common commands:
-  - Dev server: `npm run dev`
+- **To start the dev server, run `acctest-env.ps1`** from `svelte-playground/playground`. This script:
+  1. Sets all required environment variables (Proxmox auth, storage, VNC bridge, etc.).
+  2. Builds `pve-client` (`npm run build`).
+  3. Starts the playground dev server (`npm run dev`).
+- Playground common commands (run after the dev server is already started):
   - Type and Svelte diagnostics: `npm run check`
   - Lint: `npm run lint`
   - Unit/integration tests: `npm run test:unit -- --run`

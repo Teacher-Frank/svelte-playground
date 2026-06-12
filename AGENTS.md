@@ -38,10 +38,18 @@ Or use `npm run quality:gate` for the full pipeline. See [POLICIES.md](../svelte
 
 ## Environment Setup
 
-- `pve-client` must be built (`npm run build`) before running the playground if `pve-client/dist` is missing
+- **Start the dev server by running `acctest-env.ps1`** from `svelte-playground/playground/` — this script sets environment variables, builds `pve-client`, then starts the dev server
 - Playground runs on **port 8000 with HTTPS** (mkcert enabled by default)
 - Tests use a wrapper script (`scripts/run-vitest.ts`) that redirects `TEMP`/`TMP` to `.vitest/tmp` on Windows
 - All environment variables are documented in [PxMx-Admin-For-Datalab-Guide.md](../svelte-playground/playground/PxMx-Admin-For-Datalab-Guide.md#appendix-a-environment-variables)
+
+## Multi-Machine Workflow
+
+- Working across two machines on a weekly rotation:
+  - **Fri–Tue**: Primary development station
+  - **Wed–Thu**: Surface Pro in Rotterdam
+- Re-read `AGENTS.md` and `POLICIES.md` at the start of each session on either machine.
+- Run `git pull` before starting work on either machine to pick up policy or convention updates.
 
 ## Conventions
 
