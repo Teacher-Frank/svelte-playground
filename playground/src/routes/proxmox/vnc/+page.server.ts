@@ -159,11 +159,16 @@ export const load: PageServerLoad = async ({ url }) => {
               'ip-address-type'?: string;
             }>;
           };
-          const agentData = await client.request(
+          // The agent endpoint returns raw agent data as Record<string, unknown>[]
+          // which needs runtime casting since the actual structure is known at runtime.
+          const rawResult = await client.request(
             '/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces',
             'GET',
             { $path: { node, vmid } }
-          ) as VmAgentInterface[];
+          );
+          const agentData = (Array.isArray(rawResult) 
+            ? rawResult 
+            : [rawResult]) as unknown as VmAgentInterface[];
 
           for (const iface of agentData) {
             const ipAddresses = Array.isArray(iface['ip-addresses']) ? iface['ip-addresses'] : [];

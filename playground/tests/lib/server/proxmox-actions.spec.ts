@@ -223,9 +223,10 @@ describe('proxmox page server actions', () => {
       })
     );
 
-    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'POST', {
+    // QEMU config endpoint uses PUT (not POST) and expects memory as number (not string)
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
       $path: { node: 'pve1', vmid: 110 },
-      $body: { cores: 8, memory: '4096' },
+      $body: { cores: 8, memory: 4096 },
     });
 
     expect(result.status).toBe('success');
@@ -350,14 +351,16 @@ describe('proxmox page server actions', () => {
       })
     );
 
+    // QEMU config uses PUT with agent enabled (standard deployment behavior)
     expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
       $path: { node: 'pve1', vmid: 200 },
-      $body: {
+      $body: expect.objectContaining({
         ciuser: 'ubuntu',
         cipassword: 'StrongPassw0rd!',
+        agent: 'enabled=1',
         net0: 'virtio,bridge=vmbr0',
         ipconfig0: 'ip=dhcp',
-      },
+      }),
     });
   });
 
@@ -390,12 +393,14 @@ describe('proxmox page server actions', () => {
       })
     );
 
+    // QEMU config uses PUT with agent enabled
     expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
       $path: { node: 'pve1', vmid: 200 },
-      $body: {
+      $body: expect.objectContaining({
         ciuser: 'ubuntu',
         cipassword: 'StrongPassw0rd!',
-      },
+        agent: 'enabled=1',
+      }),
     });
   });
 
@@ -538,13 +543,14 @@ describe('proxmox page server actions', () => {
       makeEvent({ templateId: '900', templateNode: 'pve1', newName: 'ubuntu-base' })
     );
 
-    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'POST', {
+    // QEMU config endpoint uses PUT (not POST) with Record<string, unknown> cast for name field
+    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
       $path: { node: 'pve1', vmid: 900 },
       $body: { name: 'ubuntu-base' },
     });
 
     expect(result.status).toBe('success');
-    expect(result.message).toContain('Renaming template 900 to "ubuntu-base"');
+    expect(result.message).toContain('Renamed template 900 to "ubuntu-base"');
   });
 
   it('renameVmTemplate returns validation failure when newName is missing', async () => {

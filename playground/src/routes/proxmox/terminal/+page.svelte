@@ -186,6 +186,7 @@
 
       // On websocket open, force an initial resize frame and start convergence retries.
       // This ensures the guest PTY is sized correctly even if the first frame is dropped or ignored.
+      const socket = ws;
       ws.onopen = () => {
         lastSentSize = '';
         resizeSyncAttempts = 0;
@@ -195,7 +196,7 @@
         scheduleInitialResizeResends();
         // Send an initial newline to nudge the shell to display the prompt immediately,
         // matching the LXC terminal behavior (some guests hang waiting for input on first connect).
-        ws.send(new TextEncoder().encode('\n'));
+        socket.send(new TextEncoder().encode('\n'));
       };
 
       ws.onmessage = ({ data: payload }) => {

@@ -213,17 +213,17 @@
 
     if (pending.taskUpids.length > 0) {
       const states = pending.taskUpids.map((upid) => isTaskActive(upid));
-      // At least one task still actively running — keep deploying.
+      // At least one tracked task is still actively running — keep deploying.
       if (states.some((state) => state === true)) {
         return false;
       }
-      // Resolve once no tracked task is actively running and the workload exists.
-      // Some task UPIDs may never appear in recentTasks (or may age out), so
-      // requiring every task state to be explicitly false can leave stale rows.
+      // All tasks are either completed or unknown (aged out of recentTasks).
+      // Resolve as soon as the workload exists on the server.
       if (workloadExists) {
-        return workloadExists;
+        return true;
       }
-      // Some tasks not yet visible in recentTasks — keep deploying.
+      // Workload not yet visible on the server — keep deploying until
+      // it appears or the hard cap expires.
       return false;
     }
 
