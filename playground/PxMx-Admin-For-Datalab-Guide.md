@@ -4,26 +4,33 @@ This guide is for Proxmox administrators running the Datalab playground setup.
 
 ## Table of contents
 
-- [1. Proxmox configuration](#1-proxmox-configuration)
-- [1.1 Initial setup](#11-initial-setup)
-- [1.2 Enable nesting at container creation](#12-enable-nesting-at-container-creation)
-- [1.3 Add device passthrough and mount entries](#13-add-device-passthrough-and-mount-entries)
-- [1.4 Mandatory post-create hook script](#14-mandatory-post-create-hook-script)
-- [1.5 Troubleshooting](#15-troubleshooting)
-- [1.6 VM operational checklist (network, cloud-init, VNC)](#16-vm-operational-checklist-network-cloud-init-vnc)
-- [2. Webserver configuration](#2-webserver-configuration)
-- [2.1 Webserver configuration](#21-webserver-configuration)
-- [2.2 Playground server troubleshooting: "Submitting credentials..."](#22-playground-server-troubleshooting-submitting-credentials)
-- [2.3 VNC configuration](#23-vnc-configuration)
-- [2.4 Other](#24-other)
-- [Appendix A. Environment variables](#appendix-a-environment-variables)
-- [A.1 Proxmox connection and authentication](#a1-proxmox-connection-and-authentication)
-- [A.2 LXC deployment and storage](#a2-lxc-deployment-and-storage)
-- [A.3 Terminal and runtime](#a3-terminal-and-runtime)
-- [A.4 Diagnostics and benchmarking](#a4-diagnostics-and-benchmarking)
-- [A.5 VM template deploy guard](#a5-vm-template-deploy-guard)
-- [A.6 LXC VNC bridge variables](#a6-lxc-vnc-bridge-variables)
-- [A.7 Current `acctest-env.ps1` profile](#a7-current-acctest-envps1-profile)
+- [PxMx Admin For Datalab Guide](#pxmx-admin-for-datalab-guide)
+  - [Table of contents](#table-of-contents)
+  - [1. Proxmox configuration](#1-proxmox-configuration)
+    - [1.1 Initial setup](#11-initial-setup)
+    - [1.2 Enable nesting at container creation](#12-enable-nesting-at-container-creation)
+    - [1.3 Add device passthrough and mount entries](#13-add-device-passthrough-and-mount-entries)
+    - [1.4 Mandatory post-create hook script](#14-mandatory-post-create-hook-script)
+    - [1.5 Troubleshooting](#15-troubleshooting)
+    - [1.6 VM operational checklist (network, cloud-init, VNC)](#16-vm-operational-checklist-network-cloud-init-vnc)
+      - [Template readiness before clone](#template-readiness-before-clone)
+      - [Network activation for cloned VMs](#network-activation-for-cloned-vms)
+      - [Cloud-init drive requirements](#cloud-init-drive-requirements)
+      - [DHCP to static IP conversion (automatic)](#dhcp-to-static-ip-conversion-automatic)
+      - [QEMU guest agent](#qemu-guest-agent)
+  - [2. Webserver configuration](#2-webserver-configuration)
+    - [2.1 Webserver configuration](#21-webserver-configuration)
+    - [2.2 Playground server troubleshooting: "Submitting credentials..."](#22-playground-server-troubleshooting-submitting-credentials)
+    - [2.3 VNC configuration](#23-vnc-configuration)
+    - [2.4 Other](#24-other)
+  - [Appendix A. Environment variables](#appendix-a-environment-variables)
+    - [A.1 Proxmox connection and authentication](#a1-proxmox-connection-and-authentication)
+    - [A.2 LXC deployment and storage](#a2-lxc-deployment-and-storage)
+    - [A.3 Terminal and runtime](#a3-terminal-and-runtime)
+    - [A.4 Diagnostics and benchmarking](#a4-diagnostics-and-benchmarking)
+    - [A.5 VM template deploy guard](#a5-vm-template-deploy-guard)
+    - [A.6 LXC VNC bridge variables](#a6-lxc-vnc-bridge-variables)
+    - [A.7 Current `acctest-env.ps1` profile](#a7-current-acctest-envps1-profile)
 
 ## 1. Proxmox configuration
 
@@ -35,12 +42,24 @@ Before using the playground against a Proxmox node:
 2. Set all required values in `acctest-env.ps1` (at minimum `PVE_BASE_URL`, `PVE_NODE`, auth settings, and storage settings).
   Set `PVE_ADMIN_CONTACT_EMAIL` so VM deploy failures can show the correct admin contact when a template is missing a cloud-init drive.
 3. Ensure the hook script exists at `/var/lib/vz/snippets/lxc-post-create-hook.sh` and is executable.
-4. Confirm `PVE_LXC_HOOKSCRIPT_VOLID` points to the correct snippets storage volume ID.
-5. Confirm `PVE_LXC_ROOTFS_STORAGE` points to storage that supports container/rootdir content.
-6. Run `acctest-env.ps1` to build `pve-client` and start the playground dev server.
-7. Download the required VM and LXC templates before any deploy or clone action.
+```bash
+#!/bin/bash
+# Proxmox LXC post-create hook script for VNC device passthrough
+echo "[lxc-post-create-hook] Invoked with args: $@" >&2
+if [ "$2" = "post-create" ]; then
+  VMID="$1"
+  CONF="/etc/pve/lxc/$VMID.conf"
+  echo "lxc.cgroup2.devices.allow: c 226:* rwm" >> "$CONF"
+  echo "lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir" >> "$CONF"
+  echo "[lxc-post-create-hook] Updated $CONF for VNC device passthrough." >&2
+fi
+```
+5. Confirm `PVE_LXC_HOOKSCRIPT_VOLID` points to the correct snippets storage volume ID.
+6. Confirm `PVE_LXC_ROOTFS_STORAGE` points to storage that supports container/rootdir content.
+7. Run `acctest-env.ps1` to build `pve-client` and start the playground dev server.
+8. Download the required VM and LXC templates before any deploy or clone action.
   Ensure each VM template is fully prepared before cloning: cloud-init drive present, guest agent enabled, and template networking activated (`net0` attached to the correct bridge and `ipconfig0` set to DHCP).
-8. Validate one test container deployment before regular use.
+1. Validate one test container deployment before regular use.
 
 ### 1.2 Enable nesting at container creation
 
