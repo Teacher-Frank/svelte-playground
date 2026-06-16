@@ -2,6 +2,8 @@
 
 This file is the authoritative policy source for this workspace.
 
+Priority directives are numbered in descending order of importance — Priority 1 is the highest and most critical, with each subsequent priority being less critical than the one before it.
+
 ## Workspace Operations
 
 - **Multi-machine workflow**: Work is split across two machines on a weekly rotation.
@@ -16,14 +18,26 @@ This file is the authoritative policy source for this workspace.
 - Any derived notes (including memory summaries) must be generated from this file and never diverge from it.
 - As a general rule, we do not store the same data in more than 1 location or file.
 
+## Priority 1a: Policy Consistency Check
+- Whenever an update is made to `POLICIES.md`, perform a logic check against all existing rules.
+- Identify any logical overlaps or contradictions and present a summary before confirming the update is ready.
+
 ## Priority 2: Quality and Process Directives
 - Keep code clean and concise; remove redundant and unused logic.
 - Keep code resilient; handle errors, edge cases, and unexpected input.
+- When refactoring oversized files, extract shared or utility code to a dedicated module first — don't let architectural complexity in one area block a discrete, safe extraction elsewhere.
+- Prefer extracting shared helpers to a third file (for example, `*-utils.ts`) over leaving duplication or documenting it as a blocker.
+- Use 2-space indentation for all source code files.
 - Validation pass criteria:
   - All required validation commands exit successfully with no unresolved errors.
   - New or changed code is human-readable: clear naming, coherent structure, and no dead or misleading code.
   - New or changed code includes comments where intent is non-obvious, with emphasis on why a decision was made.
 - Document changes with the reason behind decisions, not only behavior.
+
+## Priority 2b: Test-First Refactoring
+- For any refactor, the agent must first generate a unit test that demonstrates the current behavior, then implement the change, then verify the test still passes.
+- The test should exercise the behavior being preserved or altered and serve as a regression safeguard.
+- If no suitable test target exists (for example, private implementation details), expose the minimum necessary surface to make the behavior testable before proceeding.
 
 ## Priority 3: Validation Gate
 - Before any commit, merge, or PR update, all required validation MUST pass:
