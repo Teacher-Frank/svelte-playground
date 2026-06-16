@@ -453,7 +453,7 @@
     <!-- Toast notifications from server (e.g., DHCP→static conversions) -->
     {#if data.results?.notifications?.length}
       <div role="alert" class="action-status success" aria-live="polite">
-        {#each data.results.notifications as msg}
+        {#each data.results.notifications as msg (msg)}
           <p>{msg}</p>
         {/each}
       </div>

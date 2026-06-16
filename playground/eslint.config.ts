@@ -31,7 +31,9 @@ export default defineConfig(
 			// see: https://typescript-eslint.io/troubleshooting/faqs/eslint/#i-get-errors-from-the-no-undef-rule-about-global-variables-not-being-defined-even-though-there-are-no-typescript-errors
 			"no-undef": 'off',
 			// Allow standard SvelteKit navigation without resolve() - these are valid in SvelteKit
-			"svelte/no-navigation-without-resolve": 'off'
+			"svelte/no-navigation-without-resolve": 'off',
+			// Warn when source files exceed 750 lines (tsserver/monaco performance limits)
+			"max-lines": ["warn", { max: 750, skipBlankLines: true, skipComments: true }]
 		}
 	},
 	{
