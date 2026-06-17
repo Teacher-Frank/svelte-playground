@@ -146,7 +146,7 @@ export async function executeWorkloadAction(
   }
 }
 
-/** Applies CPU/memory/storage configuration to a VM or container. */
+/** Applies CPU/memory/storage/name configuration to a VM or container. */
 export async function executeWorkloadConfigureAction(
   type: WorkloadKind,
   id: number,
@@ -154,6 +154,8 @@ export async function executeWorkloadConfigureAction(
   cpuSharePercent: number,
   memoryMiB: number,
   storageGiB?: number,
+  currentName?: string,
+  newName?: string,
 ): Promise<{
   upid?: string;
   appliedCpuLimit: number;
@@ -161,6 +163,7 @@ export async function executeWorkloadConfigureAction(
   appliedCpuCores?: number;
   appliedStorageGiB?: number;
   storageTaskUpid?: string;
+  renamed: boolean;
 }> {
   const client = await createClient();
 
@@ -213,13 +216,23 @@ export async function executeWorkloadConfigureAction(
   const appliedMemoryMiB = Math.floor(memoryMiB);
   let storageTaskUpid: string | undefined;
 
+  // Determine if a rename is needed (new name differs from current name)
+  const shouldRename =
+    typeof newName === 'string' &&
+    newName.trim().length > 0 &&
+    newName.trim() !== (currentName ?? '').trim();
+
   if (type === 'container') {
+    const lxcBody: Record<string, unknown> = {
+      cpulimit: appliedCpuLimit,
+      memory: appliedMemoryMiB,
+    };
+    if (shouldRename) {
+      lxcBody.name = newName!.trim();
+    }
     const result = await client.request('/nodes/{node}/lxc/{vmid}/config', 'PUT', {
       $path: { node, vmid: id },
-      $body: {
-        cpulimit: appliedCpuLimit,
-        memory: appliedMemoryMiB,
-      } as Record<string, unknown>,
+      $body: lxcBody,
     });
 
     if (shouldResizeStorage) {
@@ -244,17 +257,22 @@ export async function executeWorkloadConfigureAction(
       appliedMemoryMiB,
       appliedStorageGiB: shouldResizeStorage ? Math.floor(storageGiB!) : undefined,
       storageTaskUpid,
+      renamed: shouldRename,
     };
   }
 
   // --- QEMU branch ---
   const appliedCpuCores = Math.max(1, Math.round((hostCpuCount * cpuSharePercent) / 100));
+  const qemuBody: Record<string, unknown> = {
+    cores: appliedCpuCores,
+    memory: appliedMemoryMiB,
+  };
+  if (shouldRename) {
+    qemuBody.name = newName!.trim();
+  }
   const result = await client.request('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
     $path: { node, vmid: id },
-    $body: {
-      cores: appliedCpuCores,
-      memory: appliedMemoryMiB,
-    } as Record<string, unknown>,
+    $body: qemuBody,
   });
 
   if (shouldResizeStorage) {
@@ -297,5 +315,7 @@ export async function executeWorkloadConfigureAction(
     appliedCpuCores,
     appliedStorageGiB: shouldResizeStorage ? Math.floor(storageGiB!) : undefined,
     storageTaskUpid,
+    renamed: shouldRename,
   };
+}
 }

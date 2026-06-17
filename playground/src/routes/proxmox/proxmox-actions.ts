@@ -105,6 +105,7 @@ export const actions: Actions = {
       const cpuShareRaw = formData.get('cpuSharePercent');
       const memoryRaw = formData.get('memoryMiB');
       const storageRaw = formData.get('storageGiB');
+      const newNameRaw = formData.get('newName');
 
       if (typeof cpuShareRaw !== 'string' || cpuShareRaw.trim().length === 0) {
         return fail(400, {
