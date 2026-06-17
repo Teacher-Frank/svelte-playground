@@ -1,184 +1,163 @@
 # Directives Playbook
 
-This file is the authoritative policy source for this workspace.
+This file is the authoritative policy source for this workspace. Read it at the start of each session.
 
-Priority directives are numbered in descending order of importance — Priority 1 is the highest and most critical, with each subsequent priority being less critical than the one before it.
+**Purposes:**
+1. **Guide reasoning** — shapes decisions, prevents known mistakes, provides correct patterns without rediscovering them.
+2. **Port across sessions, models, and versions** — principles and lessons persist so any future model inherits accumulated experience.
+3. **Enable self-verification** — continuously feeds the model a built-in feedback loop, so it tests changes against this file before presenting work as complete.
+4. **Settle trade-off conflicts** — explicitly resolves competing best practices into a single authoritative position, so the model doesn't guess which side to take.
 
-## Workspace Operations
+Priority directives are numbered in descending order — P1 is highest and most critical.
 
-- **Multi-machine workflow**: Work is split across two machines on a weekly rotation.
-  - **Fri–Tue**: Primary development station.
-  - **Wed–Thu**: Surface Pro in Rotterdam.
-- Always run `git pull` before starting a session on either machine.
-- Re-read `AGENTS.md` and `POLICIES.md` at the start of each session.
+---
 
-## Priority 1: Single Source of Truth
-- `POLICIES.md` is the only authoritative policy file in the repository.
-- Do not create or maintain duplicate policy files (for example, `policy.md` or mirrored variants).
-- Any derived notes (including memory summaries) must be generated from this file and never diverge from it.
-- As a general rule, we do not store the same data in more than 1 location or file.
+# Workspace-Independent (General Principles)
 
-## Priority 1a: Policy Consistency Check
-- Whenever an update is made to `POLICIES.md`, perform a logic check against all existing rules.
-- Identify any logical overlaps or contradictions and present a summary before confirming the update is ready.
+These rules apply to any project. They guide reasoning, prevent mistakes, and port across tools and teams.
 
-## Priority 2: Quality and Process Directives
-- Keep code clean and concise; remove redundant and unused logic.
-- Keep code resilient; handle errors, edge cases, and unexpected input.
-- When refactoring oversized files, extract shared or utility code to a dedicated module first — don't let architectural complexity in one area block a discrete, safe extraction elsewhere.
-- Prefer extracting shared helpers to a third file (for example, `*-utils.ts`) over leaving duplication or documenting it as a blocker.
-- Use 2-space indentation for all source code files.
-- Validation pass criteria:
-  - All required validation commands exit successfully with no unresolved errors.
-  - New or changed code is human-readable: clear naming, coherent structure, and no dead or misleading code.
-  - New or changed code includes comments where intent is non-obvious, with emphasis on why a decision was made.
-- Document changes with the reason behind decisions, not only behavior.
+## P1: Single Source of Truth
+- `POLICIES.md` is the only authoritative policy file. Do not create duplicates or mirror rules.
+- As a general rule, do not store the same knowledge in more than one location.
+- On substantive updates, cross-check new rules against existing ones for overlap or contradiction.
 
-## Priority 2b: Test-First Refactoring
-- For any refactor, the agent must first generate a unit test that demonstrates the current behavior, then implement the change, then verify the test still passes.
-- The test should exercise the behavior being preserved or altered and serve as a regression safeguard.
-- If no suitable test target exists (for example, private implementation details), expose the minimum necessary surface to make the behavior testable before proceeding.
+## P2: Quality and Refactoring
+- Keep code clean, concise, and resilient. Handle errors, edge cases, and unexpected input.
+- Extract shared or utility code to dedicated modules — don't let architectural complexity block safe extractions. Prefer `*-utils.ts` files over leaving duplication.
+- 2-space indentation for all source files.
+- When refactoring oversized files: see _Refactor Approach_ below.
+- Document _why_ a decision was made, not only _what_ it does.
 
-## Priority 3: Validation Gate
-- Before any commit, merge, or PR update, all required validation MUST pass:
-  - `npm run check`
-  - `npm run lint`
-  - `npm run test:unit`
-- If validation fails, the change MUST NOT be committed, merged, or pushed unless an approved exception exists under the Exceptions Policy.
+## P2b: Test-First Refactoring
+- Generate a unit test showing current behavior before changing it. Verify the refactor preserves it.
+- If no suitable test target exists (private details), expose the minimum surface to make it testable first.
 
-## Priority 4: Core Architecture Directives
-- Fix API-surface gaps in `pve-client` first; avoid consumer-side cast workarounds.
-- Avoid `as unknown as Record<...>` and similar double-cast patterns.
-- Export and consume named typed APIs (for example, `NodeScopedAPI`, `QemuScopedAPI`, `LxcScopedAPI`).
-- If raw endpoint access is needed, use `client.request()` directly with typed path/args. Report this so a decision can be made whether a named type API is needed.
-- Keep server-side terminal/WebSocket responsibility in `pve-client`; keep playground integration thin.
+## P3: Validation Gate
+- Before any commit, merge, or PR: all required validation MUST pass. If validation fails, the change MUST NOT ship without an approved exception.
+- Validation success: command exits `0`, no unresolved errors, output is clean.
 
-## Priority 4a: Fail Fast
-- Prefer early, detectable failures over silent fallbacks. A compile-time type error is better than a runtime `undefined`.
-- Wired API surfaces (typed methods) are preferred over workarounds that only fail at runtime.
-- When a prerequisite is missing (typed method, environment variable, node identity), fail with a clear, actionable error message — never default to `undefined` or continue with degraded behavior.
-- Use canary tests to guarantee that documented API surfaces remain exposed (`pve-client-typed-surface.spec.ts` pattern).
+## P4a: Fail Fast
+- Prefer early, detectable failures. A compile-time type error beats a runtime `undefined`.
+- When a prerequisite is missing, fail with a clear, actionable message — never default to `undefined` or degraded behavior.
+- Wired typed APIs beat workaround casts that only fail at runtime. Use canary tests to guarantee surfaces remain exposed.
 
-## Priority 5: Proxmox Behavioral Directives
-- Use real node identity for all actions; never submit fallback node values like `unknown`.
-- For node-scoped workload lists, use typed node APIs.
-- For guest actions, route by workload type:
-  - VM: `nodeApi.qemu.vmid(id)`
-  - CT: `nodeApi.lxc.id(id)`
+## P4b: Error Messages
+- Wrong/rejected values: always include the actual value in the error message so the caller can identify it.
+- Missing/empty errors don't need a value.
+- Sensitive values (passwords, tokens, secrets) must never appear in error messages.
 
-## Priority 6: UI Interaction Directives
-- For all modal-based actions (deploy, rename, configure, and future equivalents), submit behavior must be optimistic and single-shot:
-  - On submit, close the modal immediately.
-  - Immediately show a success-style "action started" status message.
-  - Prevent duplicate submits while the request is in flight (disable relevant action triggers/buttons).
-  - If the request fails, clear optimistic started messaging and show the server-provided error.
+## P5: Exceptions Policy
+- **Runtime:** prefer specific, local exception handling. Add one general fallback handler at the server entry point as a safety net — never a replacement for specific handling. It must log enough context and return a controlled error response.
+- **Process:** keep exceptions minimal, explicit, and temporary. Each entry needs scope, reason, and removal condition. Review monthly.
 
-## Priority 7: Environment and Tooling Directives
-- On Windows test runs, redirect `TEMP`/`TMP` to `.vitest/tmp` when needed to avoid `mkdtemp` failures.
-- Build `pve-client` before running playground if `pve-client/dist` is missing.
- In `pve-client` ESM TS setup, use explicit `.js` extensions for relative imports.
-- Keep wrapper script docs/help synchronized with actual parameter names.
-- All playground environment variables must be documented in `svelte-playground/playground/PxMx-Admin-For-Datalab-Guide.md`.
-- **Never run `npm run dev` directly.** Always start the dev server via `acctest-env.ps1`
-  from the `svelte-playground/playground` directory to ensure all environment variables
-  are set and `pve-client` is built.
+## P6: Default Decision Policy
+- Preserve existing APIs and consumer behavior unless instructed otherwise.
+- Prefer small, focused changes over broad refactors.
+- Readability and maintainability first; optimize only where measurements justify it.
+- Keep UI behavior predictable and explicit over implicit automation.
 
-## Priority 7a: Error Message Policy
-- When an error is caused by a wrong or rejected value, always include the actual value in the error message so that users and developers can identify the problem without additional investigation.
-- Missing/empty-value errors do not need to show a value (there is nothing to show).
-- Sensitive values (passwords, tokens, secrets) must never be included in error messages.
+## P7: Change Acceptance Checklist
+A change is done only when:
+- Scope fully implemented as requested.
+- Updated behavior covered by tests (or existing tests still prove behavior).
+- All required validation passes.
+- No new diagnostics introduced.
+- User-facing behavior changes documented.
+- Policy-impacting decisions captured in `POLICIES.md` when durable.
 
-## Priority 8: Exceptions Policy
-- Runtime exception handling policy:
-  - Prefer specific, local exception handling where failures are expected and can be handled meaningfully.
-  - Add one general fallback exception handler at the server entry point to catch uncaught errors that escape specific handlers.
-  - The fallback handler is a backup safety net, not a replacement for specific exception handling.
-  - The fallback handler must log enough context for diagnosis and return a controlled error response.
-- Process exceptions policy:
-  - Keep process/policy exceptions minimal, explicit, and temporary.
-  - Every process/policy exception entry must include: scope, reason, and removal condition.
-  - Do not add broad or convenience process/policy exceptions; only permit narrow blockers with clear technical rationale.
-  - Review process/policy exceptions monthly and remove any that are no longer necessary.
+## P8: Review Severity Rubric
+- **High:** likely data loss, security risk, broken core flow, or guaranteed runtime failure.
+- **Medium:** functional bug, regression risk, or maintainability issue likely to cause near-term defects.
+- **Low:** clarity, consistency, minor UX polish, or non-blocking technical debt.
 
-## Priority 9: Canonical Runbook
-- Unless the user specifies otherwise, run commands from `svelte-playground/playground` for playground changes and from `pve-client` for library changes.
-- **To start the dev server, run `acctest-env.ps1`** from `svelte-playground/playground`. This script:
-  1. Sets all required environment variables (Proxmox auth, storage, VNC bridge, etc.).
-  2. Builds `pve-client` (`npm run build`).
-  3. Starts the playground dev server (`npm run dev`).
-- Playground common commands (run after the dev server is already started):
-  - Type and Svelte diagnostics: `npm run check`
-  - Lint: `npm run lint`
-  - Unit/integration tests: `npm run test:unit -- --run`
-  - Full quality gate: `npm run quality:gate`
-  - Dev startup benchmark: `npm run bench:dev-startup`
-- `pve-client` common commands:
-  - Build: `npm run build`
-  - Type/lint/tests: run the package-local `check`, `lint`, and `test` scripts when present.
-- Validation success criteria:
-  - Command exits with code `0`.
-  - No unresolved errors in command output.
+Output format: findings ordered by severity with file refs → open questions → brief change summary.
 
-## Priority 10: Default Decision Policy
-- Unless the user specifies otherwise:
-  - Preserve existing APIs and behavior for consumers.
-  - Prefer small, focused changes over broad refactors.
-  - Fix root causes at library boundaries (`pve-client`) instead of adding cast-based consumer workarounds.
-  - Prefer readability and maintainability first, then optimize performance where measurements justify it.
-  - Keep UI behavior predictable and explicit over implicit automation.
+## P9: Bug Resolve Policy
+- Before coding, capture: scope, reproduction steps (environment, observed vs. expected), severity.
+- **Sequence:** contain → reproduce with a test (verify it fails) → fix root cause at the correct boundary → same test passes → validate.
+- **Closure:** reproducer no longer fails, test shows fail-before/pass-after, no new diagnostics, user-facing changes documented.
+- **Hotfix:** minimal containment may ship first, but a follow-up root-cause fix plus regression test must be scheduled and tracked immediately.
 
-## Priority 11: Change Acceptance Checklist
-- A change is considered done only when all of the following are true:
-  - Scope is fully implemented as requested.
-  - Updated behavior is covered by tests or existing tests still prove behavior.
-  - Required validation for the affected package passes.
-  - No new diagnostics are introduced.
-  - User-facing behavior changes are reflected in docs/comments where relevant.
-  - Policy-impacting decisions are captured in `POLICIES.md` when durable.
+## P10: Repository Guardrails
+- Never introduce duplicate policy sources.
+- Avoid destructive repository operations unless explicitly requested.
 
-## Priority 12: Review Severity Rubric
-- Use these severity levels for reviews:
-  - High: likely data loss, security risk, broken core flow, or guaranteed runtime failure.
-  - Medium: functional bug, regression risk, or maintainability issue likely to cause near-term defects.
-  - Low: clarity, consistency, minor UX polish, or non-blocking technical debt.
-- Review output format:
-  - Findings first, ordered by severity, each with file reference.
-  - Then open questions/assumptions.
-  - Then brief change summary.
+## P11: Maintenance
+- At the end of meaningful sessions, append or refine directives here when a new durable pattern is confirmed.
+- During monthly review, validate each exception — remove or refresh justification.
 
-## Priority 13: Repository Guardrails
-- Never introduce duplicate policy sources; `POLICIES.md` remains authoritative.
-- Do not reintroduce cast-heavy consumer patterns when a typed library surface can be added instead.
-- Do not bypass validation gate requirements for commits/PR updates unless an explicit exception is recorded under the Exceptions Policy.
-- Avoid destructive repository operations unless explicitly requested by the user.
+---
 
-## Priority 14: Maintenance Rule
-- At the end of meaningful sessions, append or refine directives/lessons here if a new durable pattern was confirmed.
-- During monthly review, validate each exception and either remove it or refresh its justification and removal condition.
+## Refactor Approach
+- **Test constraints before building solutions.** Before trying multiple approaches to work within an untested external constraint, write a single minimal repro to confirm whether it's possible.
+- Example: before iterating through 3–4 failed approaches to share `vi.hoisted` values across test modules, one quick repro would have confirmed cross-module imports cannot work.
+- Framework behavior constraints (mock hoisting, transform ordering) are architectural, not implementation details — discover them at the start of a task.
 
-## Priority 15: Bug Resolve Policy
-- For every confirmed bug, capture a short bug record before coding:
-  - Scope: affected feature/package and user-visible impact.
-  - Reproduction: deterministic steps, environment, and observed vs expected behavior.
-  - Severity: map to the review rubric (High, Medium, Low) and state why.
-- Resolve bugs using this default sequence:
-  - Contain: prevent additional harm or repeated triggering when feasible.
-  - Before implementing a fix, create and run a test that reproduces the exact bug (unit/integration/e2e as appropriate) and verify it fails for the expected reason.
-  - Fix root cause at the correct boundary (library surface first when shared behavior is involved).
-  - Use that same reproducer test as the primary regression test and iterate on the fix until it passes.
-  - Validate with required quality gates for the affected package.
-- Closure criteria for a bug fix:
-  - Reproduction no longer fails after the fix.
-  - The reproducer test demonstrates fail-before and pass-after for the exact bug condition.
-  - No new diagnostics are introduced.
-  - User-facing behavior changes are documented where relevant.
-- Hotfix exception path:
-  - For urgent production blockers, a minimal containment patch may ship first.
-  - A follow-up root-cause fix and regression test must be scheduled immediately and tracked to completion.
+## PowerShell Text Processing
+- **Pattern:** `Get-Content` + index ranges + `Out-File -Encoding UTF8`. Select and export existing lines rather than constructing new arrays.
+- Contiguous: `@('header') + $lines[123..479] | Out-File -Encoding UTF8 output.ts`
+- Non-contiguous: `($lines[480..821] + $lines[998..1065] + $lines[1166..1209]) | Out-File -Encoding UTF8 output.ts`
+- Double-quoted strings: single quotes `'` are literal — no escaping needed.
+- Avoid `\x27` in single-quoted strings — it writes literal `\x27` bytes, not `'`.
+
+## Splitting Vitest Test Files with Shared Hoisted Mocks
+- Vitest `vi.hoisted` values cannot be exported or imported across modules — the mock factory runs before any imports evaluate.
+- **Working pattern:** compile-time include directive. Create `shared-mock-setup.ts` (no imports/exports, bare comments only — no JSDoc/backticks) containing `vi.hoisted` + `vi.mock`. Create a Vite plugin (`include-directive.ts`, `enforce: 'pre'`) that replaces `/// #include ./shared-mock-setup.ts` with the file contents.
+- Each split test file uses `/// #include ./shared-mock-setup.ts` as line 1.
+- **ESLint:** add `shared-mock-setup.ts` to ignores; add `"no-undef": "off"` for test files using the directive (ESLint runs before Vite transforms).
 
 ## Lessons Learned
-- Type safety is most effective at library boundaries; local app casts create brittle debt.
-- Most recurring regressions come from environment/setup drift, not core logic.
+- Type safety is most effective at library boundaries; consumer-side casts create brittle debt.
+- Most regressions come from environment/setup drift, not core logic.
 - Reliable Proxmox actions depend on accurate node propagation end-to-end.
 - Terminal interoperability benefits from explicit sequence normalization and trace logging.
 - Consistent pre-merge validation prevents avoidable late-stage churn.
+
+---
+
+# Workspace-Dependent (This Project)
+
+These rules are specific to this repository's stack, tooling, and domain.
+
+## Workspace Operations
+- **Multi-machine:** Fri–Tue primary station, Wed–Thu Surface Pro in Rotterdam.
+- Always `git pull` before starting. Re-read `AGENTS.md` and `POLICIES.md`.
+
+## Architecture: pve-client + playground
+- **Fix API-surface gaps in `pve-client` first**; avoid consumer-side cast workarounds.
+- Avoid `as unknown as Record<...>` and similar double-cast patterns.
+- Export and consume named typed APIs (`NodeScopedAPI`, `QemuScopedAPI`, `LxcScopedAPI`).
+- If raw endpoint access is needed, use `client.request()` directly with typed path/args. Report so a decision can be made whether a named API is needed.
+- Server-side terminal/WebSocket responsibility lives in `pve-client`; playground wiring stays thin.
+- ESM TS in `pve-client`: use explicit `.js` extensions for relative imports.
+
+## Proxmox Behavior
+- Use real node identity for all actions — never submit fallback values like `unknown`.
+- Node-scoped workload lists use typed node APIs.
+- Guest action routing:
+  - VM → `nodeApi.qemu.vmid(id)`
+  - CT → `nodeApi.lxc.id(id)`
+
+## UI Interaction
+All modal-based actions (deploy, rename, configure): optimistic, single-shot submit.
+- On submit: close modal immediately, show "action started" status, disable duplicate triggers.
+- On failure: clear optimistic message, show server error.
+
+## Environment and Tooling
+- **Never run `npm run dev` directly.** Start the dev server via `acctest-env.ps1` from `svelte-playground/playground/` — it sets environment variables, builds `pve-client`, and starts the dev server.
+- Build `pve-client` before running playground if `dist` is missing.
+- Windows test runs: redirect `TEMP`/`TMP` to `.vitest/tmp` if needed to avoid `mkdtemp` failures.
+- Playground env vars documented in `svelte-playground/playground/PxMx-Admin-For-Datalab-Guide.md`.
+
+## Runbook
+Run commands from `svelte-playground/playground` for app changes, from `pve-client` for library changes.
+
+**Playground** (dev server already running):
+- Type/Svelte diagnostics: `npm run check`
+- Lint: `npm run lint`
+- Tests: `npm run test:unit -- --run`
+- Full quality gate: `npm run quality:gate`
+
+**pve-client:**
+- Build: `npm run build`
+- Type/lint/tests: run package-local `check`, `lint`, `test` scripts
