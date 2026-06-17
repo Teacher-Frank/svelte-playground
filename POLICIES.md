@@ -28,7 +28,7 @@ These rules apply to any project. They guide reasoning, prevent mistakes, and po
 - When refactoring oversized files: see _Refactor Approach_ below.
 - Document _why_ a decision was made, not only _what_ it does.
 
-## P2b: Test-First Refactoring
+## P2a: Test-First Refactoring
 - Generate a unit test showing current behavior before changing it. Verify the refactor preserves it.
 - If no suitable test target exists (private details), expose the minimum surface to make it testable first.
 
@@ -161,3 +161,36 @@ Run commands from `svelte-playground/playground` for app changes, from `pve-clie
 **pve-client:**
 - Build: `npm run build`
 - Type/lint/tests: run package-local `check`, `lint`, `test` scripts
+
+---
+
+## Appendix: Development Stack
+
+### pve-client (Proxmox TypeScript API Client — library)
+- **Language:** TypeScript 5.x, ESM (`"type": "module"`, `.js` extensions for relative imports)
+- **Build:** `tsc` + Vite with `vite-plugin-dts` — outputs dual ESM + CJS bundles (`dist/index.es.js`, `dist/index.cjs.js`) and `.d.ts` types
+- **Target:** Node ≥18 (`target: "node18"` — server-side library)
+- **Testing:** Vitest, coverage via `@vitest/coverage-v8`
+- **Linting/Types:** ESLint + `@typescript-eslint`, `tsc --noEmit`
+- **Docs:** TypeDoc
+- **Release:** Semantic-release (NPM + JSR)
+- **Runtime deps:** `ws` (WebSocket), `terminal.js` (terminal protocol), `wcwidth`, `@novnc/novnc`
+- **Consumed by:** `playground` via local `file:../../pve-client` dependency (must be built with `npm run build` before the playground can use it)
+
+### svelte-playground/playground (SvelteKit Admin App — application)
+- **Framework:** SvelteKit 2.x + Svelte 5 (runes mode)
+- **Build:** Vite with `@sveltejs/vite-plugin-svelte`
+- **Adapter:** `@sveltejs/adapter-node` — production runs as a custom Node HTTP server that also handles WebSocket upgrades
+- **Runtime:** `node --experimental-strip-types server/index.ts` (native TS execution, no compile step)
+- **Testing:** Vitest (unit + browser via Playwright + `vitest-browser-svelte`)
+- **Linting/Types:** ESLint + `eslint-plugin-svelte`, `svelte-check`
+- **Component Stories:** Storybook 10 (SvelteKit addon, CSF, a11y addon)
+- **Docs:** TypeDoc
+- **Terminal UI:** `@xterm/xterm` + `@xterm/addon-fit` (browser terminal emulator)
+- **VNC UI:** `@novnc/novnc`
+- **Tooltips:** `tippy.js`
+- **TLS in dev:** `vite-plugin-mkcert`
+
+### Workflow
+- **Dev server:** Always start via `acctest-env.ps1` from `svelte-playground/playground/` — this script sets environment variables, builds `pve-client`, then runs `npm run dev`.
+- **pve-client first:** Mostly shared behavior (terminal/WebSocket protocol, API types) lives in `pve-client`. Harden it there, then keep playground wiring thin.
