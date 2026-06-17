@@ -282,7 +282,7 @@ export async function executeWorkloadConfigureAction(
     const resizeResult = await client.request('/nodes/{node}/qemu/{vmid}/resize', 'PUT', {
       $path: { node, vmid: id },
       $body: {
-        disk: 'rootfs',
+        disk: vmDiskKey,
         size: `+${Math.floor(storageGiB!)}G`,
       },
     });

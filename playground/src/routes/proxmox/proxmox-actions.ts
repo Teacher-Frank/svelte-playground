@@ -73,7 +73,7 @@ const buildAction = (action: WorkloadAction) => {
     } catch (error) {
       return fail(500, {
         status: 'error' as const,
-        message: error instanceof Error ? error.message : String(error),
+        message: formatApiError(error instanceof Error ? error.message : String(error)),
         workloadType: selectedWorkload?.type,
         formType: selectedWorkload?.type,
       });
