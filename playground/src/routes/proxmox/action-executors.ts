@@ -318,4 +318,3 @@ export async function executeWorkloadConfigureAction(
     renamed: shouldRename,
   };
 }
-}

@@ -141,7 +141,23 @@ export const actions: Actions = {
         });
       }
 
-      const { upid, appliedCpuLimit, appliedMemoryMiB, appliedCpuCores, appliedStorageGiB, storageTaskUpid } =
+      const newNameTrimmed =
+        typeof newNameRaw === 'string'
+          ? newNameRaw.trim()
+          : undefined;
+      if (newNameTrimmed != null && newNameTrimmed.length > 0) {
+        const nameError = validateProxmoxName(newNameTrimmed);
+        if (nameError) {
+          return fail(400, {
+            status: 'error' as const,
+            message: `Name: ${nameError}`,
+            workloadType: selectedWorkload.type,
+            formType: selectedWorkload.type,
+          });
+        }
+      }
+
+      const { upid, appliedCpuLimit, appliedMemoryMiB, appliedCpuCores, appliedStorageGiB, storageTaskUpid, renamed } =
         await executeWorkloadConfigureAction(
           selectedWorkload.type,
           selectedWorkload.id,
@@ -149,6 +165,8 @@ export const actions: Actions = {
           cpuSharePercent,
           memoryMiB,
           storageGiB,
+          selectedWorkload.name,
+          newNameTrimmed,
         );
 
       const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
@@ -158,6 +176,9 @@ export const actions: Actions = {
           : `cpulimit=${appliedCpuLimit}`;
       const storageSummary = appliedStorageGiB
         ? `, storage=+${appliedStorageGiB} GiB`
+        : '';
+      const renameSummary = renamed
+        ? `, renamed to "${newNameTrimmed}"`
         : '';
       const taskSummary = [upid, storageTaskUpid].filter(
         (task): task is string => typeof task === 'string' && task.length > 0,
@@ -169,12 +190,12 @@ export const actions: Actions = {
           taskSummary.length > 0
             ? `Updated ${kindLabel} ${selectedWorkload.id}${
                 selectedWorkload.name ? ` (${selectedWorkload.name})` : ''
-              }: ${cpuSummary}, memory=${appliedMemoryMiB} MiB${storageSummary} — task${
+              }: ${cpuSummary}, memory=${appliedMemoryMiB} MiB${storageSummary}${renameSummary} — task${
                 taskSummary.length > 1 ? 's' : ''
               } ${taskSummary.join(', ')}.`
             : `Updated ${kindLabel} ${selectedWorkload.id}${
                 selectedWorkload.name ? ` (${selectedWorkload.name})` : ''
-              }: ${cpuSummary}, memory=${appliedMemoryMiB} MiB${storageSummary}.`,
+              }: ${cpuSummary}, memory=${appliedMemoryMiB} MiB${storageSummary}${renameSummary}.`,
         upid,
         workloadType: selectedWorkload.type,
         formType: selectedWorkload.type,

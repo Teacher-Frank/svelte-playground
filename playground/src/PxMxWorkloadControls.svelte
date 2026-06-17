@@ -192,11 +192,13 @@
   let cpuSharePercent = $state(25);
   let memoryMiB = $state(1024);
   let storageGiB = $state(1);
+  let workloadName = $state('');
 
   const openConfigureModal = () => {
     cpuSharePercent = defaultCpuSharePercent;
     memoryMiB = defaultMemoryMiB;
     storageGiB = hostAvailableStorageGiB > 0 ? 1 : 0;
+    workloadName = selectedWorkload?.name ?? '';
     showConfigureModal = true;
   };
 
@@ -449,6 +451,18 @@
           <input name="name" type="hidden" value={selectedWorkload?.name ?? ''} />
           <input name="node" type="hidden" value={selectedWorkload?.node ?? ''} />
           <input name="status" type="hidden" value={selectedWorkload?.status ?? ''} />
+
+          <label class="config-label" for="workload-name">Name</label>
+          <input
+            id="workload-name"
+            name="newName"
+            type="text"
+            minlength="1"
+            maxlength="253"
+            bind:value={workloadName}
+            placeholder="Workload name"
+          />
+          <p class="config-hint">Leave unchanged to keep the current name. Use letters, digits, hyphens, and dots.</p>
 
           <label class="config-label" for="cpu-share-percent">Needed CPU share (%)</label>
           <input
