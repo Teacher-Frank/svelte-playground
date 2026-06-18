@@ -118,6 +118,14 @@ Output format: findings ordered by severity with file refs → open questions �
 - **ESLint:** add `shared-mock-setup.ts` to ignores; add `"no-undef": "off"` for test files using the directive (ESLint runs before Vite transforms).
 
 ## Lessons Learned
+
+## Notification System
+- **One notification per action** — never show both a toast AND an inline bar for the same action.
+- **Toast** (floating bottom): transient "work-in-progress" or "task started" feedback → auto-dismisses after 3–5 seconds.
+- **Inline bar** (in-page, above the relevant section): final outcome → success auto-dismisses after 10s, errors stay until manually dismissed.
+- When an inline bar arrives (e.g., server response), any pending toast for the same action MUST be cleared.
+- Use the unified `toast-notification.ts` store and `ToastNotification.svelte` — do not create ad-hoc notification elements.
+- Shared auto-dismiss logic lives in `toast-notification.ts`, never duplicated per component.
 - Type safety is most effective at library boundaries; consumer-side casts create brittle debt.
 - Most regressions come from environment/setup drift, not core logic.
 - Reliable Proxmox actions depend on accurate node propagation end-to-end.
