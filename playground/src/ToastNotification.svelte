@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ToastContext } from './notification-store.js';
+  import type { ToastContext } from './notification-store.svelte.js';
 
   let {
     context,

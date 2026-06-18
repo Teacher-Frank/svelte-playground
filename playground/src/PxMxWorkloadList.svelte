@@ -1,6 +1,6 @@
 <script lang="ts">
   import './PxMxStyle.css';
-  import { useToast } from './notification-store.js';
+  import { useToast } from './notification-store.svelte.js';
   import ToastNotification from './ToastNotification.svelte';
   import PxMxWorkloadControls from './PxMxWorkloadControls.svelte';
 
@@ -121,8 +121,7 @@
   };
 
   // Unified notification system — scope derived from kind prop
-  const notifyScope = $derived(kind === 'vm' ? 'vm-workloads' : 'container-workloads');
-  const notify = useToast(notifyScope as 'vm-workloads' | 'container-workloads');
+  const notify = useToast(kind === 'vm' ? 'vm-workloads' : 'container-workloads');
 
   // React to form results from server
   $effect(() => {

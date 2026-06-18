@@ -1,7 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import './PxMxStyle.css';
-  import { useToast } from './notification-store.js';
+  import { useToast } from './notification-store.svelte.js';
   import ToastNotification from './ToastNotification.svelte';
 
   type SelectedWorkload = {

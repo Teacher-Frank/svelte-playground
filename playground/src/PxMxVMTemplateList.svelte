@@ -1,6 +1,6 @@
 <script lang="ts">
   import './PxMxStyle.css';
-  import { useToast } from './notification-store.js';
+  import { useToast } from './notification-store.svelte.js';
   import { createOptimisticDialogEnhance, focusAndSelectInput } from './templateDialogEnhance.js';
   import type { EnhanceResult } from './templateDialogEnhance.js';
   import PxMxTemplateTable from './PxMxTemplateTable.svelte';
