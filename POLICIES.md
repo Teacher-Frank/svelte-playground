@@ -32,6 +32,11 @@ These rules apply to any project. They guide reasoning, prevent mistakes, and po
 - When refactoring oversized files: see _Refactor Approach_ below.
 - Document _why_ a decision was made, not only _what_ it does.
 
+## P2b: Consistent Patterns
+- When a problem has a confirmed unified solution, apply it everywhere it's needed.
+- Never leave ad-hoc or legacy patterns alongside the canonical one — consolidate them.
+- Example: if a shared notification system replaces scattered `<p>` elements, refactor all consumers to use it.
+
 ## P2a: Test-First Refactoring
 - Generate a unit test showing current behavior before changing it. Verify the refactor preserves it.
 - If no suitable test target exists (private details), expose the minimum surface to make it testable first.
