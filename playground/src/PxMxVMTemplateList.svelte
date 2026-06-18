@@ -1,9 +1,11 @@
 <script lang="ts">
   import './PxMxStyle.css';
+  import { useToast } from './notification-store.js';
   import { createOptimisticDialogEnhance, focusAndSelectInput } from './templateDialogEnhance.js';
   import type { EnhanceResult } from './templateDialogEnhance.js';
   import PxMxTemplateTable from './PxMxTemplateTable.svelte';
   import PxMxTemplateDialog from './PxMxTemplateDialog.svelte';
+  import ToastNotification from './ToastNotification.svelte';
 
   type Workload = {
     id?: number | string;
@@ -63,10 +65,10 @@
   let ciPassword = $state('');
   let vmNameInput: HTMLInputElement | null = $state(null);
   let submitInFlight = $state(false);
-  let pendingMessage = $state<string | null>(null);
   let pendingDeployContext = $state<{ name: string; node?: string } | null>(null);
-  let pendingMessageTimeout: ReturnType<typeof setTimeout> | null = null;
-  let resultMessageTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  // Unified notification — replaces pendingMessage, dismissed, timeout logic
+  const notify = useToast('vm-templates');
 
   const vmDialogTitle = $derived.by(() => {
     const templateName = activeTemplate?.name ?? activeTemplate?.id?.toString() ?? 'template';
@@ -103,64 +105,14 @@
       ? 'VM deployment started. The task is now running.'
       : 'Template rename started.';
 
-  let dismissed = $state(false);
+  // React to form results from server: move them into the unified notification
   $effect(() => {
-    // Reset dismissed state whenever a new form result arrives
-    if (form?.message) {
-      dismissed = false;
-      pendingMessage = null;
+    if (!form?.message) return;
+    if (form.status === 'error') {
+      notify.error(form.message);
+    } else {
+      notify.success(form.message);
     }
-  });
-
-  $effect(() => {
-    if (pendingMessageTimeout) {
-      clearTimeout(pendingMessageTimeout);
-      pendingMessageTimeout = null;
-    }
-
-    if (!pendingMessage) {
-      return;
-    }
-
-    pendingMessageTimeout = setTimeout(() => {
-      pendingMessage = null;
-      pendingMessageTimeout = null;
-    }, 10_000);
-
-    return () => {
-      if (pendingMessageTimeout) {
-        clearTimeout(pendingMessageTimeout);
-        pendingMessageTimeout = null;
-      }
-    };
-  });
-
-  $effect(() => {
-    if (resultMessageTimeout) {
-      clearTimeout(resultMessageTimeout);
-      resultMessageTimeout = null;
-    }
-
-    if (!form?.message || dismissed) {
-      return;
-    }
-
-    // Auto-dismiss success feedback. Error messages stay until dismissed.
-    if (form.status !== 'success') {
-      return;
-    }
-
-    resultMessageTimeout = setTimeout(() => {
-      dismissed = true;
-      resultMessageTimeout = null;
-    }, 10_000);
-
-    return () => {
-      if (resultMessageTimeout) {
-        clearTimeout(resultMessageTimeout);
-        resultMessageTimeout = null;
-      }
-    };
   });
 
   const enhanceVmDialogSubmit = () => {
@@ -170,8 +122,8 @@
       },
       onSubmitStart: () => {
         submitInFlight = true;
-        pendingMessage = pendingSubmitMessage();
-        dismissed = false;
+        // Toast replaces old pendingMessage — auto-dismisses after 3s
+        notify.toast(pendingSubmitMessage());
         if (activeAction === 'deploy') {
           const payload = {
             name: requestedName.trim(),
@@ -195,11 +147,8 @@
             taskUpids: upids,
           });
         }
-        if (result?.type === 'failure') {
-          pendingMessage = null;
-          if (pendingDeployContext) {
-            onDeployFailed?.(pendingDeployContext);
-          }
+        if (result?.type === 'failure' && pendingDeployContext) {
+          onDeployFailed?.(pendingDeployContext);
         }
         pendingDeployContext = null;
       },
@@ -211,18 +160,8 @@
     <h2>VM Templates</h2>
   </div>
 
-  {#if pendingMessage}
-    <p class="action-success">
-      {pendingMessage}
-    </p>
-  {/if}
-
-  {#if form?.message && !dismissed}
-    <p class={form.status === 'error' ? 'action-error' : 'action-success'}>
-      {form.message}
-      <button class="dismiss-btn" onclick={() => dismissed = true} aria-label="Dismiss">✕</button>
-    </p>
-  {/if}
+  <!-- Unified notification: inline bar for final result, toast for task started -->
+  <ToastNotification {notify} inline={true} />
 
   {#if templates.length > 0}
     <PxMxTemplateTable
@@ -306,45 +245,5 @@
     padding: 0.25rem 0.5rem;
     font-size: 0.9rem;
     width: 12rem;
-  }
-
-  .action-success {
-    color: #166534;
-    background: #dcfce7;
-    border: 1px solid #86efac;
-    border-radius: 0.4rem;
-    padding: 0.4rem 0.75rem;
-    margin-bottom: 0.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .action-error {
-    color: #991b1b;
-    background: #fee2e2;
-    border: 1px solid #fca5a5;
-    border-radius: 0.4rem;
-    padding: 0.4rem 0.75rem;
-    margin-bottom: 0.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .dismiss-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 0.85rem;
-    line-height: 1;
-    opacity: 0.6;
-    padding: 0;
-  }
-
-  .dismiss-btn:hover {
-    opacity: 1;
   }
 </style>

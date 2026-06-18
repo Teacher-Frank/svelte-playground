@@ -1,5 +1,7 @@
 <script lang="ts">
   import './PxMxStyle.css';
+  import { useToast } from './notification-store.js';
+  import ToastNotification from './ToastNotification.svelte';
   import PxMxWorkloadControls from './PxMxWorkloadControls.svelte';
 
   type WorkloadKind = 'vm' | 'container';
@@ -118,41 +120,18 @@
     return `Tasks: ${workload.deployTaskUpids.join(', ')}`;
   };
 
-  let dismissed = $state(false);
-  let dismissTimeout: ReturnType<typeof setTimeout> | null = null;
+  // Unified notification system — scope derived from kind prop
+  const notifyScope = $derived(kind === 'vm' ? 'vm-workloads' : 'container-workloads');
+  const notify = useToast(notifyScope as 'vm-workloads' | 'container-workloads');
+
+  // React to form results from server
   $effect(() => {
-    // Reset dismissal when server action feedback changes so each new result is
-    // visible at least once and cannot be hidden by a previous dismiss click.
-    if (form?.message) dismissed = false;
-  });
-
-  $effect(() => {
-    if (dismissTimeout) {
-      clearTimeout(dismissTimeout);
-      dismissTimeout = null;
+    if (!form?.message || form.workloadType !== kind) return;
+    if (form.status === 'error') {
+      notify.error(form.message);
+    } else {
+      notify.success(form.message);
     }
-
-    if (!form?.message || form.workloadType !== kind || dismissed) {
-      return;
-    }
-
-    // Auto-dismiss success bars after 10 seconds. Error messages stay until
-    // the user dismisses them so failures are always visible for review.
-    if (form.status !== 'success') {
-      return;
-    }
-
-    dismissTimeout = setTimeout(() => {
-      dismissed = true;
-      dismissTimeout = null;
-    }, 10_000);
-
-    return () => {
-      if (dismissTimeout) {
-        clearTimeout(dismissTimeout);
-        dismissTimeout = null;
-      }
-    };
   });
 </script>
 
@@ -301,51 +280,11 @@
     <p>{emptyStateLabel}</p>
   {/if}
 
-  {#if form?.message && form.workloadType === kind && !dismissed}
-    <p class="action-status" class:success={form.status === 'success'} class:error={form.status === 'error'}>
-      {form.message}
-      <button class="dismiss-btn" onclick={() => dismissed = true} aria-label="Dismiss">✕</button>
-    </p>
-  {/if}
+  <!-- Unified notification -->
+  <ToastNotification {notify} inline={true} />
 </section>
 
 <style>
-  .action-status {
-    align-items: center;
-    border-radius: 0.4rem;
-    display: flex;
-    gap: 0.8rem;
-    justify-content: space-between;
-    margin: 0.8rem 0;
-    padding: 0.75rem 1rem;
-  }
-
-  .action-status.success {
-    background: #e8f5e9;
-    border: 1px solid #81c784;
-    color: #2e7d32;
-  }
-
-  .action-status.error {
-    background: #ffebee;
-    border: 1px solid #ef5350;
-    color: #c62828;
-  }
-
-  .dismiss-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 0.85rem;
-    line-height: 1;
-    opacity: 0.6;
-    padding: 0;
-  }
-
-  .dismiss-btn:hover {
-    opacity: 1;
-  }
-
   .status-default {
     color: inherit;
   }

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import './PxMxStyle.css';
+  import { useToast } from './notification-store.js';
+  import ToastNotification from './ToastNotification.svelte';
 
   type SelectedWorkload = {
     type: 'vm' | 'container';
@@ -186,8 +188,9 @@
   let destroySubmitInFlight = $state(false);
   let showConfigureModal = $state(false);
   let configureSubmitInFlight = $state(false);
-  let configToast = $state<{ kind: 'success' | 'error'; message: string } | null>(null);
-  let configToastTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  // Unified notification system
+  const notify = useToast('config');
 
   let cpuSharePercent = $state(25);
   let memoryMiB = $state(1024);
@@ -200,23 +203,6 @@
     storageGiB = hostAvailableStorageGiB > 0 ? 1 : 0;
     workloadName = selectedWorkload?.name ?? '';
     showConfigureModal = true;
-  };
-
-  const showConfigToast = (kind: 'success' | 'error', message: string) => {
-    configToast = { kind, message };
-    if (configToastTimeout) {
-      clearTimeout(configToastTimeout);
-    }
-
-    // Auto-dismiss success toasts. Error toasts stay until user dismisses.
-    if (kind === 'error') {
-      return;
-    }
-
-    configToastTimeout = setTimeout(() => {
-      configToast = null;
-      configToastTimeout = null;
-    }, 10_000);
   };
 
   const preserveScrollOnSubmit = () => {
@@ -265,7 +251,7 @@
     const scrollY = window.scrollY;
     configureSubmitInFlight = true;
     showConfigureModal = false;
-    showConfigToast('success', 'Configuration update started. The task is now running.');
+    notify.toast('Configuration update started. The task is now running.');
 
     return async ({ result, update }: { result: { type?: string; data?: { message?: string } }; update: () => Promise<void> }) => {
       await update();
@@ -273,12 +259,12 @@
       configureSubmitInFlight = false;
 
       if (result?.type === 'success') {
-        showConfigToast('success', result.data?.message ?? 'Container configuration updated.');
+        notify.success(result.data?.message ?? 'Container configuration updated.');
         return;
       }
 
       if (result?.type === 'failure') {
-        showConfigToast('error', result.data?.message ?? 'Failed to update container configuration.');
+        notify.error(result.data?.message ?? 'Failed to update container configuration.');
       }
     };
   };
@@ -519,9 +505,6 @@
     </div>
   {/if}
 
-  {#if configToast}
-    <p class="config-toast" class:success={configToast.kind === 'success'} class:error={configToast.kind === 'error'}>
-      {configToast.message}
-    </p>
-  {/if}
+  <!-- Unified notification: floating toast for config actions -->
+  <ToastNotification {notify} inline={false} />
 </div>
