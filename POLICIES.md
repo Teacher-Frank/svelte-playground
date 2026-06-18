@@ -8,13 +8,17 @@ This file is the authoritative policy source for this workspace. Read it at the 
 3. **Enable self-verification** — continuously feeds the model a built-in feedback loop, so it tests changes against this file before presenting work as complete.
 4. **Settle trade-off conflicts** — explicitly resolves competing best practices into a single authoritative position, so the model doesn't guess which side to take.
 
-Priority directives are numbered in descending order — P1 is highest and most critical.
+Priority directives are numbered in descending order — P0 is highest and most critical.
 
 ---
 
 # Workspace-Independent (General Principles)
 
 These rules apply to any project. They guide reasoning, prevent mistakes, and port across tools and teams.
+
+## P0: Read This File at Session Start
+- Read `POLICIES.md` at the beginning of every new session before taking any other action.
+- This is the highest priority directive — all other rules depend on it.
 
 ## P1: Single Source of Truth
 - `POLICIES.md` is the only authoritative policy file. Do not create duplicates or mirror rules.
@@ -87,6 +91,7 @@ Output format: findings ordered by severity with file refs → open questions �
 - During monthly review, validate each exception — remove or refresh justification.
 
 ---
+# Technology-specific
 
 ## Refactor Approach
 - **Test constraints before building solutions.** Before trying multiple approaches to work within an untested external constraint, write a single minimal repro to confirm whether it's possible.
@@ -97,6 +102,12 @@ Output format: findings ordered by severity with file refs → open questions �
 - **Pattern:** `Get-Content` + index ranges + `Out-File -Encoding UTF8`. Select and export existing lines rather than constructing new arrays.
 - Contiguous: `@('header') + $lines[123..479] | Out-File -Encoding UTF8 output.ts`
 - Non-contiguous: `($lines[480..821] + $lines[998..1065] + $lines[1166..1209]) | Out-File -Encoding UTF8 output.ts`
+
+## TypeScript ESM Imports (`nodenext` / `node16` moduleResolution)
+- **Rule:** All relative imports and re-exports in `.ts` files must use explicit `.js` extensions (e.g., `from "./module.js"`, not `from "./module"`), even though the source files are `.ts`.
+- TypeScript with `--moduleResolution nodenext` (or `node16`) enforces this at compile time (TS2835).
+- Applies to both `import` and `export ... from` clauses.
+- Non-relative imports (bare package specifiers like `"node:https"` or `"vitest"`) do not require extensions.
 - Double-quoted strings: single quotes `'` are literal — no escaping needed.
 - Avoid `\x27` in single-quoted strings — it writes literal `\x27` bytes, not `'`.
 
