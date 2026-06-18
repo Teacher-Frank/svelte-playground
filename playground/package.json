@@ -84,8 +84,10 @@
 		"@novnc/novnc": "^1.7.0",
 		"https": "^1.0.0",
 		"pve-client": "file:../../pve-client",
+		"terminal.js": "^1.0.11",
 		"tippy": "^0.0.0",
-		"tippy.js": "^6.3.7"
+		"tippy.js": "^6.3.7",
+		"wcwidth": "^1.0.1"
 	},
 	"allowScripts": {
 		"esbuild@0.27.7": true
