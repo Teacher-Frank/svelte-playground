@@ -123,6 +123,15 @@ export async function deployVmFromTemplate(
       configBody.agent = 'enabled=1';
     }
 
+    // Auto-install qemu-guest-agent via cloud-init on first boot so the
+    // playground can discover the VM's IP address after cloning.
+    configBody.cicommand = JSON.stringify([
+      {
+        command:
+          'test -f /usr/sbin/qemu-ga || (apt-get update -qq && apt-get install -y qemu-guest-agent) && systemctl enable --now qemu-guest-agent',
+      },
+    ]);
+
     await client.request('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
       $path: { node: templateNode, vmid: newid },
       $body: configBody,
