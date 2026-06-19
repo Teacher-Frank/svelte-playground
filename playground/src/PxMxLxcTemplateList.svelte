@@ -97,9 +97,6 @@
 
     return [...guestRows, ...storageRows];
   });
-  const hasUbuntu2404Template = $derived(
-    templates.some((template) => /(?:^|:)vztmpl\/ubuntu-24\.04-standard_/i.test(template.volid))
-  );
 
   const templateTableHeaders = ['Type', 'Template', 'Name', 'Location', 'Format', 'Size (MB)', 'Actions'];
 

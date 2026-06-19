@@ -26,7 +26,6 @@ const validResizeDisks = [
   'sata0', 'sata1', 'sata2', 'sata3', 'sata4', 'sata5',
   'efidisk0', 'tpmstate0',
 ] as const;
-type QemuResizeDisk = typeof validResizeDisks[number];
 
 // ---------------------------------------------------------------------------
 // Execute helpers
@@ -293,14 +292,14 @@ export async function executeWorkloadConfigureAction(
       );
     }
 
-    if (!validResizeDisks.includes(vmDiskKey as QemuResizeDisk)) {
+    if (!validResizeDisks.includes(vmDiskKey as never)) {
       throw new Error(`Invalid disk key '${vmDiskKey}' for vmid ${id} on node ${node}.`);
     }
 
     const resizeResult = await client.request('/nodes/{node}/qemu/{vmid}/resize', 'PUT', {
       $path: { node, vmid: id },
       $body: {
-        disk: vmDiskKey,
+        disk: vmDiskKey as never,
         size: `+${Math.floor(storageGiB!)}G`,
       },
     });

@@ -203,10 +203,9 @@ export async function cloneLxcTemplate(
       : {}),
   };
 
-  return (await nodeApi.lxc.create(templateNode, {
-    $path: { node: templateNode },
+  return await nodeApi.lxc.create({
     $body: createBody,
-  })) as string;
+  });
 }
 
 /**

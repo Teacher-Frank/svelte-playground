@@ -28,6 +28,17 @@ import {
 } from './action-template-deployers.js';
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Formats a Proxmox API error message for user display. */
+function formatApiError(message: string): string {
+  return message.includes('login or token required')
+    ? 'Proxmox authentication required. Check PVE credentials in environment variables.'
+    : message;
+}
+
+// ---------------------------------------------------------------------------
 // Action builder
 // ---------------------------------------------------------------------------
 
