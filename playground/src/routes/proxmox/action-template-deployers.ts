@@ -123,14 +123,11 @@ export async function deployVmFromTemplate(
       configBody.agent = 'enabled=1';
     }
 
-    // Auto-install qemu-guest-agent via cloud-init on first boot so the
-    // playground can discover the VM's IP address after cloning.
-    configBody.cicommand = JSON.stringify([
-      {
-        command:
-          'test -f /usr/sbin/qemu-ga || (apt-get update -qq && apt-get install -y qemu-guest-agent) && systemctl enable --now qemu-guest-agent',
-      },
-    ]);
+    // Note: agent=enabled=1 only opens the virtio serial channel on the Proxmox
+    // side — the guest agent binary must be installed inside the guest OS for IP
+    // discovery to work. Pre-bake qemu-guest-agent in the template image, or use
+    // the manual install script (scripts/guest/install-guest-agent.sh) post-deploy.
+    // See: featuredocs/feature-deploy.md for investigation notes.
 
     await client.request('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
       $path: { node: templateNode, vmid: newid },

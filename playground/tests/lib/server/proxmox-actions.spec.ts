@@ -272,20 +272,12 @@ describe('proxmox page server actions', () => {
     });
     expect(mocks.taskWait).toHaveBeenCalledWith('UPID:vm-clone-task');
 
-    // Cloud-init drive and credentials applied via PUT config
+    // Cloud-init drive, credentials, and guest agent config applied via PUT config
+    // (cicommand intentionally absent — not a supported Proxmox API parameter, confirmed 2026-06-19)
     expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
       $path: { node: 'pve1', vmid: 200 },
       $body: expect.objectContaining({
         ide2: 'local-lvm:cloudinit',
-        ciuser: 'ubuntu',
-        cipassword: 'StrongPassw0rd!',
-      }),
-    });
-
-    // Guest agent is enabled in config body (no cicommand - not a supported Proxmox API parameter)
-    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
-      $path: { node: 'pve1', vmid: 200 },
-      $body: expect.objectContaining({
         ciuser: 'ubuntu',
         cipassword: 'StrongPassw0rd!',
       }),
