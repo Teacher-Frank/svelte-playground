@@ -121,7 +121,8 @@
   };
 
   // Unified notification system — scope derived from kind prop
-  const notify = useToast(kind === 'vm' ? 'vm-workloads' : 'container-workloads');
+  const toastScope = $derived(kind === 'vm' ? 'vm-workloads' : 'container-workloads');
+  const notify = useToast(toastScope);
 
   // React to form results from server
   $effect(() => {
