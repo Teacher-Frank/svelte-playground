@@ -20,6 +20,7 @@ export async function deployVmFromTemplate(
   const client = await createClient();
   const nodeApi: NodeScopedAPI = client.api.nodes.get(templateNode);
   const cloudInitStorage = process.env.PVE_VM_CLOUDINIT_STORAGE?.trim() || 'local-lvm';
+  const snippetStorage = process.env.PVE_SNIPPET_STORAGE?.trim() || 'local';
   const vmNetworkBridge = process.env.PVE_VM_NETWORK_BRIDGE?.trim() || 'vmbr0';
   const vmNetworkModel = process.env.PVE_VM_NETWORK_MODEL?.trim() || 'virtio';
 
@@ -123,11 +124,11 @@ export async function deployVmFromTemplate(
       configBody.agent = 'enabled=1';
     }
 
-    // Note: agent=enabled=1 only opens the virtio serial channel on the Proxmox
-    // side — the guest agent binary must be installed inside the guest OS for IP
-    // discovery to work. Pre-bake qemu-guest-agent in the template image, or use
-    // the manual install script (scripts/guest/install-guest-agent.sh) post-deploy.
-    // See: featuredocs/feature-deploy.md for investigation notes.
+    // Use cicustom cloud-init snippet to install qemu-guest-agent on first boot.
+    // The snippet (install-agent.yaml) must be deployed to Proxmox host first:
+    //   scripts/host/deploy-cloudinit-snippets.sh
+    // See: featuredocs/feature-deploy.md for full investigation and design notes.
+    configBody.cicustom = `user=${snippetStorage}:snippets/install-agent.yaml`;
 
     await client.request('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
       $path: { node: templateNode, vmid: newid },

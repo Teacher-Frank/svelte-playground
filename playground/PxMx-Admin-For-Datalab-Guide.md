@@ -303,9 +303,48 @@ Every VM cloned from this template will have the agent ready to go.
 > virtio serial channel on the Proxmox side. However, this alone does not install the
 > agent inside the guest — the binary must be present in the guest OS.
 
-#### 2.3.2 Option B: install manually on an existing guest
+#### 2.3.2 Option B: auto-install via cloud-init snippet (cicustom)
 
-If you're adding the agent to an already-deployed VM, or the template was missing it:
+If you can't modify the template image, you can use Proxmox's `cicustom` cloud-init
+parameter to install the guest agent on first boot. This requires a one-time host
+setup, then works for every cloned VM.
+
+**Step 1: Deploy the cloud-init snippet to the Proxmox host (one-time)**
+
+SSH into the Proxmox host and run:
+
+```bash
+sudo bash deploy-cloudinit-snippets.sh
+```
+
+This creates `/var/lib/vz/snippets/install-agent.yaml` — a cloud-init user-data file
+that installs and enables `qemu-guest-agent` on first boot via `runcmd`.
+
+> **Note:** This installs the `install-agent.yaml` snippet to the `local` storage.
+> If your storage with `snippets` support has a different ID (e.g., `fast-ssd`), you'll
+> need to update the `PVE_SNIPPET_STORAGE` variable in the script before running it.
+
+**Step 2: Set cicustom during deployment**
+
+When deploying a VM, set the `cicustom` config parameter to point to the snippet:
+
+```bash
+# Proxmox CLI
+qm set <vmid> --cicustom "user=${PVE_SNIPPET_STORAGE:-local}:snippets/install-agent.yaml"
+```
+
+Or in the playground deploy config:
+
+```typescript
+configBody.cicustom = `${snippetStorage}:snippets/install-agent.yaml`;
+```
+
+On first boot, cloud-init reads the snippet and runs the install command. The playground
+will detect the guest agent and display the VM's IP on the next refresh.
+
+#### 2.3.3 Option C: install manually on an existing guest
+
+If you're adding the agent to an already-deployed VM, or the other methods failed:
 
 1. SSH into the guest (or use the playground terminal).
 2. Run:

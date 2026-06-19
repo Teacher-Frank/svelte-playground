@@ -130,10 +130,13 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 - [x] Confirm `cicommand` is not a valid Proxmox API parameter
 - [x] Create canary test in pve-client to prevent recurrence
 - [x] Remove dead `cicommand` code from `action-template-deployers.ts`
+- [x] Create `scripts/host/deploy-cloudinit-snippets.sh` host setup script
+- [x] Add `configBody.cicustom` to deploy flow with `PVE_SNIPPET_STORAGE` env var
+- [x] Update `PxMx-Admin-For-Datalab-Guide.md` §2.3 with correct guest agent instructions
+- [ ] Test full deploy flow end-to-end (snippet install → cicustom → agent detected → IP shown)
 - [ ] Install `qemu-guest-agent` in the Ubuntu Desktop template image (pre-bake approach)
 - [ ] Check Proxmox task logs to see if clone/start tasks are actually completing
 - [ ] Add debug logging to `isDeployResolved` to trace why the 10-minute cap is hit
-- [ ] Update `PxMx-Admin-For-Datalab-Guide.md` §2.3.1 to remove the incorrect claim about `cicommand`
 
 ## Policy Added
 
@@ -143,12 +146,40 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 
 | File | Purpose |
 |------|---------|
-| `src/routes/proxmox/action-template-deployers.ts` | VM deployment logic (`cicommand` removed 2026-06-19) |
+| `src/routes/proxmox/action-template-deployers.ts` | VM deployment logic (cicustom wired in, PVE_SNIPPET_STORAGE env var) |
+| `scripts/host/deploy-cloudinit-snippets.sh` | Host setup script — deploys install-agent.yaml to /var/lib/vz/snippets (new) |
 | `src/PxMxAdmin.svelte` | Deploying state machine and resolution logic |
 | `src/routes/proxmox/helpers.ts` | Guest agent error detection, client creation |
 | `src/routes/proxmox/loadData.ts` | Data loading and guest agent handling |
 | `pve-client/tests/unit/qemuConfigCloudInit.test.ts` | Canary test for cloud-init API surface (new) |
 | `tests/lib/server/proxmox-actions.spec.ts` | Playground test (consolidated assertions, updated comment) |
 | `POLICIES.md` | P2c: Unknown API Surface Validation (new) |
-| `PxMx-Admin-For-Datalab-Guide.md` | Documentation (contains the incorrect claim about cicommand) |
-| `scripts/guest/install-guest-agent.sh` | Manual guest agent install script |
+| `PxMx-Admin-For-Datalab-Guide.md` | Admin guide §2.3 updated with cicustom option |
+| `scripts/guest/install-guest-agent.sh` | Manual guest agent install script (fallback) |
+
+## Implementation Details
+
+### Deploy flow (action-template-deployers.ts)
+
+```typescript
+const snippetStorage = process.env.PVE_SNIPPET_STORAGE?.trim() || 'local';
+// ...
+configBody.cicustom = `user=${snippetStorage}:snippets/install-agent.yaml`;
+```
+
+### Host setup (scripts/host/deploy-cloudinit-snippets.sh)
+
+```bash
+# Default storage: local
+sudo bash scripts/host/deploy-cloudinit-snippets.sh
+
+# Custom storage
+PVE_SNIPPET_STORAGE=fast-ssd sudo bash scripts/host/deploy-cloudinit-snippets.sh
+```
+
+### Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PVE_SNIPPET_STORAGE` | `local` | Proxmox storage ID for cloud-init snippets |
+| `PVE_VM_CLOUDINIT_STORAGE` | `local-lvm` | Proxmox storage ID for cloud-init disks (existing) |
