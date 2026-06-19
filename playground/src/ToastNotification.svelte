@@ -14,7 +14,7 @@
     inline?: boolean;
   } = $props();
 
-  const ctx = $derived(context ?? notify);
+  const ctx = $derived(context ?? notify) as ToastContext;
 </script>
 
 {#if ctx.notification}

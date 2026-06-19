@@ -53,6 +53,7 @@
 		"@sveltejs/kit": "^2.50.2",
 		"@sveltejs/package": "^2.5.7",
 		"@sveltejs/vite-plugin-svelte": "^6.2.4",
+		"@types/busboy": "^1.5.4",
 		"@types/node": "^24.12.0",
 		"@types/ws": "^8.18.1",
 		"@vitest/browser-playwright": "4.1.8",
@@ -82,6 +83,7 @@
 	],
 	"dependencies": {
 		"@novnc/novnc": "^1.7.0",
+		"busboy": "^1.6.0",
 		"https": "^1.0.0",
 		"pve-client": "file:../../pve-client",
 		"terminal.js": "^1.0.11",

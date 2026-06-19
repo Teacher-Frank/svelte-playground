@@ -2,9 +2,36 @@
 
 **Created:** 2026-06-18  
 **Updated:** 2026-06-19  
-**Status:** Planning phase — no code changes made yet  
+**Status:** ✅ Complete — merged and passing validation gate (check + lint + tests)  
 **Approach:** Option 2 — Dedicated HTTP Upload Endpoint using Proxmox APIs  
 **Scope:** Multiple file upload, no resume, configurable target directory, available-space–aware limits
+
+## Completed 2026-06-19
+
+All tasks implemented and validated. See commit history for details.
+
+### pve-client changes
+- Added `exec` and `exec_status` factory methods to `src/api/nodes/lxc.ts`
+- Added `LXCExec` and `LXCExecStatus` types to `src/api/nodes/types.ts`
+- Wired `exec`, `exec_status`, and `delete` in node-scoped LXC builder (`src/api/nodes/index.ts`)
+- Added missing `delete` alias to node-scoped QEMU `vmid()` builder
+- Fixed 4 pre-existing test failures: lxc.create/qemu.create arg count, missing .delete() methods (210/210 passing)
+
+### playground changes
+- **New:** `server/proxmoxTerminalUpload.ts` — POST `/proxmox/upload` handler (busboy multipart, QEMU agent file-write for VMs, LXC exec + base64 decode for containers)
+- **New:** `server/proxmoxGuestAgentStatus.ts` — GET `/proxmox/agent-status` handler (checks agent availability and disk space for VMs and containers)
+- **New:** `tests/lib/server/proxmox-upload.spec.ts` — 3 unit tests (missing params, VM agent, container status)
+- **Modified:** `server/index.ts` — attached new upload and agent-status handlers
+- **Modified:** `src/routes/proxmox/terminal/+page.svelte` — upload button, modal dialog, file picker, progress tracking, a11y-compliant
+- **Modified:** `package.json` — added `busboy` and `@types/busboy` dependencies
+- Fixed `formatApiError` missing function in `proxmox-actions.ts`
+- Fixed `lxc.create` arg count in `action-template-deployers.ts`
+- Fixed unused variables across multiple files (pre-existing errors)
+
+### Validation Gate (P3)
+- `npm run check` — 0 errors, 3 warnings (all pre-existing)
+- `npm run lint` — 0 errors
+- `npx vitest run` — 43 passed (43)
 
 ---
 
@@ -294,14 +321,6 @@ export const isUploadSupported = (type: 'vm' | 'container', status: string): boo
   }
 }
 ```
-
----
-
-## pve-client Limitations
-
-- **No native multipart support:** The pve-client `request()` method only handles form-urlencoded JSON or raw string/Blob bodies. For the upload endpoint, we'll call the Proxmox API directly using the session cookie from the client rather than using pve-client's typed methods.
-- **agent_file_write exists** in the pve-client but needs verification it's callable — the code generates it dynamically via path patterns.
-- **LXC exec exists** in pve-client via `client.api.nodes.get(node).lxc.id(vmid).exec()`
 
 ---
 
