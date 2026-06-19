@@ -1,8 +1,10 @@
 # File Upload Feature — Implementation Progress
 
 **Created:** 2026-06-18  
+**Updated:** 2026-06-19  
 **Status:** Planning phase — no code changes made yet  
-**Approach:** Option 2 — Dedicated HTTP Upload Endpoint using Proxmox APIs
+**Approach:** Option 2 — Dedicated HTTP Upload Endpoint using Proxmox APIs  
+**Scope:** Multiple file upload, no resume, configurable target directory, available-space–aware limits
 
 ---
 
@@ -58,8 +60,9 @@ Add an upload button to the terminal page toolbar. When clicked, it opens a file
 //   - vmid: number
 //   - node: string
 //   - type: 'vm' | 'container'
-//   - file: File (binary content)
-//   - path: string (target path inside VM/container, default: ~/upload/)
+//   - files: File[] (multiple files via multipart)
+//   - path: string (target directory inside VM/container, default: /tmp/upload/)
+//   - maxSize: number (optional, max size in bytes; server enforces hard cap at available_space - 100 MB)
 
 export function attachProxmoxUploadHandler(httpServer: HttpServer): void {
   httpServer.on('request', (req, res) => {
@@ -105,10 +108,15 @@ attachProxmoxUploadHandler(server);
 export function attachProxmoxAgentStatusHandler(httpServer: HttpServer): void {
   httpServer.on('request', async (req, res) => {
     if (req.method !== 'GET' || !req.url?.startsWith('/proxmox/agent-status')) return;
-    // Parse query params
-    // Create PVE client
-    // For VMs: try agent/network-get-interfaces, return available=true if successful
-    // For containers: check if running, return available=true
+    // Parse query params (vmid, node, type)
+    // For VMs:
+    //   - Try agent/network-get-interfaces, return available=true if successful
+    //   - Also call agent/exec to run `df -B1` to get available disk space
+    //   - Return { available: boolean, availableSpace: number } in bytes
+    // For containers:
+    //   - Check if running via lxc.id(vmid).get()
+    //   - Exec `df -B1` to get available disk space
+    //   - Return { available: true, availableSpace: number }
   });
 }
 ```
@@ -117,13 +125,18 @@ export function attachProxmoxAgentStatusHandler(httpServer: HttpServer): void {
 **Changes needed:**
 
 1. **Add upload button to terminal header toolbar**
-2. **Add file input element (hidden, triggered by button click)**
+2. **Add upload dialog panel** with:
+   - Target directory input field (default: `/tmp/upload`)
+   - Max size display (auto-calculated from available space − 100 MB)
+   - File picker (multiple selection)
+   - Upload progress per file and overall
 3. **On file selection:**
-   - Read file as ArrayBuffer
-   - Send via `fetch()` POST to `/proxmox/upload` with multipart form data
+   - Read each file as ArrayBuffer
+   - Send via `fetch()` POST to `/proxmox/upload` with multipart form data (one request per file or batch)
    - Show upload progress in terminal (write colored text to terminal output)
-4. **On page load:**
-   - Call `/proxmox/agent-status?vmid=...&node=...&type=...` to check availability
+4. **On dialog open:**
+   - Call `/proxmox/agent-status?vmid=...&node=...&type=...` to check availability and available disk space
+   - Calculate max allowed size (available_space − 100 MB)
    - If unavailable, disable button with tooltip
 
 **Header changes (conceptual):**
@@ -135,13 +148,14 @@ export function attachProxmoxAgentStatusHandler(httpServer: HttpServer): void {
       {disabled}
       title={tooltipText}
       class="upload-btn"
-      onclick={() => fileInput?.click()}
+      onclick={() => uploadDialogOpen = true}
     >
       Upload File
     </button>
     <input
       bind:this={fileInput}
       type="file"
+      multiple
       style="display:none"
       onchange={handleFileSelect}
     />
@@ -196,20 +210,37 @@ export const isUploadSupported = (type: 'vm' | 'container', status: string): boo
 1. **Create `server/proxmoxTerminalUpload.ts`** — The core upload handler
    - Parse multipart form data (use `busboy` npm package)
    - Create PVE client with same auth pattern as `proxmoxTerminalWs.ts`
-   - For VMs: call `agent_file_write` with base64 content
-   - For LXC: call `exec` with base64 decode command, poll for completion
-   - Return JSON response with success/error status
+   - **Before processing files:** Check available disk space and enforce hard cap (available_space − 100 MB)
+   - **Ensure target directory exists:**
+     - For VMs: exec `mkdir -p '<target-path>'` via guest agent
+     - For LXC: exec `mkdir -p '<target-path>'`
+   - **Process each file:**
+     - For VMs: call `agent_file_write` with base64 content
+     - For LXC: call `exec` with base64 decode command, poll for completion
+     - **Verify upload (LXC):** After write, exec `stat --format=%s '<path>'` to confirm size matches
+   - Return JSON response with per-file success/error status
 
-2. **Create `server/proxmoxGuestAgentStatus.ts`** — Agent availability check
-   - For VMs: try `agent/network-get-interfaces`, return success/failure
-   - For LXC: check if container is running via `lxc.id(vmid).get()`, return true if status is "running"
+2. **Create `server/proxmoxGuestAgentStatus.ts`** — Agent availability and disk space check
+   - For VMs:
+     - Try `agent/network-get-interfaces`, return success/failure for availability
+     - If agent available, exec `df -B1` to get available disk space
+     - Return `{ available: boolean, availableSpace: number | null, reason?: string }`
+   - For LXC:
+     - Check if container is running via `lxc.id(vmid).get()`
+     - Exec `df -B1` to get available disk space
+     - Return `{ available: boolean, availableSpace: number | null }`
 
 3. **Update `server/index.ts`** — Wire up new handlers
 
-4. **Update `+page.svelte`** — Add upload button to terminal header
-   - Fetch agent status on mount
+4. **Update `+page.svelte`** — Add upload button, dialog, and multi-file upload logic
+   - Show upload dialog on button click with:
+     - Target directory input (default: `/tmp/upload`)
+     - Max size display (auto-calculated from available space − 100 MB)
+     - File picker (multiple selection)
+     - Upload progress per file and overall bar
+   - Fetch agent status + available space on dialog open
    - Handle file selection and upload via fetch()
-   - Show progress/disabled state
+   - After upload: verify success and show completion notification in terminal
 
 5. **Add `busboy` dependency** to `package.json`
    - `npm install busboy` (server-side multipart parsing)
@@ -218,16 +249,25 @@ export const isUploadSupported = (type: 'vm' | 'container', status: string): boo
 
 ## Design Notes
 
-### Upload Target Path
-- Default target: `/tmp/upload/{filename}` (platform-safe, writable by most users)
-- Show a notification in the terminal when upload completes:
+### Upload Target Directory
+- **Configurable via upload dialog:** A text input field lets the user type the target directory path (default: `/tmp/upload`)
+- **Auto-create directory:** If the target directory doesn't exist, the server will create it first:
+  - For VMs: call `agent/exec` with `mkdir -p '<target-path>'`
+  - For LXC: exec `mkdir -p '<target-path>'`
+- **Show a notification in terminal** when upload completes:
   ```
   [Upload] myfile.txt -> /tmp/upload/myfile.txt (1.2 MB) ✓
   ```
+- **Multiple file support:** MVP supports multiple files in a single upload session; each file is written sequentially
 
 ### File Size Limits
-- Maximum file size: 100 MB (enforced server-side)
-- Proxmox guest agent file-write has its own limits (typically ~500 MB but varies)
+- **Configurable maximum file size:** Default 100 MB, overridable via environment variable or upload dialog
+- **Hard cap:** Total upload size never exceeds (available disk space on target VM/container − 100 MB)
+  - Server checks available space before accepting upload
+  - For LXC: run `df` inside container to get free space
+  - For VMs: query via guest agent (e.g., `agent/exec` to run `df`)
+- **Per-file limit:** Enforced both client-side (before upload starts) and server-side
+- **Proxmox guest agent file-write** has its own limits (typically ~500 MB but varies)
 
 ### Error Messages
 - Agent not running (VM): "QEMU guest agent is not running on this VM"
@@ -267,8 +307,8 @@ export const isUploadSupported = (type: 'vm' | 'container', status: string): boo
 
 ## Questions for Implementation
 
-1. **Target directory:** Should we create `~/upload/` as a default directory, or use a configurable path via env var?
-2. **Directory creation:** Do we need to ensure the target directory exists before writing?
+1. **Target directory:** Configurable via upload dialog input field. Default: `/tmp/upload`. No env var needed.
+2. **Directory creation:** Yes — server creates target directory before uploading (handled).
 3. **Resume support:** Not needed for MVP — full file upload only.
-4. **Multiple files:** MVP supports single file upload. Multiple files can be added later.
-5. **LXC file-restore vs exec:** Which approach is better for LXC? Exec is simpler and more universal (works on any running container). File-restore requires storage volume access.
+4. **Multiple files:** MVP supports multiple file upload in a single session (handled).
+5. **LXC file-restore vs exec:** Exec chosen — simpler, more universal, and supports verification via `stat` (handled).

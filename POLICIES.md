@@ -41,6 +41,13 @@ These rules apply to any project. They guide reasoning, prevent mistakes, and po
 - Generate a unit test showing current behavior before changing it. Verify the refactor preserves it.
 - If no suitable test target exists (private details), expose the minimum surface to make it testable first.
 
+## P2c: Unknown API Surface Validation
+- **Before using an external API parameter, endpoint, or method that hasn't been verified as real:** write a compile-time or runtime test that proves it exists.
+- If the parameter appears in generated type definitions (`types.ts`, OpenAPI spec, etc.), add an `expectTypeOf` canary test confirming its presence.
+- If types are auto-generated from an external spec, also fetch the official documentation to cross-reference — auto-generated types can be stale or incomplete.
+- If the parameter does **not** exist in the spec/types, document the gap and do not use it.
+- **Rationale:** fabricated API parameters (e.g., `cicommand`) silently fail at runtime — the server ignores unknown fields. A compile-time canary is the cheapest early warning.
+
 ## P3: Validation Gate
 - Before any commit, merge, or PR: all required validation MUST pass. If validation fails, the change MUST NOT ship without an approved exception.
 - Validation success: command exits `0`, no unresolved errors, output is clean.
@@ -107,7 +114,10 @@ Output format: findings ordered by severity with file refs → open questions �
 - **Pattern:** `Get-Content` + index ranges + `Out-File -Encoding UTF8`. Select and export existing lines rather than constructing new arrays.
 - Contiguous: `@('header') + $lines[123..479] | Out-File -Encoding UTF8 output.ts`
 - Non-contiguous: `($lines[480..821] + $lines[998..1065] + $lines[1166..1209]) | Out-File -Encoding UTF8 output.ts`
-
+## Svelte File Extensions
+- Use `.svelte.ts` for files that contain Svelte-specific syntax (runes like `$state`, `$derived`, `$effect`, `$props()`, etc.).
+- Use `.ts` for plain TypeScript modules (no Svelte runes or compiler features).
+- This distinction ensures the Svelte compiler processes files that need it, while plain modules go through standard TypeScript only.
 ## TypeScript ESM Imports (`nodenext` / `node16` moduleResolution)
 - **Rule:** All relative imports and re-exports in `.ts` files must use explicit `.js` extensions (e.g., `from "./module.js"`, not `from "./module"`), even though the source files are `.ts`.
 - TypeScript with `--moduleResolution nodenext` (or `node16`) enforces this at compile time (TS2835).

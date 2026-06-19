@@ -277,19 +277,35 @@ guest-side metrics, and perform graceful shutdowns. Without it:
 - Automatic DHCP → static IP conversion cannot trigger
 - Graceful shutdown from the UI won't work
 
-#### 2.3.1 Option A: auto-install via cloud-init (recommended)
+#### 2.3.1 Option A: pre-install in the base template (recommended)
 
-If the VM template was prepared with `setup-vm-template.sh` (Section 1.3), the playground
-deploy flow uses Proxmox's cloud-init `cicommand` to automatically install and enable
-`qemu-guest-agent` on the VM's first boot. No manual intervention is required.
+The most reliable approach is to install `qemu-guest-agent` in the VM template image
+before deploying from it:
 
-After first boot, the playground will detect the guest agent and show the IP on the next
-page refresh. A green toast notification will appear confirming the DHCP-to-static IP
-conversion.
+1. Boot the template VM and SSH in (or use the Proxmox console).
+2. On Debian/Ubuntu:
+   ```bash
+   sudo apt-get update && sudo apt-get install -y qemu-guest-agent
+   sudo systemctl enable --now qemu-guest-agent
+   ```
+3. On RHEL/CentOS:
+   ```bash
+   sudo yum install -y qemu-guest-agent
+   sudo systemctl enable --now qemu-guest-agent
+   ```
+4. In Proxmox GUI, enable guest-agent support on the template
+   (Hardware → Agent → check "Enable").
+5. Shut down the VM and convert it to a template.
+
+Every VM cloned from this template will have the agent ready to go.
+
+> **Note:** The deploy flow sets `agent=enabled=1` on cloned VMs, which enables the
+> virtio serial channel on the Proxmox side. However, this alone does not install the
+> agent inside the guest — the binary must be present in the guest OS.
 
 #### 2.3.2 Option B: install manually on an existing guest
 
-If the automatic install failed, or you're adding the agent to an already-deployed VM:
+If you're adding the agent to an already-deployed VM, or the template was missing it:
 
 1. SSH into the guest (or use the playground terminal).
 2. Run:
@@ -297,15 +313,8 @@ If the automatic install failed, or you're adding the agent to an already-deploy
    sudo bash install-guest-agent.sh
    ```
 
-#### 2.3.3 Option C: pre-install in the base template
-
-If you create your own templates:
-
-1. Boot the template VM and SSH in.
-2. Run `install-guest-agent.sh` (Section 2.2).
-3. In Proxmox GUI, enable guest-agent support on the template
-   (Hardware → Agent → check "Enable").
-4. Every VM cloned from this template will inherit the agent config.
+After installation, the playground will detect the guest agent on the next data refresh
+and display the VM's IP.
 
 ### 2.4 VNC and websockify (required for GUI access)
 
