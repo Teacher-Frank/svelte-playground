@@ -28,6 +28,14 @@
     hint?: Snippet;
     enhanceSubmit?: SubmitFunction;
   } = $props();
+
+  // Prevent an empty dialog from getting stuck visible after active goes false
+  // (e.g. from page data refresh, navigation, or reactivity timing)
+  $effect(() => {
+    if (!active && dialog && dialog.open) {
+      dialog.close();
+    }
+  });
 </script>
 
 <dialog class="template-dialog" bind:this={dialog} onclose={onDialogClose}>

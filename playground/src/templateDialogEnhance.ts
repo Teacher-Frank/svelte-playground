@@ -33,6 +33,7 @@ export const createOptimisticDialogEnhance = (options: DialogEnhanceOptions) => 
   const scrollY = window.scrollY;
 
   options.onSubmitStart();
+  // Close dialog immediately so the user isn't stuck waiting for the server
   options.closeDialog();
 
   return async ({ result, update }: EnhanceArgs) => {

@@ -4,12 +4,13 @@
  * Rules (per POLICIES.md):
  * - One notification per action — never both toast AND inline bar.
  * - Toast (floating): transient "work-in-progress" → auto-dismisses after 3s.
+ * - Pending (inline bar): long-running "work-in-progress" → stays until success/error replaces it.
  * - Inline bar (success/error/warning): final outcome → success 10s, error stays until manual dismiss.
  * - When an inline bar arrives, any pending toast for the same scope is cleared.
  * - Do not create ad-hoc notification elements in components.
  */
 
-export type NotificationKind = 'toast' | 'warning' | 'success' | 'error';
+export type NotificationKind = 'toast' | 'warning' | 'success' | 'error' | 'pending';
 export type NotificationScope = 'page' | 'vm-templates' | 'lxc-templates' | 'vm-workloads' | 'container-workloads' | 'config';
 
 /** What the ToastNotification.svelte component reads. */
@@ -33,6 +34,9 @@ export interface ToastContext {
   /** Transient "task started" toast → auto-dismisses after 3s. */
   toast(message: string): void;
 
+  /** Inline pending bar → stays until replaced by success/error (no auto-dismiss). */
+  pending(message: string): void;
+
   /** Inline success bar → auto-dismisses after 10s. */
   success(message: string): void;
 
@@ -49,6 +53,7 @@ const AUTO_DISMISS_MS: Record<NotificationKind, number | null> = {
   warning: 10000,
   success: 10000,
   error: null,
+  pending: null,
 };
 
 function createScope(): ToastContext {
@@ -111,6 +116,10 @@ function createScope(): ToastContext {
 
     toast(message: string) {
       set('toast', message);
+    },
+
+    pending(message: string) {
+      set('pending', message);
     },
 
     success(message: string) {

@@ -26,6 +26,7 @@
       class:warning={ctx.notification.kind === 'warning'}
       class:success={ctx.notification.kind === 'success'}
       class:error={ctx.notification.kind === 'error'}
+      class:pending={ctx.notification.kind === 'pending'}
     >
       <span>{ctx.notification.message}</span>
       {#if ctx.notification.dismissible}
@@ -39,6 +40,7 @@
       class="notify-toast"
       class:success={ctx.notification.kind === 'success'}
       class:error={ctx.notification.kind === 'error'}
+      class:pending={ctx.notification.kind === 'pending'}
     >
       {ctx.notification.message}
     </p>

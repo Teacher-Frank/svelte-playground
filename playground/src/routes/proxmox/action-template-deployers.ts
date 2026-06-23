@@ -9,6 +9,13 @@ import { createClient, pendingStaticConversion } from './helpers.js';
 /**
  * Clones a QEMU VM template, applies cloud-init credentials, configures
  * guest agent and network, then starts the VM.
+ *
+ * Architecture: The clone task is started synchronously (fast ~100ms), then the
+ * remaining work (wait for clone, apply config, start VM) runs asynchronously
+ * so the HTTP response returns immediately.
+ *
+ * The deployer function returns { cloneUpid } for tracking. The startUpid is
+ * only available after the async phase completes, tracked via Proxmox task logs.
  */
 export async function deployVmFromTemplate(
   templateId: number,
@@ -16,56 +23,56 @@ export async function deployVmFromTemplate(
   newName: string,
   ciUser: string,
   ciPassword: string,
-): Promise<{ cloneUpid: string; startUpid: string }> {
+): Promise<{ cloneUpid: string }> {
   const client = await createClient();
   const nodeApi: NodeScopedAPI = client.api.nodes.get(templateNode);
-  const cloudInitStorage = process.env.PVE_VM_CLOUDINIT_STORAGE?.trim() || 'local-lvm';
-  const snippetStorage = process.env.PVE_SNIPPET_STORAGE?.trim() || 'local';
-  const vmNetworkBridge = process.env.PVE_VM_NETWORK_BRIDGE?.trim() || 'vmbr0';
-  const vmNetworkModel = process.env.PVE_VM_NETWORK_MODEL?.trim() || 'virtio';
-
-  const hasTargetCloudInitVolume = async (vmid: number): Promise<boolean> => {
-    try {
-      const contentList = (await nodeApi.storage.get(cloudInitStorage).content.list({
-        $query: { vmid },
-      })) as Array<{ volid?: string }>;
-
-      return contentList.some(
-        (entry) => entry.volid === `${cloudInitStorage}:vm-${vmid}-cloudinit`
-      );
-    } catch (error) {
-      console.warn(
-        `[proxmox] Unable to verify cloud-init volume state for VM ${vmid} on storage ${cloudInitStorage}:`,
-        error,
-      );
-      return false;
-    }
-  };
-
-  const isCloudInitCollisionError = async (
-    vmid: number,
-    error: unknown,
-  ): Promise<boolean> => {
-    const message = error instanceof Error ? error.message : String(error);
-    const normalized = message.toLowerCase();
-    if (
-      !normalized.includes('lvcreate') ||
-      !normalized.includes('cloudinit') ||
-      !normalized.includes('already exists')
-    ) {
-      return false;
-    }
-
-    return await hasTargetCloudInitVolume(vmid);
-  };
 
   const newid = (await client.api.cluster.nextid()) as number;
 
-  try {
-    const cloneUpid = (await nodeApi.qemu.vmid(templateId).clone({
-      $body: { newid, name: newName, full: true },
-    })) as string;
-    await client.task.wait(cloneUpid);
+  // Phase 1: Start the clone task (returns immediately, ~100ms)
+  const cloneUpid = (await nodeApi.qemu.vmid(templateId).clone({
+    $body: { newid, name: newName, full: true },
+  })) as string;
+
+  // Phase 2: Wait for clone, apply config, start VM — runs in background.
+  // Queue after current tick so the HTTP response can send first.
+  setTimeout(() => {
+    runPostCloneSteps(client, nodeApi, templateNode, newid, cloneUpid, {
+      newName,
+      ciUser,
+      ciPassword,
+    }).catch((error) => {
+      console.error(
+        `[proxmox] Background deploy failed for VM ${newid} "${newName}":`,
+        error,
+      );
+    });
+  }, 0);
+
+  return { cloneUpid };
+}
+
+/**
+ * Runs the post-clone work: wait for clone, apply config, start VM.
+ * If any step fails after a successful clone, destroys the orphan VM.
+ */
+async function runPostCloneSteps(
+  client: Awaited<ReturnType<typeof createClient>>,
+  nodeApi: NodeScopedAPI,
+  templateNode: string,
+  newid: number,
+  cloneUpid: string,
+  params: {
+    newName: string;
+    ciUser: string;
+    ciPassword: string;
+  },
+): Promise<void> {
+  const {
+    newName,
+    ciUser,
+    ciPassword,
+  } = params;
 
     const clonedConfig = (await client.request(
       '/nodes/{node}/qemu/{vmid}/config',

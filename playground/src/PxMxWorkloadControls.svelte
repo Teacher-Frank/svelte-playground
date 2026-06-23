@@ -237,10 +237,23 @@
     destroySubmitInFlight = true;
     setWaitCursor(true);
 
-    return async ({ update }: { update: () => Promise<void> }) => {
-      await update();
-      window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
-      closeDeleteConfirm();
+    // Hard timeout: if the server takes longer than this, force-close the modal.
+    const TIMEOUT_MS = 30_000;
+
+    return async ({ update, result }: { update: () => Promise<void>; result: { type?: string } }) => {
+      try {
+        // Race update against a timeout so a hung server can't trap the modal forever.
+        await Promise.race([
+          update(),
+          new Promise<void>((resolve) => setTimeout(resolve, TIMEOUT_MS)),
+        ]);
+        if (result.type === 'failure') {
+          console.error('Destroy failed:', result);
+        }
+      } finally {
+        window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
+        closeDeleteConfirm();
+      }
     };
   };
 
@@ -251,20 +264,29 @@
     const scrollY = window.scrollY;
     configureSubmitInFlight = true;
     showConfigureModal = false;
-    notify.toast('Configuration update started. The task is now running.');
+
+    // Hard timeout: if the server takes longer than this, force-release the state.
+    const TIMEOUT_MS = 30_000;
 
     return async ({ result, update }: { result: { type?: string; data?: { message?: string } }; update: () => Promise<void> }) => {
-      await update();
-      window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
-      configureSubmitInFlight = false;
+      try {
+        // Race update against a timeout so a hung server can't trap the state forever.
+        await Promise.race([
+          update(),
+          new Promise<void>((resolve) => setTimeout(resolve, TIMEOUT_MS)),
+        ]);
+        window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
 
-      if (result?.type === 'success') {
-        notify.success(result.data?.message ?? 'Container configuration updated.');
-        return;
-      }
+        if (result?.type === 'success') {
+          notify.success(result.data?.message ?? 'Container configuration updated.');
+          return;
+        }
 
-      if (result?.type === 'failure') {
-        notify.error(result.data?.message ?? 'Failed to update container configuration.');
+        if (result?.type === 'failure') {
+          notify.error(result.data?.message ?? 'Failed to update container configuration.');
+        }
+      } finally {
+        configureSubmitInFlight = false;
       }
     };
   };

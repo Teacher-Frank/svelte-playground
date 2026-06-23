@@ -54,9 +54,12 @@ cat > "$SNIPPET_DIR/install-agent.yaml" <<'CLOUD-INIT'
 
 runcmd:
   # Install qemu-guest-agent if not already present, then enable it.
-  - >-
-    test -f /usr/sbin/qemu-ga ||
-    (apt-get update -qq && apt-get install -y qemu-guest-agent) &&
+  - |
+    set -e && \
+    if [ ! -f /usr/sbin/qemu-ga ]; then \
+      apt-get update -qq && \
+      apt-get install -y qemu-guest-agent; \
+    fi && \
     systemctl enable --now qemu-guest-agent
 CLOUD-INIT
 

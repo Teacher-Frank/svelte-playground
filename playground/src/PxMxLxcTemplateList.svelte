@@ -193,16 +193,6 @@
     return 'Container deployment started. The task is now running.';
   };
 
-  // React to form results from server: move them into the unified notification
-  $effect(() => {
-    if (!form?.message) return;
-    if (form.status === 'error') {
-      notify.error(form.message);
-    } else {
-      notify.success(form.message);
-    }
-  });
-
   const enhanceTemplateDialogSubmit = () => {
     return createOptimisticDialogEnhance({
       closeDialog: () => {
@@ -210,14 +200,13 @@
       },
       onSubmitStart: () => {
         submitInFlight = true;
-        notify.toast(pendingSubmitMessage());
+        // Pending bar stays visible until the server responds with success/error
+        notify.pending(pendingSubmitMessage());
         if (activeAction === 'deploy-storage' || activeAction === 'deploy-lxc') {
-          const payload = {
+          pendingDeployContext = {
             name: requestedName.trim(),
             node: activeTemplateRow?.templateNode ?? serverNode,
           };
-          pendingDeployContext = payload;
-          onDeployStarted?.(payload);
         } else {
           pendingDeployContext = null;
         }
@@ -233,9 +222,19 @@
             node: result.data?.deployTaskNode?.trim() || pendingDeployContext.node,
             taskUpids: upids,
           });
+
+          // Update name in case server renamed the workload
+          pendingDeployContext.name = result.data?.deployWorkloadName?.trim() || pendingDeployContext.name;
         }
-        if (result?.type === 'failure' && pendingDeployContext) {
-          onDeployFailed?.(pendingDeployContext);
+        // Show final outcome — replaces the pending bar
+        if (result?.type === 'success') {
+          const isDeploy = activeAction === 'deploy-storage' || activeAction === 'deploy-lxc';
+          notify.success(result.data?.message ?? (isDeploy ? 'Deployment started.' : 'Rename complete.'));
+        } else if (result?.type === 'failure') {
+          if (pendingDeployContext) {
+            onDeployFailed?.(pendingDeployContext);
+          }
+          notify.error(result.data?.message ?? 'Operation failed. Check the task log for details.');
         }
         pendingDeployContext = null;
       },

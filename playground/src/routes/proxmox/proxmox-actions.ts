@@ -334,7 +334,7 @@ export const actions: Actions = {
         });
       }
 
-      const { cloneUpid, startUpid } = await deployVmFromTemplate(
+      const { cloneUpid } = await deployVmFromTemplate(
         templateId,
         templateNode.trim(),
         newName.trim(),
@@ -344,11 +344,11 @@ export const actions: Actions = {
 
       return {
         status: 'success' as const,
-        message: `Deploying "${newName.trim()}" — cloned VM is starting now.`,
+        message: `Deploying "${newName.trim()}" — clone task started. VM will start automatically once ready.`,
         formType: 'vm-template',
         deployWorkloadName: newName.trim(),
         deployTaskNode: templateNode.trim(),
-        deployTaskUpids: [cloneUpid, startUpid],
+        deployTaskUpids: [cloneUpid],
       };
     } catch (error) {
       return fail(500, {

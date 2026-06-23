@@ -133,6 +133,14 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 - [x] Create `scripts/host/deploy-cloudinit-snippets.sh` host setup script
 - [x] Add `configBody.cicustom` to deploy flow with `PVE_SNIPPET_STORAGE` env var
 - [x] Update `PxMx-Admin-For-Datalab-Guide.md` §2.3 with correct guest agent instructions
+- [x] **Fix stuck delete modal** — added `try/finally` + 30s hard timeout to `enhanceDestroySubmit`
+- [x] **Fix stuck deploy dialog (empty backdrop)** — added `$effect` auto-close in `PxMxTemplateDialog`
+- [x] **Fix YAML fragment syntax** — changed `->` to `|` + shell `&&` command in `install-agent.yaml`
+- [x] **Fix notification gap** — added `pending` notification kind that stays until outcome arrives
+- [x] **Consolidate notification paths** — removed duplicate `onDeployStarted` + `$effect(form)`, single `onSubmitEnd` path
+- [x] **Fix configure modal no `try/finally`** — wrapped `enhanceConfigureSubmit` in `try/finally` with timeout
+- [ ] **Make server deploy non-blocking** — return clone UPID immediately; config+start in `setTimeout` background task (not started)
+- [ ] **Add orphan VM cleanup** — if config/start background task fails, destroy orphan VM (not started)
 - [ ] Test full deploy flow end-to-end (snippet install → cicustom → agent detected → IP shown)
 - [ ] Install `qemu-guest-agent` in the Ubuntu Desktop template image (pre-bake approach)
 - [ ] Check Proxmox task logs to see if clone/start tasks are actually completing
@@ -183,3 +191,46 @@ PVE_SNIPPET_STORAGE=fast-ssd sudo bash scripts/host/deploy-cloudinit-snippets.sh
 |----------|---------|---------|
 | `PVE_SNIPPET_STORAGE` | `local` | Proxmox storage ID for cloud-init snippets |
 | `PVE_VM_CLOUDINIT_STORAGE` | `local-lvm` | Proxmox storage ID for cloud-init disks (existing) |
+
+---
+
+## Deploy Flow Refactor — 2026-06-23 Session Notes
+
+### Audit: 6 Issues Found
+
+| # | Issue | Severity | Status |
+|---|-------|----------|--------|
+| 1 | YAML syntax error (`->` rejected by Proxmox) | 🔴 Runtime failure | ✅ Fixed |
+| 2 | Server blocks HTTP for 10-30s on `task.wait()` | 🔴 User waits with no feedback | ⬜ Pending |
+| 3 | Orphan VM if clone succeeds but config/start fails | 🔴 Resource leak | ⬜ Pending |
+| 4 | Notification gap (toast at 3s, bar at 30s+) | 🟡 User sees nothing for ~25s | ✅ Fixed |
+| 5 | Duplicate notification paths (3 channels firing) | 🟡 Messy UI, potential double-notifications | ✅ Fixed |
+| 6 | Delete/config modal hangs on server timeout | 🟡 Requires hard refresh | ✅ Fixed |
+
+### Changes Made (In Working Tree — Not Yet Committed)
+
+**1. YAML syntax fix** (`scripts/host/deploy-cloudinit-snippets.sh`)
+- Changed folded scalar (`->`) to literal block scalar (`|`) with shell `&&` continuation
+- **Must be re-run on server** to update `/var/lib/vz/snippets/install-agent.yaml`
+
+**4. Notification gap** (`notification-store.svelte.ts`, `ToastNotification.svelte`, `PxMxStyle.css`)
+- Added `pending` notification kind — no auto-dismiss, stays until replaced by success/error
+- Blue inline bar styling. Applied to both VM and LXC template deploys
+
+**5. Duplicate notification consolidation** (`PxMxVMTemplateList.svelte`, `PxMxLxcTemplateList.svelte`)
+- Removed redundant first `onDeployStarted(payload)` from `onSubmitStart` (fired with stale data)
+- Removed `$effect(form)` handler (duplicated server message display)
+- All success/error now flow through single `onSubmitEnd` path
+
+**6. Modal timeout** (`PxMxWorkloadControls.svelte`)
+- 30s `Promise.race` timeout on destroy & configure enhance handlers
+- `try/finally` ensures state cleanup even on hung server
+
+**Bonus: Dialog sticky backdrop** (`PxMxTemplateDialog.svelte`)
+- `$effect` auto-closes `<dialog>` when `active` prop goes false
+
+### Remaining: Issues #2 and #3
+
+**#2 — Non-blocking server action:** `deployVmFromTemplate` blocks on `client.task.wait(cloneUpid)` for the full clone duration (~10s+). Tie-up the browser waiting. Proposed fix: return clone UPID immediately, do config+start in a `setTimeout` background task on the server.
+
+**#3 — Orphan VM cleanup:** If clone succeeds but config/start fails, orphan VM is left behind. Proposed fix: wrap config+start in try/catch that destroys the orphan VMID on failure.

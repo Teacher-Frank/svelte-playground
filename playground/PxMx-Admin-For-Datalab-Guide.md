@@ -19,6 +19,7 @@ Git repository under `playground/scripts/`. Transfer them to the target machine 
 |---|---|---|
 | `setup-hookscript.sh` | Proxmox host | `playground/scripts/host/` |
 | `setup-vm-template.sh` | Proxmox host | `playground/scripts/host/` |
+| `deploy-cloudinit-snippets.sh` | Proxmox host | `playground/scripts/host/` |
 | `install-guest-agent.sh` | Guest VM / container | `playground/scripts/guest/` |
 | `install-vnc-bridge.sh` | Guest VM / container | `playground/scripts/guest/` |
 | `vm-checklist-verify.sh` | Guest VM / container | `playground/scripts/guest/` |
@@ -35,16 +36,16 @@ Git repository under `playground/scripts/`. Transfer them to the target machine 
     - [1.4 Enable nesting at LXC container creation](#14-enable-nesting-at-lxc-container-creation)
       - [1.4.1 Why nesting is required for Ubuntu 24.04](#141-why-nesting-is-required-for-ubuntu-2404)
     - [1.5 LXC device passthrough (done automatically by the hook script)](#15-lxc-device-passthrough-done-automatically-by-the-hook-script)
-    - [1.6 Troubleshooting host-side issues](#16-troubleshooting-host-side-issues)
+    - [1.6 QEMU guest agent (required for all VMs)](#16-qemu-guest-agent-required-for-all-vms)
+      - [1.6.1 Option A: pre-install in the base template (recommended)](#161-option-a-pre-install-in-the-base-template-recommended)
+      - [1.6.2 Option B: auto-install via cloud-init snippet (cicustom)](#162-option-b-auto-install-via-cloud-init-snippet-cicustom)
+      - [1.6.3 Option C: install manually on an existing guest](#163-option-c-install-manually-on-an-existing-guest)
+    - [1.7 Troubleshooting host-side issues](#17-troubleshooting-host-side-issues)
   - [2. Guest VM / container setup](#2-guest-vm--container-setup)
     - [2.1 What is a guest and why does it need configuration?](#21-what-is-a-guest-and-why-does-it-need-configuration)
     - [2.2 Guest-side bash scripts](#22-guest-side-bash-scripts)
-    - [2.3 QEMU guest agent (required for all VMs)](#23-qemu-guest-agent-required-for-all-vms)
-      - [2.3.1 Option A: auto-install via cloud-init (recommended)](#231-option-a-auto-install-via-cloud-init-recommended)
-      - [2.3.2 Option B: install manually on an existing guest](#232-option-b-install-manually-on-an-existing-guest)
-      - [2.3.3 Option C: pre-install in the base template](#233-option-c-pre-install-in-the-base-template)
-    - [2.4 VNC and websockify (required for GUI access)](#24-vnc-and-websockify-required-for-gui-access)
-    - [2.5 Run the verification checklist](#25-run-the-verification-checklist)
+    - [2.3 VNC and websockify (required for GUI access)](#23-vnc-and-websockify-required-for-gui-access)
+    - [2.4 Run the verification checklist](#24-run-the-verification-checklist)
   - [3. Webserver configuration](#3-webserver-configuration)
     - [3.1 First-run setup](#31-first-run-setup)
     - [3.2 Environment profiles (Windows admin workstation)](#32-environment-profiles-windows-admin-workstation)
@@ -78,14 +79,20 @@ Follow these steps in order. Each step is explained in detail in the sections th
    ```bash
    sudo bash setup-vm-template.sh <template-vmid>
    ```
-3. **On your Windows admin workstation**, edit the environment profile (`acctest-env.ps1`)
+3. **Set up guest agent auto-install on the host** (optional — recommended for VM clones).
+   Copy `playground/scripts/host/deploy-cloudinit-snippets.sh` to the Proxmox host, then run:
+   ```bash
+   sudo bash deploy-cloudinit-snippets.sh
+   ```
+   Alternatively, pre-install the agent in the template directly (see [Section 1.6](#16-qemu-guest-agent-required-for-all-vms)).
+4. **On your Windows admin workstation**, edit the environment profile (`acctest-env.ps1`)
    and update the credentials and URLs for your Proxmox cluster (see [Section 3.2](#32-environment-profiles-windows-admin-workstation)).
-4. **Run the environment profile** to start the playground dev server:
+5. **Run the environment profile** to start the playground dev server:
    ```powershell
    .\acctest-env.ps1
    ```
-5. **Open the browser** at `https://localhost:8000/proxmox`.
-6. **After deploying your first guest**, copy the scripts from `playground/scripts/guest/`
+6. **Open the browser** at `https://localhost:8000/proxmox`.
+7. **After deploying your first guest**, copy the scripts from `playground/scripts/guest/`
    to the guest, SSH into it, and run:
    ```bash
    sudo bash vm-checklist-verify.sh
@@ -213,62 +220,7 @@ lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir
 You do not need to add these manually. Restart the container after the hook has run if
 the container was created before the hook was installed.
 
-### 1.6 Troubleshooting host-side issues
-
-| Symptom | Fix |
-|---|---|
-| Xorg fails with "no screens found" in an LXC guest | Ensure the hook script has run (Section 1.2) and the container has been restarted |
-| Container created but no `/dev/dri` | Run the hook script manually or re-install via `setup-hookscript.sh`, then restart the container |
-| VM clone fails with cloud-init LV collision | A stale cloud-init volume exists for that VMID. Remove it (`qm set <vmid> --delete ide2`) and retry deploy |
-| Hook script not found error on deploy | Confirm `PVE_LXC_HOOKSCRIPT_VOLID` in `acctest-env.ps1` points to the correct storage path |
-
----
-
-## 2. Guest VM / container setup
-
-### 2.1 What is a guest and why does it need configuration?
-
-A "guest" is the VM or LXC container that runs inside Proxmox. Think of it as a virtual
-computer. After the playground deploys or clones a guest, it needs certain packages
-installed so the playground can:
-
-- Discover the guest IP address (requires **QEMU guest agent**)
-- Provide GUI/VNC access (requires **VNC server + websockify bridge**)
-- Convert DHCP to static IP (requires **guest agent**)
-
-The playground has two ways to handle guest setup:
-
-1. **Automatic via cloud-init:** If the VM template is prepared correctly (Section 1.3),
-   the guest agent installs itself on first boot. This is the easiest path.
-2. **Manual via scripts:** If automatic install fails or you're managing an existing guest,
-   use the scripts in `playground/scripts/guest/`.
-
-### 2.2 Guest-side bash scripts
-
-The following scripts live in `playground/scripts/guest/` in the Git repository. Copy them
-to the target guest and run with `sudo bash`:
-
-| Script | What it does | Required? |
-|---|---|---|
-| `install-guest-agent.sh` | Installs and starts the QEMU guest agent | **Yes** (for all VMs) |
-| `install-vnc-bridge.sh` | Installs websockify as a systemd service for GUI access | Only if you need GUI/VNC |
-| `vm-checklist-verify.sh` | Checks all prerequisites and reports status | Use first to see what's needed |
-
-**Quick start inside a guest** (after copying the scripts from `playground/scripts/guest/`):
-```bash
-# First, check what's missing
-sudo bash vm-checklist-verify.sh
-
-# Install what's needed
-sudo bash install-guest-agent.sh
-
-# Optional: install VNC bridge
-sudo bash install-vnc-bridge.sh
-```
-
-See `playground/scripts/guest/README.md` for detailed usage.
-
-### 2.3 QEMU guest agent (required for all VMs)
+### 1.6 QEMU guest agent (required for all VMs)
 
 The QEMU guest agent enables the playground to discover VM IP addresses, collect
 guest-side metrics, and perform graceful shutdowns. Without it:
@@ -277,7 +229,7 @@ guest-side metrics, and perform graceful shutdowns. Without it:
 - Automatic DHCP → static IP conversion cannot trigger
 - Graceful shutdown from the UI won't work
 
-#### 2.3.1 Option A: pre-install in the base template (recommended)
+#### 1.6.1 Option A: pre-install in the base template (recommended)
 
 The most reliable approach is to install `qemu-guest-agent` in the VM template image
 before deploying from it:
@@ -303,7 +255,7 @@ Every VM cloned from this template will have the agent ready to go.
 > virtio serial channel on the Proxmox side. However, this alone does not install the
 > agent inside the guest — the binary must be present in the guest OS.
 
-#### 2.3.2 Option B: auto-install via cloud-init snippet (cicustom)
+#### 1.6.2 Option B: auto-install via cloud-init snippet (cicustom)
 
 If you can't modify the template image, you can use Proxmox's `cicustom` cloud-init
 parameter to install the guest agent on first boot. This requires a one-time host
@@ -342,7 +294,7 @@ configBody.cicustom = `${snippetStorage}:snippets/install-agent.yaml`;
 On first boot, cloud-init reads the snippet and runs the install command. The playground
 will detect the guest agent and display the VM's IP on the next refresh.
 
-#### 2.3.3 Option C: install manually on an existing guest
+#### 1.6.3 Option C: install manually on an existing guest
 
 If you're adding the agent to an already-deployed VM, or the other methods failed:
 
@@ -355,7 +307,58 @@ If you're adding the agent to an already-deployed VM, or the other methods faile
 After installation, the playground will detect the guest agent on the next data refresh
 and display the VM's IP.
 
-### 2.4 VNC and websockify (required for GUI access)
+### 1.7 Troubleshooting host-side issues
+
+| Symptom | Fix |
+|---|---|
+| Xorg fails with "no screens found" in an LXC guest | Ensure the hook script has run (Section 1.2) and the container has been restarted |
+| Container created but no `/dev/dri` | Run the hook script manually or re-install via `setup-hookscript.sh`, then restart the container |
+| VM clone fails with cloud-init LV collision | A stale cloud-init volume exists for that VMID. Remove it (`qm set <vmid> --delete ide2`) and retry deploy |
+| Hook script not found error on deploy | Confirm `PVE_LXC_HOOKSCRIPT_VOLID` in `acctest-env.ps1` points to the correct storage path |
+| VM IP shows as `?` in UI | Guest agent not installed or not running — see [Section 1.6](#16-qemu-guest-agent-required-for-all-vms) |
+
+---
+
+## 2. Guest VM / container setup
+
+### 2.1 What is a guest and why does it need configuration?
+
+A "guest" is the VM or LXC container that runs inside Proxmox. Think of it as a virtual
+computer. After the playground deploys or clones a guest, it needs certain packages
+installed so the playground can:
+
+- Discover the guest IP address (requires **QEMU guest agent** — see Section 1.6)
+- Provide GUI/VNC access (requires **VNC server + websockify bridge**)
+- Convert DHCP to static IP (requires **guest agent**)
+
+The QEMU guest agent is configured on the Proxmox host side (Chapter 1). The guest
+side needs the following to work properly:
+
+1. **VNC + websockify bridge** for GUI access (Section 2.3)
+2. **Verification checklist** to confirm all components are working (Section 2.4)
+
+### 2.2 Guest-side bash scripts
+
+The following scripts live in `playground/scripts/guest/` in the Git repository. Copy them
+to the target guest and run with `sudo bash`:
+
+| Script | What it does | Required? |
+|---|---|---|
+| `install-vnc-bridge.sh` | Installs websockify as a systemd service for GUI access | Only if you need GUI/VNC |
+| `vm-checklist-verify.sh` | Checks all prerequisites and reports status | Use first to see what's needed |
+
+**Quick start inside a guest** (after copying the scripts from `playground/scripts/guest/`):
+```bash
+# First, check what's missing
+sudo bash vm-checklist-verify.sh
+
+# Optional: install VNC bridge
+sudo bash install-vnc-bridge.sh
+```
+
+See `playground/scripts/guest/README.md` for detailed usage.
+
+### 2.3 VNC and websockify (required for GUI access)
 
 To access the guest desktop from the playground browser, two components must run inside
 the guest:
@@ -392,7 +395,7 @@ this flow in the diagram below:
 Browser → Playground server → websockify (:8001) → VNC server (:5901) → Guest desktop
 ```
 
-### 2.5 Run the verification checklist
+### 2.4 Run the verification checklist
 
 After installing the guest-side components, run:
 
@@ -553,7 +556,7 @@ first IPv4 address, the playground **automatically** converts `ipconfig0` to a s
 
 - This happens without user interaction on the next page refresh.
 - A green toast notification appears confirming the conversion.
-- This only works if the guest agent is running (Section 2.3).
+- This only works if the guest agent is running (Section 1.6).
 
 Manual override (if automatic conversion fails):
 ```bash
@@ -644,10 +647,9 @@ Bridge runtime configuration details are in [Section 3.3](#33-lxc-vnc-bridge-con
 | Container created but no `/dev/dri` | Hook script didn't run | [1.2 Install the LXC post-create hook script](#12-install-the-lxc-post-create-hook-script) |
 | VM clone fails with cloud-init LV collision | Stale cloud-init volume for that VMID | Section [1.6 Troubleshooting host-side issues](#16-troubleshooting-host-side-issues) |
 | Hook script "file not found" on deploy | `PVE_LXC_HOOKSCRIPT_VOLID` path is wrong | [1.2 Install the LXC post-create hook script](#12-install-the-lxc-post-create-hook-script) |
-| VM IP shows as `?` in UI | Guest agent not installed or not running | [2.3 QEMU guest agent](#23-qemu-guest-agent-required-for-all-vms) |
 | Static IP conversion doesn't happen | Guest agent hasn't reported an IP yet, or failed to install | [4.2 DHCP to static IP conversion](#42-dhcp-to-static-ip-conversion) |
 | "Submitting credentials..." stuck | See dedicated troubleshooting steps below | [3.4 VNC troubleshooting](#34-troubleshooting-vnc-page-stuck-on-submitting-credentials) |
-| GUI action is grayed/disabled | Guest IP not yet discovered | [2.5 Run the verification checklist](#25-run-the-verification-checklist) |
+| GUI action is grayed/disabled | Guest IP not yet discovered | [2.4 Run the verification checklist](#24-run-the-verification-checklist) |
 | VNC page shows "Target closed connection" | VNC server auth failing inside guest | [3.4 VNC troubleshooting](#34-troubleshooting-vnc-page-stuck-on-submitting-credentials) |
 | Ubuntu 24.04 LXC has no console or network | Missing `nesting=1` feature flag | [1.4 Enable nesting](#14-enable-nesting-at-lxc-container-creation) |
 
