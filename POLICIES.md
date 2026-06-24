@@ -228,3 +228,24 @@ Run commands from `svelte-playground/playground` for app changes, from `pve-clie
 ### Workflow
 - **Dev server:** Always start via `acctest-env.ps1` from `svelte-playground/playground/` — this script sets environment variables, builds `pve-client`, then runs `npm run dev`.
 - **pve-client first:** Mostly shared behavior (terminal/WebSocket protocol, API types) lives in `pve-client`. Harden it there, then keep playground wiring thin.
+
+# How to create and maintain a POLICIES.md
+
+POLICIES.md solves two separate problems:
+
+- **Cold start** — every new session begins without prior knowledge. This file gives the AI a useful starting point instead of forcing it to reinvent conventions.
+- **Observed failure modes** — rules here exist because something went wrong. AI models *know* best practices but don't reliably *follow* them unless explicitly constrained. POLICIES.md is that constraint.
+
+Workflow:
+
+1. **Add a rule** — user or AI. Every rule should answer "what failure did we observe?"
+2. **Acceptance gate** — ask the AI: *"Would you behave differently without this rule?"* If the answer is "no," cut it. Don't rely on pushback as a signal; AIs rarely push back unless forced.
+3. **Rewrite** — the AI will propose a clearer, more concise formulation. Approve the rewrite.
+4. **Evaluate against the 5 purposes** (at the top of this file). Does the rule guide reasoning, port across sessions, enable self-verification, settle a trade-off, or disambiguate a convention? If not, reconsider it.
+5. **Check for contradictions** — scan the file. No rule should conflict with another. If it does, resolve it now.
+6. **Repeat** — POLICIES.md improves through this dialog. Humans observe failures; AI formulates rules concisely.
+
+Once you have a useful POLICIES.md, ask the AI to read it at the start of every new session. 
+
+
+
