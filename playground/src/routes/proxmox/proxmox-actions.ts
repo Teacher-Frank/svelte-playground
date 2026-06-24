@@ -568,10 +568,11 @@ export const actions: Actions = {
     try {
       const formData = await request.formData();
       selectedWorkload = parseWorkloadSubmission(formData);
-      const { destroyUpid, stopUpid } = await executeDestroyAction(
+      const { stopUpid } = await executeDestroyAction(
         selectedWorkload.type,
         selectedWorkload.id,
         selectedWorkload.node,
+        selectedWorkload.name ?? '',
         selectedWorkload.status,
       );
       const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
@@ -580,10 +581,9 @@ export const actions: Actions = {
       return {
         status: 'success' as const,
         message: stopUpid
-          ? `Destroyed ${kindLabel} ${selectedWorkload.id}${nameSuffix} — stop task ${stopUpid}, destroy task ${destroyUpid}. `
+          ? `Destroying ${kindLabel} ${selectedWorkload.id}${nameSuffix} — stop task ${stopUpid}. `
               + `This may take a moment while ${kindLabel.toLowerCase()} ${selectedWorkload.id} stops and is removed.`
-          : `Destroying ${kindLabel} ${selectedWorkload.id}${nameSuffix} — task ${destroyUpid}.`,
-        upid: destroyUpid,
+          : `Destroying ${kindLabel} ${selectedWorkload.id}${nameSuffix}.`,
         workloadType: selectedWorkload.type,
         formType: selectedWorkload.type,
       };

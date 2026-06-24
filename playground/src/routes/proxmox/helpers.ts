@@ -25,6 +25,10 @@ export const vmAgentRetryAfterById = new Map<number, number>();
 // discovered DHCP IP to a static IP on the next page load after guest agent reports it.
 export const pendingStaticConversion = new Map<number, { name: string; node: string }>();
 
+// Track workloads currently being destroyed (stop+delete running in background).
+// Each entry is tracked until the workload disappears from the Proxmox API.
+export const pendingDestroy = new Map<number, { type: 'vm' | 'container'; name: string; node: string }>();
+
 // ---------------------------------------------------------------------------
 // Timing
 // ---------------------------------------------------------------------------

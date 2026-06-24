@@ -37,6 +37,9 @@
     // row from disappearing in the same reactive cycle that task UPIDs arrive,
     // which happens when both tasks complete during the server action's execution time.
     resolveNotBefore: number;
+    // When all tracked tasks first settled as completed (not running). Used to detect
+    // deploy failures when the workload never appears after a grace period.
+    tasksSettledAt: number | null;
   };
 
 
@@ -180,6 +183,19 @@
     return true;
   };
 
+  /**
+   * Returns true if the deploying entry should be removed.
+   * On success: resolved immediately when workload appears.
+   * On failure: shows "deploy-failed" status, then removed after a short timeout.
+   *
+   * Deploy failure detection: when all tracked tasks complete but the workload
+   * never appears on the server, we give a grace period then mark it failed.
+   * This catches background deploy failures (e.g., `runPostCloneSteps` crashing,
+   * orphan cleanup) that the UI can't directly observe.
+   */
+  const DEPLOY_FAILURE_GRACE_MS = 60_000; // 60 seconds after tasks settle before marking failed
+  const DEPLOY_FAILED_VISIBLE_MS = 10_000; // Show "deploy-failed" status for 10 seconds before auto-removal
+
   const isDeployResolved = (pending: DeployingWorkload): boolean => {
     const now = Date.now();
     const ageMs = now - pending.startedAt;
@@ -222,12 +238,50 @@
       if (workloadExists) {
         return true;
       }
-      // Workload not yet visible on the server — keep deploying until
-      // it appears or the hard cap expires.
+      // Workload not found — check if this is a confirmed failure.
+      if (pending.tasksSettledAt !== null && now - pending.tasksSettledAt > DEPLOY_FAILURE_GRACE_MS) {
+        // Show "deploy-failed" briefly, then auto-remove.
+        return now - pending.tasksSettledAt > DEPLOY_FAILURE_GRACE_MS + DEPLOY_FAILED_VISIBLE_MS;
+      }
       return false;
     }
 
     // No task IDs yet (optimistic phase before server responds) — keep deploying.
+    return false;
+  };
+
+  /**
+   * Returns true if the deploying workload likely failed — all tasks completed
+   * but the workload never appeared after the grace period.
+   */
+  const isDeployFailed = (pending: DeployingWorkload): boolean => {
+    const now = Date.now();
+
+    // Respect the minimum visible window — don't declare failure too early.
+    if (now < pending.resolveNotBefore) {
+      return false;
+    }
+
+    if (pending.taskUpids.length > 0) {
+      const states = pending.taskUpids.map((upid) => isTaskActive(upid));
+      const tasksDone = !states.some((state) => state === true);
+
+      if (tasksDone && pending.tasksSettledAt !== null) {
+        const pendingName = pending.name.trim().toLowerCase();
+        const pendingNode = (pending.node ?? '').trim().toLowerCase();
+        const source = pending.kind === 'vm' ? vmWorkloadsFromServer : lxcWorkloadsFromServer;
+
+        const workloadExists = source.some((workload) => {
+          const workloadName = (workload.name ?? '').trim().toLowerCase();
+          if (workloadName !== pendingName) return false;
+          if (pendingNode.length === 0) return true;
+          return (workload.node ?? '').trim().toLowerCase() === pendingNode;
+        });
+
+        return !workloadExists && now - pending.tasksSettledAt > DEPLOY_FAILURE_GRACE_MS;
+      }
+    }
+
     return false;
   };
 
@@ -273,11 +327,10 @@
         node,
         startedAt: existing?.startedAt ?? Date.now(),
         taskUpids: normalizedUpids.length > 0 ? normalizedUpids : (existing?.taskUpids ?? []),
-        // Reset the minimum visibility window when task UPIDs first arrive so
-        // tasks that complete during server execution are still shown as deploying.
         resolveNotBefore: isUpgrade
           ? Date.now() + DEPLOY_MIN_VISIBLE_MS
           : (existing?.resolveNotBefore ?? Date.now() + DEPLOY_MIN_VISIBLE_MS),
+        tasksSettledAt: existing?.tasksSettledAt ?? null,
       },
     ];
   }
@@ -292,7 +345,36 @@
   }
 
   $effect(() => {
-    const filtered = deployingWorkloads.filter((pending) => !isDeployResolved(pending));
+    // Update tasksSettledAt for entries where tasks have just completed but the workload
+    // hasn't appeared yet — needed for deploy failure detection.
+    const now = Date.now();
+    const updated = deployingWorkloads.map((pending) => {
+      if (pending.taskUpids.length === 0 || pending.tasksSettledAt !== null) {
+        return pending;
+      }
+
+      const states = pending.taskUpids.map((upid) => isTaskActive(upid));
+      const allSettled = !states.some((state) => state === true);
+
+      if (allSettled) {
+        const pendingName = pending.name.trim().toLowerCase();
+        const pendingNode = (pending.node ?? '').trim().toLowerCase();
+        const source = pending.kind === 'vm' ? vmWorkloadsFromServer : lxcWorkloadsFromServer;
+        const workloadExists = source.some((workload) => {
+          const workloadName = (workload.name ?? '').trim().toLowerCase();
+          if (workloadName !== pendingName) return false;
+          if (pendingNode.length === 0) return true;
+          return (workload.node ?? '').trim().toLowerCase() === pendingNode;
+        });
+        if (!workloadExists) {
+          return { ...pending, tasksSettledAt: now };
+        }
+      }
+      return pending;
+    });
+
+    // Remove resolved and failed entries
+    const filtered = updated.filter((pending) => !isDeployResolved(pending));
     const isUnchanged =
       filtered.length === deployingWorkloads.length &&
       filtered.every((pending, index) => pending.key === deployingWorkloads[index]?.key);
@@ -309,7 +391,7 @@
         id: `deploying-vm-${pending.startedAt}-${index}`,
         name: pending.name,
         node: pending.node ?? '-',
-        status: 'deploying',
+        status: isDeployFailed(pending) ? 'deploy-failed' : 'deploying',
         uptime: 0,
         deployTaskUpids: pending.taskUpids,
       }))
@@ -322,7 +404,7 @@
         id: `deploying-lxc-${pending.startedAt}-${index}`,
         name: pending.name,
         node: pending.node ?? '-',
-        status: 'deploying',
+        status: isDeployFailed(pending) ? 'deploy-failed' : 'deploying',
         uptime: 0,
         deployTaskUpids: pending.taskUpids,
       }))

@@ -109,20 +109,41 @@
 
   const statusClass = (status?: string): string => {
     const normalized = (status ?? '').trim().toLowerCase();
-    return normalized === 'deploying' ? 'status-deploying' : 'status-default';
+    if (normalized === 'deploying') return 'status-deploying';
+    if (normalized === 'deploy-failed') return 'status-deploy-failed';
+    return 'status-default';
   };
 
   const deployingTooltip = (workload: Workload): string | undefined => {
-    if (workload.status !== 'deploying' || !workload.deployTaskUpids?.length) {
+    if (workload.status !== 'deploying' && workload.status !== 'deploy-failed') {
       return undefined;
     }
-
+    if (workload.status === 'deploy-failed') {
+      return 'Deploy failed — background setup error (clone succeeded, config/start failed)';
+    }
+    if (!workload.deployTaskUpids?.length) {
+      return undefined;
+    }
     return `Tasks: ${workload.deployTaskUpids.join(', ')}`;
   };
 
   // Unified notification system — scope derived from kind prop
   const toastScope = $derived(kind === 'vm' ? 'vm-workloads' : 'container-workloads');
   const notify = useToast(toastScope);
+
+  // Track which failure notifications have already been fired (to avoid spamming on every refresh cycle).
+  const notifiedFailureNames = $state(new Set<string>());
+
+  // Fire error notification when a deploy is detected as failed.
+  $effect(() => {
+    for (const workload of workloads) {
+      if (workload.status !== 'deploy-failed') continue;
+      if (notifiedFailureNames.has(workload.name ?? '')) continue;
+
+      notify.error(`Deploy failed: "${workload.name}" — background setup error (clone succeeded, config/start failed). Check server logs for details.`);
+      notifiedFailureNames.add(workload.name ?? '');
+    }
+  });
 
   // React to form results from server
   $effect(() => {
@@ -307,6 +328,30 @@
   .status-deploying::before {
     animation: deploying-pulse 1.2s ease-in-out infinite;
     background: #ea580c;
+    border-radius: 50%;
+    content: '';
+    display: inline-block;
+    height: 0.45rem;
+    width: 0.45rem;
+  }
+
+  .status-deploy-failed {
+    align-items: center;
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    border-radius: 999px;
+    color: #991b1b;
+    display: inline-flex;
+    font-size: 0.8rem;
+    font-weight: 600;
+    gap: 0.35rem;
+    line-height: 1;
+    padding: 0.2rem 0.55rem;
+    text-transform: uppercase;
+  }
+
+  .status-deploy-failed::before {
+    background: #dc2626;
     border-radius: 50%;
     content: '';
     display: inline-block;

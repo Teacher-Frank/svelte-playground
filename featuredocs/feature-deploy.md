@@ -142,6 +142,7 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 - [x] **Make server deploy non-blocking** — return clone UPID immediately; config+start in `setTimeout` background task
 - [x] **Add orphan VM cleanup** — if config/start background task fails after clone completes, destroy orphan VM (stop-if-running + delete with purge)
 - [x] Test full deploy flow end-to-end (snippet install → cicustom → agent detected → IP shown) — confirmed 2026-06-24, IP visible on deployed VM
+- [x] **Fix stuck deploy on background failure** — add deploy failure detection with 60s grace period, show "deploy-failed" status + notification, auto-remove after 10s
 - [ ] Install `qemu-guest-agent` in the Ubuntu Desktop template image (pre-bake approach)
 - [ ] Check Proxmox task logs to see if clone/start tasks are actually completing
 - [ ] Add debug logging to `isDeployResolved` to trace why the 10-minute cap is hit
@@ -243,3 +244,47 @@ Deployed `usability-test-vm` (VM 104) from `debian-12-cloud-template`.
 - Guest agent detected, IP address shown in workload list
 - Deploy dialog opened → filled → closed on submit → notification shown → task completed
 - No stuck states, no orphan VMs observed
+
+---
+
+## Deploy Failure Detection — 2026-06-24 Session Notes
+
+### Problem
+When deploying from template 103 (`ubuntudesktop`), the background `runPostCloneSteps` task failed (non-cloud Ubuntu Desktop image + `cicustom` cloud-init snippet). The orphan VM was destroyed, but **the UI never knew** — it only tracked the `cloneUpid` (which succeeded). The deploying row stayed visible indefinitely until the 10-minute hard cap expired.
+
+### Root Cause
+- Server returns only `[cloneUpid]` to the UI immediately
+- `runPostCloneSteps` (wait for clone + apply config + start) runs in `setTimeout` background task
+- If it fails, `destroyOrphanVm` cleans up, but error is only `console.error` — never surfaced to UI
+- `isDeployResolved` checks: clone task done (true) → workload exists? (false) → stuck forever until hard cap
+
+### Fix Applied
+1. **Added `tasksSettledAt` timestamp** to `DeployingWorkload` — tracks when all tracked tasks first settled as completed
+2. **Added `$effect` in `PxMxAdmin.svelte`** — on each refresh cycle, detects when tasks have completed but workload doesn't exist, sets `tasksSettledAt`
+3. **Added 60-second grace period** (`DEPLOY_FAILURE_GRACE_MS`) — after tasks settle, if workload still doesn't exist after 60s, mark as failed
+4. **Show `deploy-failed` status** — red badge in workload list, 10-second visibility window (`DEPLOY_FAILED_VISIBLE_MS`) before auto-removal
+5. **Fire error notification** — `PxMxWorkloadList.svelte` detects `deploy-failed` workloads and fires inline error toast with context
+6. **Fixed pre-existing syntax error** — corrupted template literal in `proxmox-actions.ts` line 586
+
+### Files Changed
+| File | Change |
+|------|--------|
+| `src/PxMxAdmin.svelte` | Added `tasksSettledAt` to `DeployingWorkload`, updated `isDeployResolved`/`isDeployFailed`, added `$effect` to track when tasks settle |
+| `src/PxMxWorkloadList.svelte` | Added `deploy-failed` status class + tooltip, error notification on failure detection, red badge CSS |
+| `src/routes/proxmox/proxmox-actions.ts` | Fixed syntax error (corrupted template literal, duplicate string, stray template literal syntax) |
+
+### Timing Constants
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `DEPLOY_FAILURE_GRACE_MS` | 60s | Wait after tasks settle before declaring failure (covers orphan cleanup time, backend task completion) |
+| `DEPLOY_FAILED_VISIBLE_MS` | 10s | Show "deploy-failed" status briefly before auto-removal |
+| `DEPLOY_MIN_VISIBLE_MS` | 30s | Existing: minimum time to show "deploying" status |
+| Hard cap | 10min | Maximum time before forced cleanup (unchanged) |
+
+### Before vs After
+**Before:** Deploy fails silently → stuck "deploying" for 10 minutes → entry disappears with no feedback
+**After:** Deploy fails → 60s grace → "deploy-failed" red badge + error notification → 10s → entry auto-removed
+
+### Tests
+- 18 of 22 proxmox-actions tests pass (4 pre-existing LXC destroy test failures)
+- No errors introduced by deploy failure detection changes
