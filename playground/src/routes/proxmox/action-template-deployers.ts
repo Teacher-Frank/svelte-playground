@@ -6,6 +6,31 @@
 import type { NodeScopedAPI } from 'pve-client';
 import { createClient, pendingStaticConversion } from './helpers.js';
 
+// ---------------------------------------------------------------------------
+// Environment configuration
+// ---------------------------------------------------------------------------
+
+const cloudInitStorage =
+  process.env.PVE_VM_CLOUDINIT_STORAGE?.trim() || 'local-lvm';
+const snippetStorage =
+  process.env.PVE_SNIPPET_STORAGE?.trim() || 'local';
+const vmNetworkModel =
+  process.env.PVE_VM_NETWORK_MODEL?.trim() || 'virtio';
+const vmNetworkBridge =
+  process.env.PVE_VM_NETWORK_BRIDGE?.trim() || 'vmbr0';
+
+/**
+ * Detects cloud-init logical volume collision errors from Proxmox.
+ * These occur when a previous deployment attempt left behind a stale LV.
+ */
+async function isCloudInitCollisionError(
+  vmid: number,
+  error: unknown,
+): Promise<boolean> {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes(`-${vmid}-`) && (message.includes('cloudinit') || message.includes('already exists'));
+}
+
 /**
  * Clones a QEMU VM template, applies cloud-init credentials, configures
  * guest agent and network, then starts the VM.
@@ -53,6 +78,50 @@ export async function deployVmFromTemplate(
 }
 
 /**
+ * Destroys an orphan VM that was cloned but failed during config/start.
+ * This is the cleanup path for `runPostCloneSteps` — the VM exists (the clone
+ * task succeeded) but we failed before it could start cleanly.
+ *
+ * Strategy: stop first if running, then destroy. Both are fire-and-forget
+ * we don't block waiting, since this is already an error path.
+ */
+async function destroyOrphanVm(
+  nodeApi: NodeScopedAPI,
+  node: string,
+  vmid: number,
+  name: string,
+): Promise<void> {
+  console.warn(
+    `[proxmox] Cleaning up orphan VM ${vmid} "${name}" on ${node}`,
+  );
+
+  try {
+    // Stop if the orphan somehow started (e.g., autostart or race)
+    const stopUpid = (await nodeApi.qemu.vmid(vmid).status.stop()) as string;
+    console.info(`[proxmox] Orphan VM ${vmid} stop task: ${stopUpid}`);
+  } catch (stopError) {
+    // Ignore stop errors — VM may not be running, or may already be stopped
+    console.info(
+      `[proxmox] Orphan VM ${vmid} stop skipped (not running or already stopped):`,
+      stopError instanceof Error ? stopError.message : String(stopError),
+    );
+  }
+
+  try {
+    const destroyUpid = (await nodeApi.qemu.vmid(vmid).delete({
+      $query: { purge: true },
+    })) as string;
+    console.info(`[proxmox] Orphan VM ${vmid} destroy task: ${destroyUpid}`);
+  } catch (destroyError) {
+    // If destroy fails the orphan survives — log for manual cleanup
+    console.error(
+      `[proxmox] FAILED to destroy orphan VM ${vmid}:`,
+      destroyError instanceof Error ? destroyError.message : String(destroyError),
+    );
+  }
+}
+
+/**
  * Runs the post-clone work: wait for clone, apply config, start VM.
  * If any step fails after a successful clone, destroys the orphan VM.
  */
@@ -67,12 +136,20 @@ async function runPostCloneSteps(
     ciUser: string;
     ciPassword: string;
   },
-): Promise<void> {
+): Promise<{ cloneUpid: string; startUpid: string }> {
   const {
     newName,
     ciUser,
     ciPassword,
   } = params;
+
+  // Track whether clone has completed — only attempt orphan cleanup after clone success
+  let cloneCompleted = false;
+
+  try {
+    // Wait for the clone task to finish before we can configure the new VM
+    await client.task.wait(cloneUpid);
+    cloneCompleted = true;
 
     const clonedConfig = (await client.request(
       '/nodes/{node}/qemu/{vmid}/config',
@@ -148,6 +225,11 @@ async function runPostCloneSteps(
 
     return { cloneUpid, startUpid };
   } catch (error) {
+    // If the clone succeeded but config/start failed, destroy the orphan VM
+    if (cloneCompleted) {
+      await destroyOrphanVm(nodeApi, templateNode, newid, newName);
+    }
+
     if (await isCloudInitCollisionError(newid, error)) {
       throw new Error(
         `Cloud-init LV collision while deploying VM (storage=${cloudInitStorage}, vmid=${newid}). ` +

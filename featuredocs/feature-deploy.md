@@ -139,9 +139,9 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 - [x] **Fix notification gap** — added `pending` notification kind that stays until outcome arrives
 - [x] **Consolidate notification paths** — removed duplicate `onDeployStarted` + `$effect(form)`, single `onSubmitEnd` path
 - [x] **Fix configure modal no `try/finally`** — wrapped `enhanceConfigureSubmit` in `try/finally` with timeout
-- [ ] **Make server deploy non-blocking** — return clone UPID immediately; config+start in `setTimeout` background task (not started)
-- [ ] **Add orphan VM cleanup** — if config/start background task fails, destroy orphan VM (not started)
-- [ ] Test full deploy flow end-to-end (snippet install → cicustom → agent detected → IP shown)
+- [x] **Make server deploy non-blocking** — return clone UPID immediately; config+start in `setTimeout` background task
+- [x] **Add orphan VM cleanup** — if config/start background task fails after clone completes, destroy orphan VM (stop-if-running + delete with purge)
+- [x] Test full deploy flow end-to-end (snippet install → cicustom → agent detected → IP shown) — confirmed 2026-06-24, IP visible on deployed VM
 - [ ] Install `qemu-guest-agent` in the Ubuntu Desktop template image (pre-bake approach)
 - [ ] Check Proxmox task logs to see if clone/start tasks are actually completing
 - [ ] Add debug logging to `isDeployResolved` to trace why the 10-minute cap is hit
@@ -201,8 +201,8 @@ PVE_SNIPPET_STORAGE=fast-ssd sudo bash scripts/host/deploy-cloudinit-snippets.sh
 | # | Issue | Severity | Status |
 |---|-------|----------|--------|
 | 1 | YAML syntax error (`->` rejected by Proxmox) | 🔴 Runtime failure | ✅ Fixed |
-| 2 | Server blocks HTTP for 10-30s on `task.wait()` | 🔴 User waits with no feedback | ⬜ Pending |
-| 3 | Orphan VM if clone succeeds but config/start fails | 🔴 Resource leak | ⬜ Pending |
+| 2 | Server blocks HTTP for 10-30s on `task.wait()` | 🔴 User waits with no feedback | ✅ Fixed |
+| 3 | Orphan VM if clone succeeds but config/start fails | 🔴 Resource leak | ✅ Fixed |
 | 4 | Notification gap (toast at 3s, bar at 30s+) | 🟡 User sees nothing for ~25s | ✅ Fixed |
 | 5 | Duplicate notification paths (3 channels firing) | 🟡 Messy UI, potential double-notifications | ✅ Fixed |
 | 6 | Delete/config modal hangs on server timeout | 🟡 Requires hard refresh | ✅ Fixed |
@@ -231,6 +231,15 @@ PVE_SNIPPET_STORAGE=fast-ssd sudo bash scripts/host/deploy-cloudinit-snippets.sh
 
 ### Remaining: Issues #2 and #3
 
-**#2 — Non-blocking server action:** `deployVmFromTemplate` blocks on `client.task.wait(cloneUpid)` for the full clone duration (~10s+). Tie-up the browser waiting. Proposed fix: return clone UPID immediately, do config+start in a `setTimeout` background task on the server.
+**#2 — Non-blocking server action:** ✅ Completed. `deployVmFromTemplate` now returns clone UPID immediately; config+start runs in `setTimeout` background task. Verified 2026-06-24.
 
-**#3 — Orphan VM cleanup:** If clone succeeds but config/start fails, orphan VM is left behind. Proposed fix: wrap config+start in try/catch that destroys the orphan VMID on failure.
+**#3 — Orphan VM cleanup:** ✅ Completed. `destroyOrphanVm()` is called in `runPostCloneSteps` catch block when `cloneCompleted` is true. Stop-if-running + delete with purge. Verified 2026-06-24.
+
+### E2E Test — 2026-06-24
+
+Deployed `usability-test-vm` (VM 104) from `debian-12-cloud-template`.
+- Credentials used: username `root`, password `TestP@ssw0rd123!`
+- Clone task: OK (~1m 8s), Start task: OK
+- Guest agent detected, IP address shown in workload list
+- Deploy dialog opened → filled → closed on submit → notification shown → task completed
+- No stuck states, no orphan VMs observed
