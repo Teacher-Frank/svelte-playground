@@ -236,15 +236,9 @@
 
     destroySubmitInFlight = true;
     setWaitCursor(true);
-    showDeleteConfirm = false;
 
-    // Show immediate feedback that the destroy has been initiated.
-    // The server fires stop + delete without blocking — notification will
-    // be superseded once the server response arrives with the final outcome.
-    notify.pending(
-      `Destroying ${selectedWorkload?.type === 'vm' ? 'VM' : 'container'} ${selectedWorkload?.id}…`
-    );
-
+    // Keep dialog visible while submitting — it will close once the
+    // server confirms the destroy was initiated.
     return async ({ update, result }: { update: () => Promise<void>; result: { type?: string; data?: { message?: string; upid?: string } } }) => {
       try {
         await update();
@@ -252,11 +246,17 @@
 
         if (result?.type === 'success') {
           setWaitCursor(false);
-          notify.success(result.data?.message ?? 'Workload destroyed.');
+          showDeleteConfirm = false;
+
+          // Show notification only after server confirms destroy was initiated.
+          notify.pending(
+            `Destroying ${selectedWorkload?.type === 'vm' ? 'VM' : 'container'} ${selectedWorkload?.id}…`
+          );
         }
 
         if (result?.type === 'failure') {
           setWaitCursor(false);
+          showDeleteConfirm = false;
           notify.error(result.data?.message ?? 'Failed to destroy workload.');
         }
       } finally {

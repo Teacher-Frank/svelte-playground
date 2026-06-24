@@ -602,63 +602,78 @@ describe('proxmox page server actions', () => {
     expect(result.message).toContain('Renaming guest template 210 to "renamed-ct-template"');
   });
 
-  it('destroy fires stop then delete without waiting (virunning VM)', async () => {
+  it('destroy fires stop then queues delete in background (running VM)', async () => {
     const result = await actions.destroy(
       makeEvent({ type: 'vm', id: '101', node: 'pve1', name: 'ci-vm', status: 'running' })
     );
 
     expect(mocks.qemuStop).toHaveBeenCalledTimes(1);
-    // No longer calls task.wait — stop and delete are fire-and-forget
+    // Stop fires synchronously; delete is queued in setTimeout (not yet executed)
     expect(mocks.taskWait).not.toHaveBeenCalled();
-    expect(mocks.qemuDelete).toHaveBeenCalledWith({ $query: { purge: true } });
-
-    expect(result.status).toBe('success');
-    expect(result.message).toContain('Destroyed VM 101 (ci-vm)');
-    expect(result.message).toContain('stop task');
-    expect(result.message).toContain('may take a moment');
-  });
-
-  it('destroy fires delete only for stopped VM', async () => {
-    const result = await actions.destroy(
-      makeEvent({ type: 'vm', id: '101', node: 'pve1', name: 'ci-vm', status: 'stopped' })
-    );
-
-    expect(mocks.qemuStop).not.toHaveBeenCalled();
-    expect(mocks.taskWait).not.toHaveBeenCalled();
-    expect(mocks.qemuDelete).toHaveBeenCalledWith({ $query: { purge: true } });
+    expect(mocks.qemuDelete).not.toHaveBeenCalled();
 
     expect(result.status).toBe('success');
     expect(result.message).toContain('Destroying VM 101 (ci-vm)');
+    expect(result.message).toContain('stop task');
+    expect(result.message).toContain('may take a moment');
+
+    // Flush setTimeout so background destroy runs
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Now the background task should have waited for stop then deleted
+    expect(mocks.taskWait).toHaveBeenCalledWith('UPID:vm-stop-task');
+    expect(mocks.qemuDelete).toHaveBeenCalledWith({ $query: { purge: true } });
   });
 
-  it('destroy surfaces "is running" error when status was stale & delete fails', async () => {
-    // When the reported status is "stopped" but Proxmox says "is running",
-    // the non-blocking approach fires delete directly — no retry logic.
-    // The server returns a fail(500) response with the error message.
-    mocks.qemuDelete.mockRejectedValueOnce(new Error('VM 101 is running - destroy failed\n'));
-
+  it('destroy queues delete only for stopped VM', async () => {
     const result = await actions.destroy(
       makeEvent({ type: 'vm', id: '101', node: 'pve1', name: 'ci-vm', status: 'stopped' })
     );
 
     expect(mocks.qemuStop).not.toHaveBeenCalled();
-    expect(result.status).toBe(500);
-    expect((result as any).data?.message).toContain('is running');
+    expect(mocks.qemuDelete).not.toHaveBeenCalled();
+
+    expect(result.status).toBe('success');
+    expect(result.message).toContain('Destroying VM 101 (ci-vm)');
+
+    // Flush setTimeout
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mocks.qemuDelete).toHaveBeenCalledWith({ $query: { purge: true } });
   });
 
-  it('destroy fires stop then delete without waiting (running container)', async () => {
+  it('destroy still returns error when stop fails (running VM)', async () => {
+    mocks.qemuStop.mockRejectedValueOnce(new Error('VM is locked'));
+
+    mocks.qemuStop.mockRejectedValueOnce(new Error('VM is locked'));
+
+    // Stop failure will be caught by the catch block in the action
+    const result = await actions.destroy(
+      makeEvent({ type: 'vm', id: '101', node: 'pve1', name: 'ci-vm', status: 'running' })
+    );
+
+    expect(mocks.qemuStop).toHaveBeenCalledTimes(1);
+    expect((result as any).status).toBe(500);
+    expect((result as any).data?.message).toContain('VM is locked');
+  });
+
+  it('destroy fires stop then queues delete in background (running container)', async () => {
     const result = await actions.destroy(
       makeEvent({ type: 'container', id: '202', node: 'pve1', name: 'ci-ct', status: 'running' })
     );
 
     expect(mocks.lxcStop).toHaveBeenCalledTimes(1);
-    // No longer calls task.wait — stop and delete are fire-and-forget
     expect(mocks.taskWait).not.toHaveBeenCalled();
-    expect(mocks.lxcDelete).toHaveBeenCalledWith({ $query: { purge: true, force: true } });
+    expect(mocks.lxcDelete).not.toHaveBeenCalled();
 
     expect(result.status).toBe('success');
-    expect(result.message).toContain('Destroyed container 202 (ci-ct)');
+    expect(result.message).toContain('Destroying container 202 (ci-ct)');
     expect(result.message).toContain('stop task');
     expect(result.message).toContain('may take a moment');
+
+    // Flush setTimeout
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(mocks.taskWait).toHaveBeenCalledWith('UPID:lxc-stop-task');
+    expect(mocks.lxcDelete).toHaveBeenCalledWith({ $query: { purge: true, force: true } });
   });
 });

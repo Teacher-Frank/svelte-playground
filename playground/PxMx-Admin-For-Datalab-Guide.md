@@ -33,14 +33,18 @@ Git repository under `playground/scripts/`. Transfer them to the target machine 
     - [1.1 What is the Proxmox host?](#11-what-is-the-proxmox-host)
     - [1.2 Install the LXC post-create hook script](#12-install-the-lxc-post-create-hook-script)
     - [1.3 Prepare a VM template for cloning](#13-prepare-a-vm-template-for-cloning)
-    - [1.4 Enable nesting at LXC container creation](#14-enable-nesting-at-lxc-container-creation)
-      - [1.4.1 Why nesting is required for Ubuntu 24.04](#141-why-nesting-is-required-for-ubuntu-2404)
-    - [1.5 LXC device passthrough (done automatically by the hook script)](#15-lxc-device-passthrough-done-automatically-by-the-hook-script)
-    - [1.6 QEMU guest agent (required for all VMs)](#16-qemu-guest-agent-required-for-all-vms)
-      - [1.6.1 Option A: pre-install in the base template (recommended)](#161-option-a-pre-install-in-the-base-template-recommended)
-      - [1.6.2 Option B: auto-install via cloud-init snippet (cicustom)](#162-option-b-auto-install-via-cloud-init-snippet-cicustom)
-      - [1.6.3 Option C: install manually on an existing guest](#163-option-c-install-manually-on-an-existing-guest)
-    - [1.7 Troubleshooting host-side issues](#17-troubleshooting-host-side-issues)
+    - [1.4 Prepare a cloud-init ready VM template](#14-prepare-a-cloud-init-ready-vm-template)
+      - [1.4.1 Why cloud-init is required for the deploy flow](#141-why-cloud-init-is-required-for-the-deploy-flow)
+      - [1.4.2 Installing cloud-init in the template](#142-installing-cloud-init-in-the-template)
+      - [1.4.3 Cloud-init + QEMU guest agent combined (recommended)](#143-cloud-init--qemu-guest-agent-combined-recommended)
+    - [1.5 Enable nesting at LXC container creation](#15-enable-nesting-at-lxc-container-creation)
+      - [1.5.1 Why nesting is required for Ubuntu 24.04](#151-why-nesting-is-required-for-ubuntu-2404)
+    - [1.6 LXC device passthrough (done automatically by the hook script)](#16-lxc-device-passthrough-done-automatically-by-the-hook-script)
+    - [1.7 QEMU guest agent (required for all VMs)](#17-qemu-guest-agent-required-for-all-vms)
+      - [1.7.1 Option A: pre-install in the base template (recommended)](#171-option-a-pre-install-in-the-base-template-recommended)
+      - [1.7.2 Option B: auto-install via cloud-init snippet (cicustom)](#172-option-b-auto-install-via-cloud-init-snippet-cicustom)
+      - [1.7.3 Option C: install manually on an existing guest](#173-option-c-install-manually-on-an-existing-guest)
+    - [1.8 Troubleshooting host-side issues](#18-troubleshooting-host-side-issues)
   - [2. Guest VM / container setup](#2-guest-vm--container-setup)
     - [2.1 What is a guest and why does it need configuration?](#21-what-is-a-guest-and-why-does-it-need-configuration)
     - [2.2 Guest-side bash scripts](#22-guest-side-bash-scripts)
@@ -84,7 +88,7 @@ Follow these steps in order. Each step is explained in detail in the sections th
    ```bash
    sudo bash deploy-cloudinit-snippets.sh
    ```
-   Alternatively, pre-install the agent in the template directly (see [Section 1.6](#16-qemu-guest-agent-required-for-all-vms)).
+   Alternatively, pre-install the agent in the template directly (see [Section 1.7](#17-qemu-guest-agent-required-for-all-vms)).
 4. **On your Windows admin workstation**, edit the environment profile (`acctest-env.ps1`)
    and update the credentials and URLs for your Proxmox cluster (see [Section 3.2](#32-environment-profiles-windows-admin-workstation)).
 5. **Run the environment profile** to start the playground dev server:
@@ -182,7 +186,93 @@ sudo bash setup-vm-template.sh <vmid> vmbr1 fast-ssd
 | DHCP on `ipconfig0` | Sets `ipconfig0 ip=dhcp` |
 | Cloud-init drive (`ide2`) | Attaches `ide2=<storage>:cloudinit` |
 
-### 1.4 Enable nesting at LXC container creation
+### 1.4 Prepare a cloud-init ready VM template
+
+**What this does:** Prepares a VM template so that deployed clones receive cloud-init
+configuration (username/password, network) on first boot. This is required for:
+- Automatic credential injection during deploy
+- IP address discovery through the guest agent
+- DHCP → static IP conversion (Section 4.2)
+
+**Why is this needed?** Cloud images from Proxmox Cookbook (Debian, Ubuntu Server, etc.)
+include `cloud-init` by default. Desktop images (Ubuntu Desktop, Windows, custom images)
+typically do not. Without cloud-init, the playground cannot inject credentials or network
+configuration into cloned VMs.
+
+#### 1.4.1 Why cloud-init is required for the deploy flow
+
+The playground uses Proxmox's cloud-init integration (`cicustom`, `ciuser`, `cipassword`,
+`ipconfig0`) to configure new VMs at deploy time. This works as follows:
+
+1. The playground sets `ipconfig0=ip=dhcp` and attaches a cloud-init disk (`ide2`)
+2. On first boot, the guest's `cloud-init` service reads the config from the disk
+3. Cloud-init can execute commands (e.g., install the guest agent via `cicustom` snippet)
+4. Once the guest agent reports an IP, the playground converts DHCP to static
+
+Without cloud-init in the guest OS:
+- Credentials cannot be injected
+- `cicustom` snippets are ignored
+- The guest agent cannot be auto-installed via cloud-init
+- IP discovery fails → deploy will fail after the grace period
+
+#### 1.4.2 Installing cloud-init in the template
+
+**For Ubuntu/Debian:** Boot the template VM and SSH in (or use the Proxmox console).
+
+```bash
+# Install cloud-init
+sudo apt update && sudo apt install -y cloud-init
+
+# Initialize cloud-init
+sudo cloud-init init
+
+# Disable cloud-init persistence so it runs fresh on each clone
+sudo cloud-init clean
+```
+
+**For RHEL/CentOS/Fedora:**
+```bash
+sudo dnf install -y cloud-init
+sudo cloud-init init
+sudo cloud-init clean
+```
+
+After installing cloud-init, shut down the VM and convert it to a template:
+```bash
+qm template <vmid>
+```
+
+#### 1.4.3 Cloud-init + QEMU guest agent combined (recommended)
+
+The most reliable approach is to install **both** `cloud-init` and `qemu-guest-agent`
+in the template. This eliminates the need for the `cicustom` auto-install path:
+
+```bash
+# Inside the template VM
+sudo apt update
+sudo apt install -y cloud-init qemu-guest-agent
+
+# Initialize cloud-init
+sudo cloud-init init
+sudo cloud-init clean
+
+# Enable guest agent
+sudo systemctl enable --now qemu-guest-agent
+```
+
+Then in Proxmox GUI:
+1. Hardware → Agent → check "Enable"
+2. Shut down the VM
+3. Convert to template
+
+**Every VM cloned from this template will have both cloud-init and the guest agent
+ready to go — no additional configuration needed.**
+
+> **For non-cloud images specifically (Ubuntu Desktop, etc.):** This combined approach
+> is the recommended path. The `cicustom` auto-install (Section 1.7.2) only works if
+> cloud-init is already present in the guest.
+
+### 1.5 Enable nesting at LXC container creation
 
 When creating a new LXC container (via API or CLI), set `nesting=1`.
 
@@ -197,7 +287,7 @@ CLI example:
 pct create <VMID> ... -features nesting=1
 ```
 
-#### 1.4.1 Why nesting is required for Ubuntu 24.04
+#### 1.5.1 Why nesting is required for Ubuntu 24.04
 
 Newer Ubuntu 24.04 templates use a `systemd` version that requires CPU virtualization
 features inside the container. Without nesting, Ubuntu 24.04 containers may start
@@ -207,7 +297,7 @@ without a working console or network — even if the rest of the config is corre
 Avoid `privileged + nesting` as this significantly weakens container isolation. The
 playground enforces this for Ubuntu 24.04 deployments automatically.
 
-### 1.5 LXC device passthrough (done automatically by the hook script)
+### 1.6 LXC device passthrough (done automatically by the hook script)
 
 The hook script installed in [Section 1.2](#12-install-the-lxc-post-create-hook-script)
 automatically appends these lines to every new container's config:
@@ -220,7 +310,7 @@ lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir
 You do not need to add these manually. Restart the container after the hook has run if
 the container was created before the hook was installed.
 
-### 1.6 QEMU guest agent (required for all VMs)
+### 1.7 QEMU guest agent (required for all VMs)
 
 The QEMU guest agent enables the playground to discover VM IP addresses, collect
 guest-side metrics, and perform graceful shutdowns. Without it:
@@ -307,7 +397,7 @@ If you're adding the agent to an already-deployed VM, or the other methods faile
 After installation, the playground will detect the guest agent on the next data refresh
 and display the VM's IP.
 
-### 1.7 Troubleshooting host-side issues
+### 1.8 Troubleshooting host-side issues
 
 | Symptom | Fix |
 |---|---|
@@ -315,7 +405,7 @@ and display the VM's IP.
 | Container created but no `/dev/dri` | Run the hook script manually or re-install via `setup-hookscript.sh`, then restart the container |
 | VM clone fails with cloud-init LV collision | A stale cloud-init volume exists for that VMID. Remove it (`qm set <vmid> --delete ide2`) and retry deploy |
 | Hook script not found error on deploy | Confirm `PVE_LXC_HOOKSCRIPT_VOLID` in `acctest-env.ps1` points to the correct storage path |
-| VM IP shows as `?` in UI | Guest agent not installed or not running — see [Section 1.6](#16-qemu-guest-agent-required-for-all-vms) |
+| VM IP shows as `?` in UI | Guest agent not installed or not running — see [Section 1.7](#17-qemu-guest-agent-required-for-all-vms) |
 
 ---
 
@@ -327,7 +417,7 @@ A "guest" is the VM or LXC container that runs inside Proxmox. Think of it as a 
 computer. After the playground deploys or clones a guest, it needs certain packages
 installed so the playground can:
 
-- Discover the guest IP address (requires **QEMU guest agent** — see Section 1.6)
+- Discover the guest IP address (requires **QEMU guest agent** — see Section 1.7)
 - Provide GUI/VNC access (requires **VNC server + websockify bridge**)
 - Convert DHCP to static IP (requires **guest agent**)
 
@@ -556,7 +646,7 @@ first IPv4 address, the playground **automatically** converts `ipconfig0` to a s
 
 - This happens without user interaction on the next page refresh.
 - A green toast notification appears confirming the conversion.
-- This only works if the guest agent is running (Section 1.6).
+- This only works if the guest agent is running (Section 1.7).
 
 Manual override (if automatic conversion fails):
 ```bash

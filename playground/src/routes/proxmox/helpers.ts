@@ -27,7 +27,15 @@ export const pendingStaticConversion = new Map<number, { name: string; node: str
 
 // Track workloads currently being destroyed (stop+delete running in background).
 // Each entry is tracked until the workload disappears from the Proxmox API.
-export const pendingDestroy = new Map<number, { type: 'vm' | 'container'; name: string; node: string }>();
+// If the workload persists beyond DESTROY_STALE_THRESHOLD_MS, it is marked as failed.
+export const DESTROY_STALE_THRESHOLD_MS = 60_000;
+export const pendingDestroy = new Map<number, {
+  type: 'vm' | 'container';
+  name: string;
+  node: string;
+  startedAt: number;
+  failedReason?: string;
+}>();
 
 // ---------------------------------------------------------------------------
 // Timing

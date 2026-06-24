@@ -164,6 +164,7 @@ These rules are specific to this repository's stack, tooling, and domain.
 - If raw endpoint access is needed, use `client.request()` directly with typed path/args. Report so a decision can be made whether a named API is needed.
 - Server-side terminal/WebSocket responsibility lives in `pve-client`; playground wiring stays thin.
 - ESM TS in `pve-client`: use explicit `.js` extensions for relative imports.
+- **Background task outcome tracking** — when a server action offloads long-running work (e.g., VM deploy, destroy) to `setTimeout`, the HTTP response returns before work completes. Use a shared tracking map (e.g. `pendingStaticConversion`, `pendingDeploy`) written by the background task, and read by periodic page refreshes to surface results. Don't block the HTTP action; don't assume the client can await background work.
 
 ## Proxmox Behavior
 - Use real node identity for all actions — never submit fallback values like `unknown`.
@@ -176,6 +177,8 @@ These rules are specific to this repository's stack, tooling, and domain.
 All modal-based actions (deploy, rename, configure): optimistic, single-shot submit.
 - On submit: close modal immediately, show "action started" status, disable duplicate triggers.
 - On failure: clear optimistic message, show server error.
+- **UI stuck-state detection** — when a UI state (e.g., "deploying") depends on conditions that can silently fail, add failure detection with timed grace periods instead of waiting for a hard cap. Surface the failure explicitly with a distinct status (e.g., "deploy-failed") and notification, rather than dropping the entry silently after a long timeout.
+- **Grace-period resolution with timestamps** — when resolving a pending UI state from multiple conditions, track the timestamp of when each condition settled, not just whether it settled. This allows distinguishing "still in progress" from "failed — give it a moment" from "confirm failed". Example: `tasksSettledAt` for deploy entries, with a grace period before marking failed.
 
 ## Environment and Tooling
 - **Never run `npm run dev` directly.** Start the dev server via `acctest-env.ps1` from `svelte-playground/playground/` — it sets environment variables, builds `pve-client`, and starts the dev server.

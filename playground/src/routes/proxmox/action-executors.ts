@@ -85,7 +85,9 @@ export async function executeDestroyAction(
   }, 0);
 
   // Track in pendingDestroy so the workload shows a "destroying" status
-  pendingDestroy.set(id, { type, name, node });
+  // The periodic refresh in loadData.ts will clear this entry when the workload disappears,
+  // or mark it as failed if it persists beyond the stale threshold.
+  pendingDestroy.set(id, { type, name, node, startedAt: Date.now() });
 
   return { stopUpid };
 }

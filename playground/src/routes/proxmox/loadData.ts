@@ -14,6 +14,7 @@ import { Client } from 'pve-client';
 import type { PageServerLoad } from './$types.js';
 import type { ClusterNode, LxcInterface, LxcTemplate, ProxmoxResults, VmAgentInterface, Workload } from './types.js';
 import {
+  DESTROY_STALE_THRESHOLD_MS,
   PROXMOX_REQUEST_TIMEOUT_MS,
   VM_AGENT_RETRY_DELAY_MS,
   createClient,
@@ -28,6 +29,7 @@ import {
   logLoadTiming,
   nowMs,
   pendingStaticConversion,
+  pendingDestroy,
   toNonNegativeNumber,
   toPositiveNumber,
   vmAgentRetryAfterById,
@@ -330,6 +332,28 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   }
 
   const currentNode = clusterNodes.find((entry) => entry.node === node);
+
+  // Clean up pendingDestroy entries for workloads that no longer appear in the server list
+  // (they have been successfully destroyed).
+  // If a workload persists beyond the stale threshold, mark the entry as failed so the
+  // user sees an error instead of a silent hang.
+  for (const [vmid, entry] of pendingDestroy) {
+    const vmExists = vms.some((v) => v.vmid === vmid);
+    const ctExists = containers.some((c) => c.vmid === vmid);
+
+    if (!vmExists && !ctExists) {
+      pendingDestroy.delete(vmid);
+      continue;
+    }
+
+    // Workload still exists — check if destroy has been stuck too long
+    if (!entry.failedReason && Date.now() - entry.startedAt > DESTROY_STALE_THRESHOLD_MS) {
+      entry.failedReason = 'Destroy did not complete within 60s. The background task may have failed.';
+      console.warn(
+        `[proxmox] Destroy stale for ${entry.type} ${vmid} (${entry.name}) on ${entry.node} — marking as failed`,
+      );
+    }
+  }
   const nodeCapacityByName = new Map<string, { maxcpu?: number; maxmem?: number; maxdisk?: number; availableStorage?: number }>(
     clusterNodes
       .filter((entry): entry is ClusterNode & { node: string } => typeof entry.node === 'string')
@@ -375,10 +399,17 @@ const loadResults = async (): Promise<ProxmoxResults> => {
       .map((vm) => {
         const resolvedNode = typeof vm.node === 'string' ? vm.node : node;
         const hostCapacity = nodeCapacityByName.get(resolvedNode);
+        const vmid = vm.vmid as number | string | undefined;
+        const vmidNum = typeof vmid === 'number' ? vmid : undefined;
+        const pending = vmidNum != null ? pendingDestroy.get(vmidNum) : undefined;
+
+        // If this VM is being destroyed, override status and clear the tracking entry
+        // only once the VM disappears from the server list on a future refresh.
         return {
           ...vm,
           node: resolvedNode,
-          id: vm.vmid as number | string | undefined,
+          id: vmid,
+          status: pending?.failedReason ? 'destroyFailed' : pending ? 'destroying' : vm.status,
           cpulimit:
             toPositiveNumber(vm.cpulimit) ??
             toPositiveNumber(vm.cpus) ??
@@ -401,10 +432,16 @@ const loadResults = async (): Promise<ProxmoxResults> => {
       .map((container) => {
         const resolvedNode = typeof container.node === 'string' ? container.node : node;
         const hostCapacity = nodeCapacityByName.get(resolvedNode);
+        const vmid = container.vmid as number | string | undefined;
+        const vmidNum = typeof vmid === 'number' ? vmid : undefined;
+        const pending = vmidNum != null ? pendingDestroy.get(vmidNum) : undefined;
+
+        // If this container is being destroyed, override status
         return {
           ...container,
           node: resolvedNode,
-          id: container.vmid as number | string | undefined,
+          id: vmid,
+          status: pending?.failedReason ? 'destroyFailed' : pending ? 'destroying' : container.status,
           cpulimit:
             toPositiveNumber(container.cpulimit) ??
             toPositiveNumber(container.maxcpu) ??

@@ -96,6 +96,25 @@ configBody.cicustom = 'user=local:snippets/install-agent.yaml';
 2. **Set `cicustom`** in `configBody` during deployment alongside existing cloud-init params
 3. **Cloud-init runs `runcmd`** on first boot, installing and enabling the guest agent
 
+### ⚠️ Prerequisite: cloud-init must be present in the VM
+
+`cicustom` only works if the guest OS has `cloud-init` installed and running. Cloud images (Debian, Ubuntu Server, etc.) include it by default. **Desktop images (Ubuntu Desktop, Windows, etc.) typically do not.**
+
+When deploying from a non-cloud image:
+1. The `cicustom` cloud-init disk is attached, but no process reads it
+2. Neither `qemu-guest-agent` nor `cloud-init` runs in the guest
+3. The IP address is never discovered
+4. The deploy will fail after the grace period with a "deploy-failed" status
+
+**Fix:** Install `cloud-init` in the template before cloning:
+```bash
+# Inside the Ubuntu Desktop VM (before making it a template)
+sudo apt update && sudo apt install -y cloud-init
+cloud-init clean  # reset state so it runs on next boot
+```
+
+Or use the pre-bake approach below to install both `cloud-init` and `qemu-guest-agent` in the template image.
+
 ### Alternative approaches (ranked)
 
 | Approach | Effort | Reliability | Notes |
@@ -143,7 +162,7 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 - [x] **Add orphan VM cleanup** — if config/start background task fails after clone completes, destroy orphan VM (stop-if-running + delete with purge)
 - [x] Test full deploy flow end-to-end (snippet install → cicustom → agent detected → IP shown) — confirmed 2026-06-24, IP visible on deployed VM
 - [x] **Fix stuck deploy on background failure** — add deploy failure detection with 60s grace period, show "deploy-failed" status + notification, auto-remove after 10s
-- [ ] Install `qemu-guest-agent` in the Ubuntu Desktop template image (pre-bake approach)
+- [ ] Install `cloud-init` and `qemu-guest-agent` in the Ubuntu Desktop template image (so `cicustom` + agent work out of the box)
 - [ ] Check Proxmox task logs to see if clone/start tasks are actually completing
 - [ ] Add debug logging to `isDeployResolved` to trace why the 10-minute cap is hit
 
