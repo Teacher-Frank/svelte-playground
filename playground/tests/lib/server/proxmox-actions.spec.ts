@@ -602,48 +602,63 @@ describe('proxmox page server actions', () => {
     expect(result.message).toContain('Renaming guest template 210 to "renamed-ct-template"');
   });
 
-  it('destroy auto-stops a running VM before delete', async () => {
+  it('destroy fires stop then delete without waiting (virunning VM)', async () => {
     const result = await actions.destroy(
       makeEvent({ type: 'vm', id: '101', node: 'pve1', name: 'ci-vm', status: 'running' })
     );
 
     expect(mocks.qemuStop).toHaveBeenCalledTimes(1);
-    expect(mocks.taskWait).toHaveBeenCalledWith('UPID:vm-stop-task');
+    // No longer calls task.wait — stop and delete are fire-and-forget
+    expect(mocks.taskWait).not.toHaveBeenCalled();
     expect(mocks.qemuDelete).toHaveBeenCalledWith({ $query: { purge: true } });
 
     expect(result.status).toBe('success');
-    expect(result.message).toContain('Stopped VM 101 (ci-vm)');
     expect(result.message).toContain('Destroyed VM 101 (ci-vm)');
+    expect(result.message).toContain('stop task');
+    expect(result.message).toContain('may take a moment');
   });
 
-  it('destroy retries with stop when API reports running VM and status was not provided', async () => {
-    mocks.qemuDelete
-      .mockRejectedValueOnce(new Error('VM 101 is running - destroy failed\n'))
-      .mockResolvedValueOnce('UPID:vm-destroy-task');
-
+  it('destroy fires delete only for stopped VM', async () => {
     const result = await actions.destroy(
-      makeEvent({ type: 'vm', id: '101', node: 'pve1', name: 'ci-vm' })
+      makeEvent({ type: 'vm', id: '101', node: 'pve1', name: 'ci-vm', status: 'stopped' })
     );
 
-    expect(mocks.qemuStop).toHaveBeenCalledTimes(1);
-    expect(mocks.taskWait).toHaveBeenCalledWith('UPID:vm-stop-task');
-    expect(mocks.qemuDelete).toHaveBeenCalledTimes(2);
+    expect(mocks.qemuStop).not.toHaveBeenCalled();
+    expect(mocks.taskWait).not.toHaveBeenCalled();
+    expect(mocks.qemuDelete).toHaveBeenCalledWith({ $query: { purge: true } });
+
     expect(result.status).toBe('success');
-    expect(result.message).toContain('Stopped VM 101 (ci-vm)');
-    expect(result.message).toContain('Destroyed VM 101 (ci-vm)');
+    expect(result.message).toContain('Destroying VM 101 (ci-vm)');
   });
 
-  it('destroy auto-stops a running container before delete', async () => {
+  it('destroy surfaces "is running" error when status was stale & delete fails', async () => {
+    // When the reported status is "stopped" but Proxmox says "is running",
+    // the non-blocking approach fires delete directly — no retry logic.
+    // The server returns a fail(500) response with the error message.
+    mocks.qemuDelete.mockRejectedValueOnce(new Error('VM 101 is running - destroy failed\n'));
+
+    const result = await actions.destroy(
+      makeEvent({ type: 'vm', id: '101', node: 'pve1', name: 'ci-vm', status: 'stopped' })
+    );
+
+    expect(mocks.qemuStop).not.toHaveBeenCalled();
+    expect(result.status).toBe(500);
+    expect((result as any).data?.message).toContain('is running');
+  });
+
+  it('destroy fires stop then delete without waiting (running container)', async () => {
     const result = await actions.destroy(
       makeEvent({ type: 'container', id: '202', node: 'pve1', name: 'ci-ct', status: 'running' })
     );
 
     expect(mocks.lxcStop).toHaveBeenCalledTimes(1);
-    expect(mocks.taskWait).toHaveBeenCalledWith('UPID:lxc-stop-task');
+    // No longer calls task.wait — stop and delete are fire-and-forget
+    expect(mocks.taskWait).not.toHaveBeenCalled();
     expect(mocks.lxcDelete).toHaveBeenCalledWith({ $query: { purge: true, force: true } });
 
     expect(result.status).toBe('success');
-    expect(result.message).toContain('Stopped container 202 (ci-ct)');
     expect(result.message).toContain('Destroyed container 202 (ci-ct)');
+    expect(result.message).toContain('stop task');
+    expect(result.message).toContain('may take a moment');
   });
 });

@@ -236,23 +236,31 @@
 
     destroySubmitInFlight = true;
     setWaitCursor(true);
+    showDeleteConfirm = false;
 
-    // Hard timeout: if the server takes longer than this, force-close the modal.
-    const TIMEOUT_MS = 30_000;
+    // Show immediate feedback that the destroy has been initiated.
+    // The server fires stop + delete without blocking — notification will
+    // be superseded once the server response arrives with the final outcome.
+    notify.pending(
+      `Destroying ${selectedWorkload?.type === 'vm' ? 'VM' : 'container'} ${selectedWorkload?.id}…`
+    );
 
-    return async ({ update, result }: { update: () => Promise<void>; result: { type?: string } }) => {
+    return async ({ update, result }: { update: () => Promise<void>; result: { type?: string; data?: { message?: string; upid?: string } } }) => {
       try {
-        // Race update against a timeout so a hung server can't trap the modal forever.
-        await Promise.race([
-          update(),
-          new Promise<void>((resolve) => setTimeout(resolve, TIMEOUT_MS)),
-        ]);
-        if (result.type === 'failure') {
-          console.error('Destroy failed:', result);
+        await update();
+        window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
+
+        if (result?.type === 'success') {
+          setWaitCursor(false);
+          notify.success(result.data?.message ?? 'Workload destroyed.');
+        }
+
+        if (result?.type === 'failure') {
+          setWaitCursor(false);
+          notify.error(result.data?.message ?? 'Failed to destroy workload.');
         }
       } finally {
-        window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
-        closeDeleteConfirm();
+        destroySubmitInFlight = false;
       }
     };
   };

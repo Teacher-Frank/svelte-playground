@@ -31,13 +31,22 @@ const validResizeDisks = [
 // Execute helpers
 // ---------------------------------------------------------------------------
 
-function isRunningDestroyError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.toLowerCase();
-  return normalized.includes('running - destroy failed') || normalized.includes('is running');
-}
-
-/** Permanently destroys a VM or LXC container via the Proxmox API. Returns the task UPID. */
+/**
+ * Permanently destroys a VM or LXC container via the Proxmox API.
+ *
+ * Strategy: fire stop (if running) and delete back-to-back without waiting.
+ * Proxmox queues the delete task after the stop task completes, so the
+ * delete won't fail with "running - destroy failed".
+ *
+ * This makes the HTTP response non-blocking — the server returns the UPIDs
+ * immediately and the client tracks progress via the notification system.
+ *
+ * Note: the previous implementation used `task.wait()` + `isRunningDestroyError`
+ * retry logic. This was replaced with a fire-and-forget approach because:
+ * 1. Proxmox internally queues a delete behind a pending stop
+ * 2. task.wait() blocked the HTTP response for 10-30+ seconds
+ * 3. The 30s client-side timeout (`Promise.race`) was a band-aid
+ */
 export async function executeDestroyAction(
   type: WorkloadKind,
   id: number,
@@ -47,36 +56,18 @@ export async function executeDestroyAction(
   const client = await createClient();
   const nodeApi = client.api.nodes.get(node);
 
-  const shouldStop = workloadStatus === 'running';
+  // Fire stop if running — do NOT wait; Proxmox will queue delete after stop completes
   let stopUpid: string | undefined;
-
-  const stopWorkload = async (): Promise<void> => {
-    stopUpid = await (type === 'vm'
+  if (workloadStatus === 'running') {
+    stopUpid = (await (type === 'vm'
       ? nodeApi.qemu.vmid(id).status.stop()
-      : nodeApi.lxc.id(id).status.stop()) as string;
-    await client.task.wait(stopUpid);
-  };
-
-  if (shouldStop) {
-    await stopWorkload();
+      : nodeApi.lxc.id(id).status.stop())) as string;
   }
 
-  const runDelete = async (): Promise<string> =>
-    await (type === 'vm'
-      ? nodeApi.qemu.vmid(id).delete({ $query: { purge: true } })
-      : nodeApi.lxc.id(id).delete({ $query: { purge: true, force: true } })) as string;
-
-  let destroyUpid: string;
-  try {
-    destroyUpid = await runDelete();
-  } catch (error) {
-    if (!shouldStop && isRunningDestroyError(error)) {
-      await stopWorkload();
-      destroyUpid = await runDelete();
-    } else {
-      throw error;
-    }
-  }
+  // Fire delete — Proxmox queues it after any in-progress stop
+  const destroyUpid = (await (type === 'vm'
+    ? nodeApi.qemu.vmid(id).delete({ $query: { purge: true } })
+    : nodeApi.lxc.id(id).delete({ $query: { purge: true, force: true } }))) as string;
 
   return { destroyUpid, stopUpid };
 }

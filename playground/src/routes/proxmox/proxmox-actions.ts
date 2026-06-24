@@ -575,16 +575,15 @@ export const actions: Actions = {
         selectedWorkload.status,
       );
       const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
-      const stopPrefix = stopUpid
-        ? `Stopped ${kindLabel} ${selectedWorkload.id}${
-            selectedWorkload.name ? ` (${selectedWorkload.name})` : ''
-          } — task ${stopUpid}. `
-        : '';
+      const nameSuffix = selectedWorkload.name ? ` (${selectedWorkload.name})` : '';
+
       return {
         status: 'success' as const,
-        message: `${stopPrefix}Destroyed ${kindLabel} ${selectedWorkload.id}${
-          selectedWorkload.name ? ` (${selectedWorkload.name})` : ''
-        } — task ${destroyUpid}.`,
+        message: stopUpid
+          ? `Destroyed ${kindLabel} ${selectedWorkload.id}${nameSuffix} — stop task ${stopUpid}, destroy task ${destroyUpid}. `
+              + `This may take a moment while ${kindLabel.toLowerCase()} ${selectedWorkload.id} stops and is removed.`
+          : `Destroying ${kindLabel} ${selectedWorkload.id}${nameSuffix} — task ${destroyUpid}.`,
+        upid: destroyUpid,
         workloadType: selectedWorkload.type,
         formType: selectedWorkload.type,
       };
