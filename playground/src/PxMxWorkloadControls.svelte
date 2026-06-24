@@ -246,12 +246,16 @@
 
         if (result?.type === 'success') {
           setWaitCursor(false);
+
+          // Capture workload details before closing dialog (selectedWorkload may
+          // become undefined on the next tick when the delete form is removed from DOM).
+          const typeLabel = selectedWorkload?.type === 'vm' ? 'VM' : 'container';
+          const workloadId = selectedWorkload?.id;
+
           showDeleteConfirm = false;
 
           // Show notification only after server confirms destroy was initiated.
-          notify.pending(
-            `Destroying ${selectedWorkload?.type === 'vm' ? 'VM' : 'container'} ${selectedWorkload?.id}…`
-          );
+          notify.pending(`Destroying ${typeLabel} ${workloadId}…`);
         }
 
         if (result?.type === 'failure') {

@@ -36,7 +36,8 @@ Git repository under `playground/scripts/`. Transfer them to the target machine 
     - [1.4 Prepare a cloud-init ready VM template](#14-prepare-a-cloud-init-ready-vm-template)
       - [1.4.1 Why cloud-init is required for the deploy flow](#141-why-cloud-init-is-required-for-the-deploy-flow)
       - [1.4.2 Installing cloud-init in the template](#142-installing-cloud-init-in-the-template)
-      - [1.4.3 Cloud-init + QEMU guest agent combined (recommended)](#143-cloud-init--qemu-guest-agent-combined-recommended)
+      - [1.4.3 NoCloud datasource (required for Proxmox)](#143-nocloud-datasource-required-for-proxmox)
+      - [1.4.4 Cloud-init + QEMU guest agent combined (recommended)](#144-cloud-init--qemu-guest-agent-combined-recommended)
     - [1.5 Enable nesting at LXC container creation](#15-enable-nesting-at-lxc-container-creation)
       - [1.5.1 Why nesting is required for Ubuntu 24.04](#151-why-nesting-is-required-for-ubuntu-2404)
     - [1.6 LXC device passthrough (done automatically by the hook script)](#16-lxc-device-passthrough-done-automatically-by-the-hook-script)
@@ -223,8 +224,8 @@ Without cloud-init in the guest OS:
 # Install cloud-init
 sudo apt update && sudo apt install -y cloud-init
 
-# Initialize cloud-init
-sudo cloud-init init
+# Configure NoCloud datasource — required for Proxmox cloud-init to work
+sudo sed -i '/^datasource_list:/c\datasource_list: [NoCloud, None]' /etc/cloud/cloud.cfg
 
 # Disable cloud-init persistence so it runs fresh on each clone
 sudo cloud-init clean
@@ -233,7 +234,11 @@ sudo cloud-init clean
 **For RHEL/CentOS/Fedora:**
 ```bash
 sudo dnf install -y cloud-init
-sudo cloud-init init
+
+# Configure NoCloud datasource
+sudo sed -i '/^datasource_list:/c\datasource_list: [NoCloud, None]' /etc/cloud/cloud.cfg
+
+# Disable cloud-init persistence
 sudo cloud-init clean
 ```
 
@@ -242,7 +247,21 @@ After installing cloud-init, shut down the VM and convert it to a template:
 qm template <vmid>
 ```
 
-#### 1.4.3 Cloud-init + QEMU guest agent combined (recommended)
+#### 1.4.3 NoCloud datasource (required for Proxmox)
+
+Proxmox cloud-init injects configuration via an ISO disk (the NoCloud datasource). If
+`datasource_list` in `/etc/cloud/cloud.cfg` does not include `NoCloud`, cloud-init will
+ignore the injected config even if the package is installed.
+
+The `sed` command above replaces whatever `datasource_list` was set to with
+`[NoCloud, None]`. If your template image has no `datasource_list` line at all, add one:
+```bash
+# Append if the line doesn't exist
+sudo grep -q '^datasource_list:' /etc/cloud/cloud.cfg || \
+  echo 'datasource_list: [NoCloud, None]' | sudo tee -a /etc/cloud/cloud.cfg
+```
+
+#### 1.4.4 Cloud-init + QEMU guest agent combined (recommended)
 
 The most reliable approach is to install **both** `cloud-init` and `qemu-guest-agent`
 in the template. This eliminates the need for the `cicustom` auto-install path:
@@ -252,8 +271,10 @@ in the template. This eliminates the need for the `cicustom` auto-install path:
 sudo apt update
 sudo apt install -y cloud-init qemu-guest-agent
 
-# Initialize cloud-init
-sudo cloud-init init
+# Configure NoCloud datasource — required for Proxmox cloud-init
+sudo sed -i '/^datasource_list:/c\datasource_list: [NoCloud, None]' /etc/cloud/cloud.cfg
+
+# Disable cloud-init persistence so it runs fresh on each clone
 sudo cloud-init clean
 
 # Enable guest agent
@@ -696,9 +717,8 @@ variable in code or scripts, update this guide in the same change.
 - `PLAYGROUND_DEV_BENCH_RUNS`: Number of benchmark runs for `npm run bench:dev-startup` (default `4`).
 - `PLAYGROUND_DEV_BENCH_BASE_PORT`: Base port used by dev-startup benchmarking (default `45173`).
 
-### A.5 VM template deploy guard
+### A.5 VM template deploy
 
-- `PVE_ADMIN_CONTACT_EMAIL`: Admin contact email shown to users when VM deploy is blocked because the selected template does not have a cloud-init drive attached. Example: `thifm@hr.nl`.
 - `PVE_VM_CLOUDINIT_STORAGE`: Preferred storage name for VM cloud-init disks in automation workflows (example: `local-lvm`).
 - `PVE_VM_NETWORK_BRIDGE`: Bridge used when VM deploy must add a missing NIC (`net0`) to a cloned VM (default: `vmbr0`).
 - `PVE_VM_NETWORK_MODEL`: Proxmox NIC model used when VM deploy must add a missing NIC (`net0`) to a cloned VM (default: `virtio`).
@@ -718,7 +738,6 @@ Bridge runtime configuration details are in [Section 3.3](#33-lxc-vnc-bridge-con
 
 - Password authentication with `PVE_USERNAME`, `PVE_PASSWORD`, and `PVE_REALM`.
 - `PVE_INSECURE_TLS=true`.
-- `PVE_ADMIN_CONTACT_EMAIL=thifm@hr.nl`.
 - `PVE_VM_CLOUDINIT_STORAGE=local-lvm`.
 - `PVE_VM_NETWORK_BRIDGE=vmbr0`.
 - `PVE_VM_NETWORK_MODEL=virtio`.
