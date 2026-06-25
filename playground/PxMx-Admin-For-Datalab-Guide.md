@@ -646,7 +646,8 @@ playground admin page. Understanding this flow helps troubleshoot issues.
    `ide2=<storage>:cloudinit` (`PVE_VM_CLOUDINIT_STORAGE`, default `local-lvm`).
 5. The playground starts the cloned VM.
 6. The playground sets `cicustom` to point to the cloud-init guest-agent install snippet.
-7. On first boot, cloud-init installs the QEMU guest agent (if the template was
+7. If the clone has no usable serial port, the playground adds `serial0=socket` for terminal access.
+8. On first boot, cloud-init installs the QEMU guest agent (if the template was
    prepared correctly — see [Section 1.4](#14-prepare-a-cloud-init-ready-vm-template)).
 
 ### 4.3 DHCP to static IP conversion

@@ -166,6 +166,8 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 - [x] **Install `cloud-init` in template** — admin guide §1.4 updated to document correct architecture: template needs `cloud-init` + `/etc/cloud/cloud.cfg` only; `qemu-guest-agent` is installed by deploy flow via `cicustom`. §1.7 rewritten, section numbering fixed, appendix updated.
 - [x] Add debug logging to `isDeployResolved` to trace why the 10-minute cap is hit
 
+- [x] **Add serial0=socket during deployment** — `runPostCloneSteps` now checks for a usable serial port and adds `serial0=socket` if missing (same pattern as net0/ipconfig0/agent). This ensures terminal access works on every deployed VM without manual Proxmox UI intervention.
+
 ## Policy Added
 
 **P2c: Unknown API Surface Validation** — Added to `POLICIES.md`. Before using an external API parameter/endpoint that hasn't been verified, write a test that proves it exists.
