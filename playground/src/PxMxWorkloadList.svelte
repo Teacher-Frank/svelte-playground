@@ -136,13 +136,8 @@
   };
 
   // Unified notification system — scope changes with kind prop
-  // Use $state + $effect so the notify context re-initializes when kind changes,
-  // avoiding the "state_referenced_locally" capture warning.
-  let notify = $state(useToast(kind === 'vm' ? 'vm-workloads' : 'container-workloads'));
-  $effect(() => {
-    const scope = kind === 'vm' ? 'vm-workloads' : 'container-workloads';
-    notify = useToast(scope);
-  });
+  // Use $derived.by so kind is read inside the closure and re-evaluates reactively.
+  const notify = $derived.by(() => useToast(kind === 'vm' ? 'vm-workloads' : 'container-workloads'));
 
   // Track which failure notifications have already been fired (to avoid spamming on every refresh cycle).
   const notifiedFailureNames = $state(new Set<string>());

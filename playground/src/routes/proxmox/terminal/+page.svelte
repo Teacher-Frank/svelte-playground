@@ -502,13 +502,11 @@
       }}
       tabindex="-1"
     >
-      <!-- tabindex makes this content surface interactive to satisfy a11y — the parent overlay has the real click handler to close -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions — intentional modal pattern: overlay click dismisses, inner click stops propagation to prevent accidental close -->
       <div
         class="upload-dialog"
         onclick={(e) => e.stopPropagation()}
-        onkeydown={(e) => {}}
         role="document"
-        tabindex="-1"
       >
         <div class="upload-dialog-header">
           <h3>Upload to {workloadLabel}</h3>
