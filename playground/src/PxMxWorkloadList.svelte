@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import './PxMxStyle.css';
   import { useToast } from './notification-store.svelte.js';
   import ToastNotification from './ToastNotification.svelte';
@@ -135,32 +136,42 @@
     return `Tasks: ${workload.deployTaskUpids.join(', ')}`;
   };
 
-  // Unified notification system — scope changes with kind prop
-  // Use $derived.by so kind is read inside the closure and re-evaluates reactively.
-  const notify = $derived.by(() => useToast(kind === 'vm' ? 'vm-workloads' : 'container-workloads'));
+  // Unified notification system — two stable scope contexts, selected at runtime by kind.
+  // Store as plain consts (not $derived) to avoid reactive tracking of ToastContext getters.
+  // Accessing ToastContext inside an $effect would track its $state-backed .notification getter,
+  // and calling .success()/.error() modifies that $state, creating an infinite effect loop.
+  const _vmNotify = useToast('vm-workloads');
+  const _containerNotify = useToast('container-workloads');
+  const notify = $derived(kind === 'vm' ? _vmNotify : _containerNotify);
 
   // Track which failure notifications have already been fired (to avoid spamming on every refresh cycle).
   const notifiedFailureNames = $state(new Set<string>());
 
   // Fire error notification when a deploy is detected as failed.
   $effect(() => {
+    const scopeNotify = kind === 'vm' ? _vmNotify : _containerNotify;
     for (const workload of workloads) {
       if (workload.status !== 'deploy-failed') continue;
       if (notifiedFailureNames.has(workload.name ?? '')) continue;
 
-      notify.error(`Deploy failed: "${workload.name}" — background setup error (clone succeeded, config/start failed). Check server logs for details.`);
+      untrack(() => {
+        scopeNotify.error(`Deploy failed: "${workload.name}" — background setup error (clone succeeded, config/start failed). Check server logs for details.`);
+      });
       notifiedFailureNames.add(workload.name ?? '');
     }
   });
 
   // React to form results from server
   $effect(() => {
+    const scopeNotify = kind === 'vm' ? _vmNotify : _containerNotify;
     if (!form?.message || form.workloadType !== kind) return;
-    if (form.status === 'error') {
-      notify.error(form.message);
-    } else {
-      notify.success(form.message);
-    }
+    untrack(() => {
+      if (form.status === 'error') {
+        scopeNotify.error(form.message ?? 'Action failed');
+      } else {
+        scopeNotify.success(form.message ?? 'Action completed');
+      }
+    });
   });
 </script>
 
