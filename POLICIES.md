@@ -185,6 +185,7 @@ All modal-based actions (deploy, rename, configure): optimistic, single-shot sub
 - Build `pve-client` before running playground if `dist` is missing.
 - Windows test runs: redirect `TEMP`/`TMP` to `.vitest/tmp` if needed to avoid `mkdtemp` failures.
 - Playground env vars documented in `svelte-playground/playground/PxMx-Admin-For-Datalab-Guide.md`.
+- **Browser test prerequisite:** Before running `quality:gate` after a fresh checkout or Playwright update, run `npx playwright install chromium` from `svelte-playground/playground/` to download browser binaries. Without this, Vitest browser tests fail with `browserType.launch` error.
 
 ## Runbook
 Run commands from `svelte-playground/playground` for app changes, from `pve-client` for library changes.
