@@ -160,13 +160,62 @@
   const normalizeUpids = (taskUpids?: string[]): string[] =>
     (taskUpids ?? []).filter((upid) => typeof upid === 'string' && upid.trim().length > 0);
 
+  /**
+   * Maps UPID → last-seen terminal status (endtime > 0 or ok/stopped/error/warnings).
+   * Used to detect when a task *just* completed between load cycles so we can log it.
+   */
+  const lastTaskState = $state<Map<string, { status: string; endtime: number | null; type: string }>>(new Map());
+
+  /**
+   * Logs the full task payload from `recentTasks` for debugging Proxmox task
+   * completion. Exposed as `window.pveDebug.allTasks()` for browser console use.
+   */
+  const debugAllTaskLogs = () => {
+    if (deployingWorkloads.length === 0) {
+      console.info('[taskLogs] no deploying workloads');
+      return;
+    }
+    for (const pending of deployingWorkloads) {
+      if (pending.taskUpids.length === 0) {
+        console.info(`[taskLogs] "${pending.name}" — no task UPIDs tracked`);
+        continue;
+      }
+      const tasks = data.results?.recentTasks ?? [];
+      console.info(`[taskLogs] "${pending.name}" — checking ${pending.taskUpids.length} UPID(s) against ${tasks.length} recentTasks entries:`);
+      for (const upid of pending.taskUpids) {
+        const task = tasks.find((t) => t.upid === upid);
+        if (!task) {
+          console.warn(`[taskLogs]   ✗ UPID not found: ${upid}`);
+          continue;
+        }
+        console.info(
+          `[taskLogs]   ✓ ${upid} → type="${task.type ?? '?'}" node="${task.node ?? '?'}" status="${task.status ?? '?'}" endtime=${task.endtime ?? 'null'}`,
+          task,
+        );
+      }
+    }
+  };
+
+  // Expose debug helpers to window for browser console inspection.
+  // Usage: window.pveDebug.allTasks()  — dump all deploying workload task details.
+  if (typeof globalThis !== 'undefined') {
+    const w = globalThis as typeof globalThis & { pveDebug?: { allTasks: () => void } };
+    if (!w.pveDebug) {
+      w.pveDebug = { allTasks: debugAllTaskLogs };
+    } else {
+      w.pveDebug.allTasks = debugAllTaskLogs;
+    }
+  }
+
   const isTaskActive = (upid: string): boolean | undefined => {
     const task = data.results?.recentTasks.find((item) => item.upid === upid);
     if (!task) {
+      console.debug(`[isTaskActive] UPID not found in recentTasks (${(data.results?.recentTasks?.length ?? 0)} total): ${upid}`);
       return undefined;
     }
 
     if (typeof task.endtime === 'number' && task.endtime > 0) {
+      console.debug(`[isTaskActive] UPID ${upid} has endtime=${task.endtime} (${new Date(task.endtime * 1000).toISOString()}) — not active`);
       return false;
     }
 
@@ -177,9 +226,11 @@
       normalizedStatus === 'error' ||
       normalizedStatus === 'warnings'
     ) {
+      console.debug(`[isTaskActive] UPID ${upid} status="${normalizedStatus}" endtime=${task.endtime} type="${task.type}" — not active`);
       return false;
     }
 
+    console.debug(`[isTaskActive] UPID ${upid} status="${normalizedStatus}" no endtime — active`);
     return true;
   };
 
@@ -202,6 +253,7 @@
 
     // Hard cap: never hold a deploying entry beyond 10 minutes regardless of task state.
     if (ageMs > 10 * 60 * 1000) {
+      console.debug(`[isDeployResolved] "${pending.name}" — HARD CAP HIT after ${(ageMs / 1000).toFixed(1)}s (taskUpids: ${pending.taskUpids.length}, tasksSettledAt: ${pending.tasksSettledAt}, workloadExists: check below)`);
       return true;
     }
 
@@ -209,6 +261,7 @@
     // from being pruned in the same reactive cycle that task UPIDs arrive — which
     // happens when both tasks complete during the server action's own execution time.
     if (now < pending.resolveNotBefore) {
+      console.debug(`[isDeployResolved] "${pending.name}" — within minimum visible window (resolveNotBefore: ${new Date(pending.resolveNotBefore).toISOString()})`);
       return false;
     }
 
@@ -231,22 +284,26 @@
       const states = pending.taskUpids.map((upid) => isTaskActive(upid));
       // At least one tracked task is still actively running — keep deploying.
       if (states.some((state) => state === true)) {
+        console.debug(`[isDeployResolved] "${pending.name}" — task(s) still active (states: ${JSON.stringify(states)})`);
         return false;
       }
       // All tasks are either completed or unknown (aged out of recentTasks).
       // Resolve as soon as the workload exists on the server.
       if (workloadExists) {
+        console.debug(`[isDeployResolved] "${pending.name}" — RESOLVED: workload found on server`);
         return true;
       }
       // Workload not found — check if this is a confirmed failure.
       if (pending.tasksSettledAt !== null && now - pending.tasksSettledAt > DEPLOY_FAILURE_GRACE_MS) {
-        // Show "deploy-failed" briefly, then auto-remove.
-        return now - pending.tasksSettledAt > DEPLOY_FAILURE_GRACE_MS + DEPLOY_FAILED_VISIBLE_MS;
+        const shouldRemove = now - pending.tasksSettledAt > DEPLOY_FAILURE_GRACE_MS + DEPLOY_FAILED_VISIBLE_MS;
+        console.debug(`[isDeployResolved] "${pending.name}" — workload NOT found, tasksSettledAt=${new Date(pending.tasksSettledAt).toISOString()}, grace elapsed: ${((now - pending.tasksSettledAt) / 1000).toFixed(1)}s, removing: ${shouldRemove}`);
+        return shouldRemove;
       }
+      console.debug(`[isDeployResolved] "${pending.name}" — tasks done but no tasksSettledAt yet, workloadExists=${workloadExists}, keeping deploying`);
       return false;
     }
 
-    // No task IDs yet (optimistic phase before server responds) — keep deploying.
+    console.debug(`[isDeployResolved] "${pending.name}" — no task IDs yet (optimistic phase), age: ${(ageMs / 1000).toFixed(1)}s`);
     return false;
   };
 
@@ -278,7 +335,11 @@
           return (workload.node ?? '').trim().toLowerCase() === pendingNode;
         });
 
-        return !workloadExists && now - pending.tasksSettledAt > DEPLOY_FAILURE_GRACE_MS;
+        const failed = !workloadExists && now - pending.tasksSettledAt > DEPLOY_FAILURE_GRACE_MS;
+        if (failed) {
+          console.debug(`[isDeployFailed] "${pending.name}" — FAILED: workload not found after grace period (${((now - pending.tasksSettledAt) / 1000).toFixed(1)}s); tasksSettledAt=${new Date(pending.tasksSettledAt).toISOString()}`);
+        }
+        return failed;
       }
     }
 
@@ -345,6 +406,36 @@
   }
 
   $effect(() => {
+    // Detect when tracked deploy tasks just completed (between load cycles)
+    // so we can surface the Proxmox task data in the console.
+    const tasks = data.results?.recentTasks ?? [];
+    for (const pending of deployingWorkloads) {
+      if (pending.taskUpids.length === 0) continue;
+      for (const upid of pending.taskUpids) {
+        const task = tasks.find((t) => t.upid === upid);
+        if (!task) continue;
+        const isTerminal =
+          typeof task.endtime === 'number' && task.endtime > 0
+            ? true
+            : ['ok', 'stopped', 'error', 'warnings'].includes((task.status ?? '').trim().toLowerCase());
+        const prevState = lastTaskState.get(upid);
+        const newTerminal = isTerminal
+          ? { status: task.status ?? '', endtime: task.endtime ?? null, type: task.type ?? '' }
+          : null;
+        if (newTerminal && prevState === undefined) {
+          const eventType = (task.status ?? '').toLowerCase() === 'error' ? 'ERROR' : 'completed';
+          console.info(
+            `[taskTransition] "${pending.name}" UPID ${upid} → ${eventType} | type="${task.type ?? '?'}" node="${task.node ?? '?'}" status="${task.status ?? '?'}" endtime=${task.endtime ?? 'null'}`,
+          );
+          lastTaskState.set(upid, newTerminal);
+        } else if (!isTerminal && prevState === undefined) {
+          console.info(
+            `[taskTransition] "${pending.name}" UPID ${upid} → started | type="${task.type ?? '?'}" node="${task.node ?? '?'}" status="${task.status ?? '?'}"`,
+          );
+        }
+      }
+    }
+
     // Update tasksSettledAt for entries where tasks have just completed but the workload
     // hasn't appeared yet — needed for deploy failure detection.
     const now = Date.now();
@@ -367,6 +458,7 @@
           return (workload.node ?? '').trim().toLowerCase() === pendingNode;
         });
         if (!workloadExists) {
+          console.debug(`[$effect:deployManager] "${pending.name}" — tasks just settled (allSettled=true, workloadExists=false), setting tasksSettledAt=${new Date(now).toISOString()} | states=${JSON.stringify(states)} | upids=${JSON.stringify(pending.taskUpids)}`);
           return { ...pending, tasksSettledAt: now };
         }
       }
@@ -380,6 +472,7 @@
       filtered.every((pending, index) => pending.key === deployingWorkloads[index]?.key);
 
     if (!isUnchanged) {
+      console.debug(`[$effect:deployManager] state changed: ${deployingWorkloads.length} → ${filtered.length} entries`);
       deployingWorkloads = filtered;
     }
   });

@@ -50,7 +50,7 @@
   let {
     workloads,
     containerTemplates = [],
-    form,
+    form: _form,
     serverNode,
     onDeployStarted,
     onDeployFailed,

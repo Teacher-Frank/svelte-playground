@@ -18,7 +18,7 @@
 
   let {
     workloads,
-    form,
+    form: _form,
     onDeployStarted,
     onDeployFailed,
   }: {

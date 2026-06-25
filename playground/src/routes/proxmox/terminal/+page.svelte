@@ -7,6 +7,10 @@
   let containerEl: HTMLDivElement | undefined = $state();
   let fileInputEl: HTMLInputElement | undefined = $state();
 
+  // Terminal error state (for provisioning errors like missing serial console)
+  let terminalError: string | undefined = $state();
+  let terminalErrorType: 'serial' | 'not-found' | 'not-running' | 'other' = $state('other');
+
   // Upload dialog state
   let uploadDialogOpen = $state(false);
   let uploadTargetDir = $state('/tmp/upload');
@@ -174,6 +178,14 @@
     // Fallback: If xterm fit underestimates initial size, compute rows/cols from cell metrics and force resize.
     // This is critical for correct PTY geometry on first open, especially in browser layouts with late sizing.
     // Safe to remove if upstream xterm.js or layout always reports correct size on first paint.
+    //
+    // Why we access private xterm internals (accepts as-cast per P4a exception):
+    // - xterm.js has no public API for measuring rendered cell dimensions before fit stabilizes.
+    // - FitAddon.fit() uses the same private metrics but doesn't expose them.
+    // - Without this fallback, initial PTY geometry sticks at defaults (80x24) on slow-rendered pages,
+    //   causing the guest shell to wrap incorrectly until the first explicit resize event.
+    // - The cast chain uses optional chaining (?.) at every level — if xterm.js ever renames _core
+    //   or _renderService, this degrades to a no-op return rather than a runtime crash (P4a safety).
     const maybeApplyFallbackGeometry = () => {
       if (!term || !containerEl) return;
 
@@ -362,7 +374,25 @@
       };
 
       ws.onclose = (ev) => {
-        term?.writeln(`\r\n\x1b[33mConnection closed (${ev.code})\x1b[0m`);
+        if (ev.code === 4001) {
+          // Provisioning error (serial not configured, VM not found, etc).
+          // Classify the error type and show a friendly overlay.
+          const reason = ev.reason || '';
+          terminalError = reason;
+          
+          const lowerReason = reason.toLowerCase();
+          if (/serial/i.test(lowerReason)) {
+            terminalErrorType = 'serial';
+          } else if (/not found/i.test(lowerReason)) {
+            terminalErrorType = 'not-found';
+          } else if (/not running/i.test(lowerReason)) {
+            terminalErrorType = 'not-running';
+          }
+          
+          term?.dispose();
+        } else {
+          term?.writeln(`\r\n\x1b[33mConnection closed (${ev.code})\x1b[0m`);
+        }
       };
 
       const inputEncoder = new TextEncoder();
@@ -412,7 +442,53 @@
     </div>
   </header>
 
-  <div class="terminal-container" bind:this={containerEl}></div>
+  {#if terminalError}
+    <div class="terminal-error-overlay">
+      <div class="terminal-error-card" role="alert">
+        <div class="error-icon">
+          {#if terminalErrorType === 'serial'}
+            ⚠️
+          {:else if terminalErrorType === 'not-found'}
+            🔍
+          {:else if terminalErrorType === 'not-running'}
+            ⏸️
+          {:else}
+            ❌
+          {/if}
+        </div>
+        <h2>
+          {#if terminalErrorType === 'serial'}
+            Terminal Not Available
+          {:else if terminalErrorType === 'not-found'}
+            Virtual Machine Not Found
+          {:else if terminalErrorType === 'not-running'}
+            Virtual Machine Not Running
+          {:else}
+            Terminal Connection Failed
+          {/if}
+        </h2>
+        <p class="error-message">{terminalError}</p>
+        {#if terminalErrorType === 'serial'}
+          <div class="error-action-hint">
+            💡 <strong>What to do:</strong> A serial port needs to be added to this VM's configuration in Proxmox (e.g., <code>serial0: socket</code>). Contact the admin to enable terminal access.
+          </div>
+        {:else if terminalErrorType === 'not-found'}
+          <div class="error-action-hint">
+            💡 <strong>What to do:</strong> The VM may have been deleted or the ID is incorrect. Verify the VM exists in Proxmox.
+          </div>
+        {:else if terminalErrorType === 'not-running'}
+          <div class="error-action-hint">
+            💡 <strong>What to do:</strong> Start the VM from the Proxmox web interface orhetzner panel, then try again.
+          </div>
+        {/if}
+        <div class="error-admin-contact">
+          Need help? Contact your Proxmox administrator.
+        </div>
+      </div>
+    </div>
+  {:else}
+    <div class="terminal-container" bind:this={containerEl}></div>
+  {/if}
 
   {#if uploadDialogOpen}
     <div
@@ -749,5 +825,73 @@
   .file-status {
     min-width: 80px;
     text-align: right;
+  }
+
+  /* Terminal error overlay */
+  .terminal-error-overlay {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    background: #1e1e1e;
+  }
+
+  .terminal-error-card {
+    background: #2d2d2d;
+    border: 1px solid #593;
+    border-left: 4px solid #c90;
+    border-radius: 6px;
+    padding: 2rem;
+    max-width: 560px;
+    width: 100%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+
+  .terminal-error-card h2 {
+    margin: 0 0 1rem 0;
+    font-size: 1.25rem;
+    color: #ddd;
+    font-weight: 600;
+  }
+
+  .error-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    line-height: 1;
+  }
+
+  .error-message {
+    margin: 0 0 1.5rem 0;
+    color: #ccc;
+    line-height: 1.6;
+    font-size: 0.95rem;
+  }
+
+  .error-action-hint {
+    background: #36362a;
+    border: 1px solid #4a3f20;
+    border-radius: 4px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: #c0b090;
+  }
+
+  .error-action-hint code {
+    background: #4a4a3a;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 0.85rem;
+  }
+
+  .error-admin-contact {
+    font-size: 0.85rem;
+    color: #888;
+    text-align: center;
+    padding-top: 0.5rem;
+    border-top: 1px solid #444;
   }
 </style>

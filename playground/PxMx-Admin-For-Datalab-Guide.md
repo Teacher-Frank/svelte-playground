@@ -190,15 +190,17 @@ sudo bash setup-vm-template.sh <vmid> vmbr1 fast-ssd
 ### 1.4 Prepare a cloud-init ready VM template
 
 **What this does:** Prepares a VM template so that deployed clones receive cloud-init
-configuration (username/password, network) on first boot. This is required for:
-- Automatic credential injection during deploy
-- IP address discovery through the guest agent
-- DHCP → static IP conversion (Section 4.2)
+configuration (username/password, network) on first boot, and so the deploy flow's
+custom cloud-init snippet can install `qemu-guest-agent` automatically.
 
 **Why is this needed?** Cloud images from Proxmox Cookbook (Debian, Ubuntu Server, etc.)
 include `cloud-init` by default. Desktop images (Ubuntu Desktop, Windows, custom images)
-typically do not. Without cloud-init, the playground cannot inject credentials or network
-configuration into cloned VMs.
+typically do not. Without cloud-init, the playground cannot inject credentials or execute
+the `runcmd` snippet that installs the guest agent.
+
+The deploy flow installs `qemu-guest-agent` automatically on first boot via a `cicustom`
+cloud-init snippet (see [Section 1.7.2](#172-option-b-auto-install-via-cloud-init-snippet-cicustom)).
+The template only needs `cloud-init` — **not** the guest agent itself.
 
 #### 1.4.1 Why cloud-init is required for the deploy flow
 
@@ -206,14 +208,16 @@ The playground uses Proxmox's cloud-init integration (`cicustom`, `ciuser`, `cip
 `ipconfig0`) to configure new VMs at deploy time. This works as follows:
 
 1. The playground sets `ipconfig0=ip=dhcp` and attaches a cloud-init disk (`ide2`)
-2. On first boot, the guest's `cloud-init` service reads the config from the disk
-3. Cloud-init can execute commands (e.g., install the guest agent via `cicustom` snippet)
-4. Once the guest agent reports an IP, the playground converts DHCP to static
+2. The playground sets `cicustom` to point to a cloud-init snippet that installs
+   `qemu-guest-agent` via `runcmd`
+3. On first boot, the guest's `cloud-init` service reads both the auto-generated config
+   (credentials, network) and the custom snippet
+4. Cloud-init executes the snippet, installing and enabling the guest agent
+5. Once the guest agent reports an IP, the playground converts DHCP to static
 
 Without cloud-init in the guest OS:
 - Credentials cannot be injected
-- `cicustom` snippets are ignored
-- The guest agent cannot be auto-installed via cloud-init
+- `cicustom` snippets are ignored — the guest agent never installs
 - IP discovery fails → deploy will fail after the grace period
 
 #### 1.4.2 Installing cloud-init in the template
@@ -261,37 +265,24 @@ sudo grep -q '^datasource_list:' /etc/cloud/cloud.cfg || \
   echo 'datasource_list: [NoCloud, None]' | sudo tee -a /etc/cloud/cloud.cfg
 ```
 
-#### 1.4.4 Cloud-init + QEMU guest agent combined (recommended)
-
-The most reliable approach is to install **both** `cloud-init` and `qemu-guest-agent`
-in the template. This eliminates the need for the `cicustom` auto-install path:
+For non-cloud images (Ubuntu Desktop, custom images, etc.) that lack cloud-init, you
+must install it in the template before converting to template:
 
 ```bash
-# Inside the template VM
-sudo apt update
-sudo apt install -y cloud-init qemu-guest-agent
+# Inside the template VM — install cloud-init only; the deploy flow installs the agent
+sudo apt update && sudo apt install -y cloud-init
 
-# Configure NoCloud datasource — required for Proxmox cloud-init
+# Configure NoCloud datasource — required for Proxmox cloud-init to work
 sudo sed -i '/^datasource_list:/c\datasource_list: [NoCloud, None]' /etc/cloud/cloud.cfg
 
 # Disable cloud-init persistence so it runs fresh on each clone
 sudo cloud-init clean
-
-# Enable guest agent
-sudo systemctl enable --now qemu-guest-agent
 ```
 
-Then in Proxmox GUI:
-1. Hardware → Agent → check "Enable"
-2. Shut down the VM
-3. Convert to template
+Then in Proxmox GUI: shut down the VM and convert it to template (`qm template <vmid>`).
 
-**Every VM cloned from this template will have both cloud-init and the guest agent
-ready to go — no additional configuration needed.**
-
-> **For non-cloud images specifically (Ubuntu Desktop, etc.):** This combined approach
-> is the recommended path. The `cicustom` auto-install (Section 1.7.2) only works if
-> cloud-init is already present in the guest.
+> **The deploy flow will install `qemu-guest-agent` on first boot** via the `cicustom`
+> cloud-init snippet (Section 1.7.2). You only need `cloud-init` in the template.
 
 ### 1.5 Enable nesting at LXC container creation
 
@@ -331,19 +322,58 @@ lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir
 You do not need to add these manually. Restart the container after the hook has run if
 the container was created before the hook was installed.
 
-### 1.7 QEMU guest agent (required for all VMs)
+### 1.7 QEMU guest agent — how it gets installed
 
 The QEMU guest agent enables the playground to discover VM IP addresses, collect
-guest-side metrics, and perform graceful shutdowns. Without it:
+guest-side metrics, and perform graceful shutdowns. **The deploy flow installs it
+automatically** on first boot via a `cicustom` cloud-init snippet.
 
-- VM IPs show as `?` in the playground UI
+Without it, a deployed VM will show:
+- VM IP as `?` in the playground UI
 - Automatic DHCP → static IP conversion cannot trigger
 - Graceful shutdown from the UI won't work
 
-#### 1.6.1 Option A: pre-install in the base template (recommended)
+#### 1.7.1 How the deploy flow installs the agent (default path)
 
-The most reliable approach is to install `qemu-guest-agent` in the VM template image
-before deploying from it:
+The playground's deploy flow automatically sets `cicustom=user=local:snippets/install-agent.yaml`
+on each cloned VM. This points to a cloud-init user-data snippet that was deployed by
+`deploy-cloudinit-snippets.sh` (Step 3 of the [Quick start](#quick-start-get-up-and-running)).
+
+On first boot, cloud-init reads the snippet and executes:
+```bash
+apt-get update && apt-get install -y qemu-guest-agent
+systemctl enable --now qemu-guest-agent
+```
+
+**Prerequisites for this path:**
+1. The template must have `cloud-init` installed (Section 1.4)
+2. The `install-agent.yaml` snippet must exist on the Proxmox host
+   (deployed by `deploy-cloudinit-snippets.sh`)
+3. The `PVE_SNIPPET_STORAGE` environment variable must point to valid storage
+   (default: `local`)
+
+#### 1.7.2 Option A: auto-install via cloud-init snippet (cicustom)
+
+This is the **default and recommended** approach. The deploy flow handles everything.
+
+One-time host setup:
+```bash
+sudo bash deploy-cloudinit-snippets.sh
+```
+
+This creates `/var/lib/vz/snippets/install-agent.yaml` — a cloud-init user-data file
+that installs and enables `qemu-guest-agent` on first boot via `runcmd`.
+
+> **Note:** If your storage with `snippets` support differs from `local`, set
+> `PVE_SNIPPET_STORAGE` before running:
+> ```bash
+> PVE_SNIPPET_STORAGE=fast-ssd sudo bash deploy-cloudinit-snippets.sh
+> ```
+
+#### 1.7.3 Option B: pre-install in the base template
+
+If cloud-init is unavailable in your template (e.g., Windows guests without WSL),
+you can pre-install the agent in the VM template image before deploying from it:
 
 1. Boot the template VM and SSH in (or use the Proxmox console).
 2. On Debian/Ubuntu:
@@ -360,52 +390,11 @@ before deploying from it:
    (Hardware → Agent → check "Enable").
 5. Shut down the VM and convert it to a template.
 
-Every VM cloned from this template will have the agent ready to go.
-
 > **Note:** The deploy flow sets `agent=enabled=1` on cloned VMs, which enables the
 > virtio serial channel on the Proxmox side. However, this alone does not install the
-> agent inside the guest — the binary must be present in the guest OS.
+> agent inside the guest — the binary must be present.
 
-#### 1.6.2 Option B: auto-install via cloud-init snippet (cicustom)
-
-If you can't modify the template image, you can use Proxmox's `cicustom` cloud-init
-parameter to install the guest agent on first boot. This requires a one-time host
-setup, then works for every cloned VM.
-
-**Step 1: Deploy the cloud-init snippet to the Proxmox host (one-time)**
-
-SSH into the Proxmox host and run:
-
-```bash
-sudo bash deploy-cloudinit-snippets.sh
-```
-
-This creates `/var/lib/vz/snippets/install-agent.yaml` — a cloud-init user-data file
-that installs and enables `qemu-guest-agent` on first boot via `runcmd`.
-
-> **Note:** This installs the `install-agent.yaml` snippet to the `local` storage.
-> If your storage with `snippets` support has a different ID (e.g., `fast-ssd`), you'll
-> need to update the `PVE_SNIPPET_STORAGE` variable in the script before running it.
-
-**Step 2: Set cicustom during deployment**
-
-When deploying a VM, set the `cicustom` config parameter to point to the snippet:
-
-```bash
-# Proxmox CLI
-qm set <vmid> --cicustom "user=${PVE_SNIPPET_STORAGE:-local}:snippets/install-agent.yaml"
-```
-
-Or in the playground deploy config:
-
-```typescript
-configBody.cicustom = `${snippetStorage}:snippets/install-agent.yaml`;
-```
-
-On first boot, cloud-init reads the snippet and runs the install command. The playground
-will detect the guest agent and display the VM's IP on the next refresh.
-
-#### 1.6.3 Option C: install manually on an existing guest
+#### 1.7.4 Option C: install manually on an existing guest
 
 If you're adding the agent to an already-deployed VM, or the other methods failed:
 
@@ -426,7 +415,7 @@ and display the VM's IP.
 | Container created but no `/dev/dri` | Run the hook script manually or re-install via `setup-hookscript.sh`, then restart the container |
 | VM clone fails with cloud-init LV collision | A stale cloud-init volume exists for that VMID. Remove it (`qm set <vmid> --delete ide2`) and retry deploy |
 | Hook script not found error on deploy | Confirm `PVE_LXC_HOOKSCRIPT_VOLID` in `acctest-env.ps1` points to the correct storage path |
-| VM IP shows as `?` in UI | Guest agent not installed or not running — see [Section 1.7](#17-qemu-guest-agent-required-for-all-vms) |
+| VM IP shows as `?` in UI | Guest agent not installed or not running — check that the template has cloud-init (Section 1.4) and that the snippet was deployed (Section 1.7.2) |
 
 ---
 
@@ -656,10 +645,11 @@ playground admin page. Understanding this flow helps troubleshoot issues.
 4. If the clone is missing a cloud-init drive, the playground attaches
    `ide2=<storage>:cloudinit` (`PVE_VM_CLOUDINIT_STORAGE`, default `local-lvm`).
 5. The playground starts the cloned VM.
-6. On first boot, cloud-init installs the QEMU guest agent (if the template was
-   prepared correctly — see [Section 1.3](#13-prepare-a-vm-template-for-cloning)).
+6. The playground sets `cicustom` to point to the cloud-init guest-agent install snippet.
+7. On first boot, cloud-init installs the QEMU guest agent (if the template was
+   prepared correctly — see [Section 1.4](#14-prepare-a-cloud-init-ready-vm-template)).
 
-### 4.2 DHCP to static IP conversion
+### 4.3 DHCP to static IP conversion
 
 Every deployed VM initially receives a DHCP address. Once the guest agent reports the
 first IPv4 address, the playground **automatically** converts `ipconfig0` to a static IP
@@ -674,7 +664,7 @@ Manual override (if automatic conversion fails):
 qm set <vmid> --ipconfig0 ip=145.24.222.128/24
 ```
 
-### 4.3 LXC container deploy flow
+### 4.4 LXC container deploy flow
 
 1. The playground creates the LXC container with `nesting=1`.
 2. Proxmox runs the post-create hook script (installed in [Section 1.2](#12-install-the-lxc-post-create-hook-script)).
@@ -700,17 +690,24 @@ variable in code or scripts, update this guide in the same change.
 - `PVE_REALM`: Proxmox authentication realm (for example `pam`, `pve`, or LDAP realms).
 - `PVE_INSECURE_TLS`: Set to `true` to allow self-signed or otherwise untrusted TLS certificates.
 
-### A.2 LXC deployment and storage
+### A.2 VM deployment and storage
+
+- `PVE_VM_CLOUDINIT_STORAGE`: Preferred storage name for VM cloud-init disks in automation workflows (example: `local-lvm`).
+- `PVE_VM_NETWORK_BRIDGE`: Bridge used when VM deploy must add a missing NIC (`net0`) to a cloned VM (default: `vmbr0`).
+- `PVE_VM_NETWORK_MODEL`: Proxmox NIC model used when VM deploy must add a missing NIC (`net0`) to a cloned VM (default: `virtio`).
+- `PVE_SNIPPET_STORAGE`: Proxmox storage ID for cloud-init snippets (default: `local`). Must support `snippets` content-type. Used by `deploy-cloudinit-snippets.sh` and the deploy flow `cicustom` parameter.
+
+### A.3 LXC deployment and storage
 
 - `PVE_LXC_HOOKSCRIPT_VOLID`: Hookscript volume ID in Proxmox format `<storage>:snippets/<file>`. Example: `local:snippets/lxc-post-create-hook.sh`.
 - `PVE_LXC_ROOTFS_STORAGE`: Target storage for new LXC root filesystem allocation when deploying from storage templates. This storage must support `rootdir` / container directories (example: `local-lvm`).
 
-### A.3 Terminal and runtime
+### A.4 Terminal and runtime
 
 - `PVE_TERMINAL_TRACE`: Enables verbose terminal proxy/debug logging when set to `true`.
 - `NODE_ENV`: Node.js runtime mode (typically `development` for local/admin use).
 
-### A.4 Diagnostics and benchmarking
+### A.5 Diagnostics and benchmarking
 
 - `PLAYGROUND_PROFILE_LOAD`: Enables timing/profile logs for Proxmox page load paths when set to `true`.
 - `PLAYGROUND_REFRESH_INTERVAL_SECONDS`: Default auto-refresh interval for the PxMxAdmin screen, in seconds (minimum `1`, maximum `3600`, default `5`).
@@ -723,7 +720,7 @@ variable in code or scripts, update this guide in the same change.
 - `PVE_VM_NETWORK_BRIDGE`: Bridge used when VM deploy must add a missing NIC (`net0`) to a cloned VM (default: `vmbr0`).
 - `PVE_VM_NETWORK_MODEL`: Proxmox NIC model used when VM deploy must add a missing NIC (`net0`) to a cloned VM (default: `virtio`).
 
-### A.6 LXC VNC bridge variables
+### A.7 LXC VNC bridge variables
 
 - `LXC_VNC_BRIDGE_WS_URL`: Explicit websocket URL template for VNC bridge targets (supports placeholders like `{ip}` / `{ipv4}`).
 - `LXC_VNC_BRIDGE_ALLOWED_HOSTS`: Comma-separated host:port allowlist for bridge targets in explicit URL mode.
@@ -734,13 +731,14 @@ variable in code or scripts, update this guide in the same change.
 
 Bridge runtime configuration details are in [Section 3.3](#33-lxc-vnc-bridge-configuration).
 
-### A.7 Current `acctest-env.ps1` profile
+### A.8 Current `acctest-env.ps1` profile
 
 - Password authentication with `PVE_USERNAME`, `PVE_PASSWORD`, and `PVE_REALM`.
 - `PVE_INSECURE_TLS=true`.
 - `PVE_VM_CLOUDINIT_STORAGE=local-lvm`.
 - `PVE_VM_NETWORK_BRIDGE=vmbr0`.
 - `PVE_VM_NETWORK_MODEL=virtio`.
+- `PVE_SNIPPET_STORAGE=local`.
 - `PLAYGROUND_REFRESH_INTERVAL_SECONDS=5`.
 - `PVE_LXC_HOOKSCRIPT_VOLID=local:snippets/lxc-post-create-hook.sh`.
 - `PVE_LXC_ROOTFS_STORAGE=local-lvm`.
@@ -754,9 +752,10 @@ Bridge runtime configuration details are in [Section 3.3](#33-lxc-vnc-bridge-con
 |---|---|---|
 | Xorg fails with "no screens found" in LXC | Missing device passthrough; hook script not installed | [1.5 LXC device passthrough](#15-lxc-device-passthrough-done-automatically-by-the-hook-script) |
 | Container created but no `/dev/dri` | Hook script didn't run | [1.2 Install the LXC post-create hook script](#12-install-the-lxc-post-create-hook-script) |
-| VM clone fails with cloud-init LV collision | Stale cloud-init volume for that VMID | Section [1.6 Troubleshooting host-side issues](#16-troubleshooting-host-side-issues) |
+| VM clone fails with cloud-init LV collision | Stale cloud-init volume for that VMID | Section [1.8 Troubleshooting host-side issues](#18-troubleshooting-host-side-issues) |
 | Hook script "file not found" on deploy | `PVE_LXC_HOOKSCRIPT_VOLID` path is wrong | [1.2 Install the LXC post-create hook script](#12-install-the-lxc-post-create-hook-script) |
-| Static IP conversion doesn't happen | Guest agent hasn't reported an IP yet, or failed to install | [4.2 DHCP to static IP conversion](#42-dhcp-to-static-ip-conversion) |
+| Static IP conversion doesn't happen | Guest agent hasn't reported an IP yet, or cloud-init snippet failed to install the agent | [Section 1.7](#17-qemu-guest-agent---how-it-gets-installed), [Section 4.3](#43-dhcp-to-static-ip-conversion) |
+| Deploy stuck for 10 minutes then disappears | No cloud-init in template, so `cicustom` snippet can't run — agent never installs | [Section 1.4](#14-prepare-a-cloud-init-ready-vm-template) |
 | "Submitting credentials..." stuck | See dedicated troubleshooting steps below | [3.4 VNC troubleshooting](#34-troubleshooting-vnc-page-stuck-on-submitting-credentials) |
 | GUI action is grayed/disabled | Guest IP not yet discovered | [2.4 Run the verification checklist](#24-run-the-verification-checklist) |
 | VNC page shows "Target closed connection" | VNC server auth failing inside guest | [3.4 VNC troubleshooting](#34-troubleshooting-vnc-page-stuck-on-submitting-credentials) |

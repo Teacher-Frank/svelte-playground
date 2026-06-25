@@ -162,9 +162,9 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 - [x] **Add orphan VM cleanup** — if config/start background task fails after clone completes, destroy orphan VM (stop-if-running + delete with purge)
 - [x] Test full deploy flow end-to-end (snippet install → cicustom → agent detected → IP shown) — confirmed 2026-06-24, IP visible on deployed VM
 - [x] **Fix stuck deploy on background failure** — add deploy failure detection with 60s grace period, show "deploy-failed" status + notification, auto-remove after 10s
-- [ ] Install `cloud-init` and `qemu-guest-agent` in the Ubuntu Desktop template image (so `cicustom` + agent work out of the box)
-- [ ] Check Proxmox task logs to see if clone/start tasks are actually completing
-- [ ] Add debug logging to `isDeployResolved` to trace why the 10-minute cap is hit
+- [x] **Check Proxmox task logs** — added `[taskTransition]` console.info on task state change (started → completed/error) + `window.pveDebug.allTasks()` for manual inspection
+- [x] **Install `cloud-init` in template** — admin guide §1.4 updated to document correct architecture: template needs `cloud-init` + `/etc/cloud/cloud.cfg` only; `qemu-guest-agent` is installed by deploy flow via `cicustom`. §1.7 rewritten, section numbering fixed, appendix updated.
+- [x] Add debug logging to `isDeployResolved` to trace why the 10-minute cap is hit
 
 ## Policy Added
 
@@ -307,3 +307,82 @@ When deploying from template 103 (`ubuntudesktop`), the background `runPostClone
 ### Tests
 - 18 of 22 proxmox-actions tests pass (4 pre-existing LXC destroy test failures)
 - No errors introduced by deploy failure detection changes
+
+---
+
+## Serial Port Configuration via Proxmox API — 2026-06-25 Notes
+
+### Background
+
+The terminal feature (`svelte-playground/playground/server/proxmoxTerminalWs.ts`) connects to VMs via the Proxmox `termproxy` endpoint, which requires a serial console to be configured on the VM. When no serial port exists, the terminal shows a "serial not configured" error (close code 4001).
+
+**Serial ports can be added via the Proxmox API** — no manual Proxmox web UI intervention required.
+
+### API Reference (pve-client)
+
+| Operation | Method | Endpoint | Serial Param |
+|---|---|---|---|
+| **Read current serial config** | `config.get()` | `GET /nodes/{node}/qemu/{vmid}/config` | Response: `"serial[n]"?: string` |
+| **Update serial config (sync)** | `config.put()` | `PUT /nodes/{node}/qemu/{vmid}/config` | Body: `"serial[n]"?: string` |
+| **Update serial config (async)** | `config.post()` | `POST /nodes/{node}/qemu/{vmid}/config` | Body: `"serial[n]"?: string` |
+| **List VMs (serial flag)** | `list()` | `GET /nodes/{node}/qemu` | Response per VM: `"serial"?: boolean` |
+| **Connect to serial console** | `termproxy()` | `POST /nodes/{node}/qemu/{vmid}/termproxy` | Body: `"serial"?: "serial0" \| "serial1" \| "serial2" \| "serial3"` |
+
+### TypeScript Types (pve-client `src/api/nodes/types.ts`)
+
+```typescript
+// Config GET return, PUT body, POST body all include:
+"serial[n]"?: string;
+
+// termproxy POST body:
+$body: { "serial"?: "serial0" | "serial1" | "serial2" | "serial3" };
+
+// termproxy POST return:
+return: { "port": number; "ticket": string; "upid": string; "user": string };
+```
+
+### Serial Port Values
+
+| Value | Meaning |
+|---|---|
+| `"socket"` | Socket-based serial (what `termproxy` needs for terminal access) |
+| `"none"` | Disabled (default on many templates) |
+| `"socket,rfc2217"` | Socket with RFC 2217 telnet escaping |
+| `"file:/path"` | Logs to file (not useful for terminals) |
+| `"null"` | Null device (discards output) |
+
+### Usage Example
+
+```typescript
+// Check current serial config
+const config = await client.api.nodes.get(node).qemu.vmid(vmid).config.get();
+const serial0 = config["serial0"];  // e.g., "none" or undefined
+
+// Add serial0=socket (sync — blocks until done)
+await client.api.nodes.get(node).qemu.vmid(vmid).config.put({
+  "serial0": "socket",
+});
+
+// Add serial0=socket (async — returns task UPID)
+const upid = await client.api.nodes.get(node).qemu.vmid(vmid).config.post({
+  "serial0": "socket",
+});
+```
+
+### Notes
+
+- **VM restart required:** Changes to `serial[n]` take effect only after a VM reboot (hot-plug not supported for serial ports).
+- **Up to 4 ports:** `serial0` through `serial3` are valid.
+- **LXC containers:** Use the `lxc` API path (`client.api.nodes.get(node).lxc.cid(id).config`) — LXC uses `tty` count instead of `serial[n]`.
+- **Related to agent channel:** The `agent=enabled=1` config also uses a virtio serial channel internally, but this is separate from the QEMU serial ports used by `termproxy`.
+
+### Self-Healing Opportunity
+
+The terminal error overlay (close code 4001) could offer an "Enable serial port" button for admins:
+1. Detect serial error → show overlay
+2. Admin clicks "Add serial0=socket"
+3. Calls `config.post({ "serial0": "socket" })` (async, returns UPID)
+4. Tracks task completion, shows "VM needs restart" notice
+5. After restart, terminal becomes available
+
+This would require the same admin auth already used for terminal login (username/password), so no additional auth surface is needed.

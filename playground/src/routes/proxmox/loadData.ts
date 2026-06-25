@@ -338,8 +338,8 @@ const loadResults = async (): Promise<ProxmoxResults> => {
   // If a workload persists beyond the stale threshold, mark the entry as failed so the
   // user sees an error instead of a silent hang.
   for (const [vmid, entry] of pendingDestroy) {
-    const vmExists = vms.some((v) => v.vmid === vmid);
-    const ctExists = containers.some((c) => c.vmid === vmid);
+    const vmExists = (vms as Array<Record<string, unknown>>).some((v) => Number(v.vmid) === vmid);
+    const ctExists = (containers as Array<Record<string, unknown>>).some((c) => Number(c.vmid) === vmid);
 
     if (!vmExists && !ctExists) {
       pendingDestroy.delete(vmid);
@@ -409,7 +409,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
           ...vm,
           node: resolvedNode,
           id: vmid,
-          status: pending?.failedReason ? 'destroyFailed' : pending ? 'destroying' : vm.status,
+          status: pending?.failedReason ? 'destroyFailed' : pending ? 'destroying' : (vm.status as string | undefined),
           cpulimit:
             toPositiveNumber(vm.cpulimit) ??
             toPositiveNumber(vm.cpus) ??
@@ -429,6 +429,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
       .sort(compareByName) as Workload[],
     containers: (containers as Array<Record<string, unknown>>)
       // Ensure each container has a node field and an id mapped from vmid.
+      // Ensure each container has a node field and an id mapped from vmid.
       .map((container) => {
         const resolvedNode = typeof container.node === 'string' ? container.node : node;
         const hostCapacity = nodeCapacityByName.get(resolvedNode);
@@ -441,7 +442,7 @@ const loadResults = async (): Promise<ProxmoxResults> => {
           ...container,
           node: resolvedNode,
           id: vmid,
-          status: pending?.failedReason ? 'destroyFailed' : pending ? 'destroying' : container.status,
+          status: pending?.failedReason ? 'destroyFailed' : pending ? 'destroying' : (container.status as string | undefined),
           cpulimit:
             toPositiveNumber(container.cpulimit) ??
             toPositiveNumber(container.maxcpu) ??

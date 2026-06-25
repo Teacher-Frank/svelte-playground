@@ -652,8 +652,8 @@ describe('proxmox page server actions', () => {
     );
 
     expect(mocks.qemuStop).toHaveBeenCalledTimes(1);
-    expect((result as any).status).toBe(500);
-    expect((result as any).data?.message).toContain('VM is locked');
+    expect((result as Record<string, unknown>).status).toBe(500);
+    expect((result as Record<string, unknown>).data?.message).toContain('VM is locked');
   });
 
   it('destroy fires stop then queues delete in background (running container)', async () => {
