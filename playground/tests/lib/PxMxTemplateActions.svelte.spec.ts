@@ -131,7 +131,9 @@ describe('template action controls', () => {
     await expect.element(vncButton).toHaveAttribute('aria-disabled', 'false');
   });
 
-  it('keeps VNC disabled for running VMs until primary IP is resolved', async () => {
+  it('enables VNC for running VMs even without resolved IP (native Proxmox VNC)', async () => {
+    // Arch change: VMs use native Proxmox VNC (via vncproxy), which doesn't require IP resolution.
+    // Only LXC containers need IP for bridge-mode VNC.
     render(PxMxWorkloadControls, {
       selectedWorkload: {
         type: 'vm',
@@ -144,12 +146,10 @@ describe('template action controls', () => {
       compact: true,
     });
 
-    const vncButton = page.getByLabelText(
-      'Waiting for VM IPv4 address before enabling GUI (VNC)'
-    );
+    const vncButton = page.getByRole('link', { name: 'Open GUI (VNC)' });
 
     await expect.element(vncButton).toBeVisible();
-    await expect.element(vncButton).toHaveAttribute('aria-disabled', 'true');
+    await expect.element(vncButton).toHaveAttribute('aria-disabled', 'false');
   });
 
   it('enables VNC for running VMs when primary IP is available', async () => {

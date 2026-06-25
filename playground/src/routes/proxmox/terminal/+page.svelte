@@ -502,10 +502,10 @@
       }}
       tabindex="-1"
     >
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions — intentional modal pattern: overlay click dismisses, inner click stops propagation to prevent accidental close -->
       <div
         class="upload-dialog"
         onclick={(e) => e.stopPropagation()}
+        onkeydown={(e) => e.stopPropagation()}
         role="document"
       >
         <div class="upload-dialog-header">
