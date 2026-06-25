@@ -53,15 +53,16 @@
     typeof selectedWorkload?.primaryIp === 'string' && selectedWorkload.primaryIp.trim().length > 0
   );
 
-  // GUI/VNC access is only shown as active when the selected workload is
-  // running and the backend can provide a real GUI bridge for that type.
+  // GUI/VNC access eligibility differs by workload type:
+  // - VMs use native Proxmox VNC (vncproxy) — no IP address needed, just running state.
+  // - Containers use bridge mode (websockify on guest) — requires resolved IPv4.
   const vncEnabled = $derived(
     !controlsDisabled &&
     supportsGuiAccess &&
-    hasResolvedWorkloadIp &&
     selectedWorkload?.status === 'running' &&
     selectedWorkload?.id != null &&
-    selectedWorkload?.node != null
+    selectedWorkload?.node != null &&
+    (selectedWorkload.type === 'vm' || hasResolvedWorkloadIp)
   );
 
   const vncTooltip = $derived.by(() => {
@@ -71,10 +72,6 @@
 
     if (selectedWorkload?.type === 'container' && !hasResolvedWorkloadIp) {
       return 'Waiting for container IPv4 address before enabling GUI (VNC)';
-    }
-
-    if (selectedWorkload?.type === 'vm' && !hasResolvedWorkloadIp) {
-      return 'Waiting for VM IPv4 address before enabling GUI (VNC)';
     }
 
     return 'Open GUI (VNC)';
