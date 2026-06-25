@@ -502,10 +502,13 @@
       }}
       tabindex="-1"
     >
+      <!-- tabindex makes this content surface interactive to satisfy a11y — the parent overlay has the real click handler to close -->
       <div
         class="upload-dialog"
         onclick={(e) => e.stopPropagation()}
+        onkeydown={(e) => {}}
         role="document"
+        tabindex="-1"
       >
         <div class="upload-dialog-header">
           <h3>Upload to {workloadLabel}</h3>

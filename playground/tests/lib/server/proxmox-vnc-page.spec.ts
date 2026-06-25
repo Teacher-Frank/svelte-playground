@@ -106,7 +106,7 @@ describe('proxmox vnc page bridge resolution', () => {
     await expect(load(event)).rejects.toMatchObject({ status: 503 });
   });
 
-  it('uses bridge mode for VMs when derive-from-IPv4 is configured', async () => {
+  it('always uses native Proxmox VNC for VMs — ignores bridge config', async () => {
     const event = {
       url: new URL('http://localhost/proxmox/vnc?vmid=101&node=pve1&type=vm&ip=10.9.8.7&name=vm101'),
     } as Parameters<typeof load>[0];
@@ -114,8 +114,90 @@ describe('proxmox vnc page bridge resolution', () => {
     const result = await load(event);
 
     expect(result.type).toBe('vm');
-    expect(result.upstreamWsUrl).toBe('ws://10.9.8.7:8001');
-    // VMs do not go through the guest-agent lookup when IP is provided in query
-    expect(mocks.interfaces).not.toHaveBeenCalled();
+    expect(result.upstreamWsUrl).toBe('wss://pve.example.com:8006/api2/json/nodes/pve1/qemu/100/vncwebsocket');
+    expect(result.vncUsername).toBe('root@pam');
+    expect(result.vncPassword).toBe('pw');
+    // display() was called (native path), not LXC interface lookup
+    expect(mocks.displayConnectionInfo).toHaveBeenCalled();
+  });
+
+  it('uses native Proxmox VNC for VMs even when LXC_VNC_BRIDGE_DERIVE_FROM_IPV4 is true', async () => {
+    const event = {
+      url: new URL('http://localhost/proxmox/vnc?vmid=102&node=pve1&type=vm&name=vm102'),
+    } as Parameters<typeof load>[0];
+
+    const result = await load(event);
+
+    expect(result.type).toBe('vm');
+    expect(result.upstreamWsUrl).toBe('wss://pve.example.com:8006/api2/json/nodes/pve1/qemu/100/vncwebsocket');
+  });
+
+  it('returns 400 when vmid is missing', async () => {
+    const event = {
+      url: new URL('http://localhost/proxmox/vnc?node=pve1&type=vm'),
+    } as Parameters<typeof load>[0];
+
+    await expect(load(event)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('returns 400 when vmid is not a positive integer', async () => {
+    const event = {
+      url: new URL('http://localhost/proxmox/vnc?vmid=abc&node=pve1&type=vm'),
+    } as Parameters<typeof load>[0];
+
+    await expect(load(event)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('returns 400 when node is missing', async () => {
+    const event = {
+      url: new URL('http://localhost/proxmox/vnc?vmid=100&type=vm'),
+    } as Parameters<typeof load>[0];
+
+    await expect(load(event)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('returns 400 when type is invalid', async () => {
+    const event = {
+      url: new URL('http://localhost/proxmox/vnc?vmid=100&node=pve1&type=invalid'),
+    } as Parameters<typeof load>[0];
+
+    await expect(load(event)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('returns 503 for containers when bridge mode is not configured', async () => {
+    delete process.env.LXC_VNC_BRIDGE_DERIVE_FROM_IPV4;
+    delete process.env.LXC_VNC_BRIDGE_WS_URL;
+
+    const event = {
+      url: new URL('http://localhost/proxmox/vnc?vmid=304&node=pve1&type=container&name=ct304'),
+    } as Parameters<typeof load>[0];
+
+    await expect(load(event)).rejects.toMatchObject({ status: 503 });
+  });
+
+  it('uses LXC_VNC_BRIDGE_WS_URL template for containers when set', async () => {
+    delete process.env.LXC_VNC_BRIDGE_DERIVE_FROM_IPV4;
+    process.env.LXC_VNC_BRIDGE_WS_URL = 'ws://websockify.gateway:8001/{node}/{vmid}/vnc';
+
+    const event = {
+      url: new URL('http://localhost/proxmox/vnc?vmid=305&node=pve1&type=container&ip=10.0.0.50&name=ct305'),
+    } as Parameters<typeof load>[0];
+
+    const result = await load(event);
+
+    expect(result.type).toBe('container');
+    expect(result.upstreamWsUrl).toBe('ws://websockify.gateway:8001/pve1/305/vnc');
+  });
+
+  it('skips loopback and link-local IPs from query param', async () => {
+    const event = {
+      url: new URL('http://localhost/proxmox/vnc?vmid=306&node=pve1&type=container&ip=127.0.0.1&name=ct306'),
+    } as Parameters<typeof load>[0];
+
+    // Will fall back to interfaces lookup since 127.0.0.1 was skipped
+    const result = await load(event);
+
+    expect(result.upstreamWsUrl).toBe('ws://10.0.0.21:8001');
+    expect(mocks.interfaces).toHaveBeenCalledTimes(1);
   });
 });

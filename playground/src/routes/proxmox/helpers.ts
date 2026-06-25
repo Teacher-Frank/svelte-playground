@@ -293,3 +293,44 @@ export const createClient = async (): Promise<Client> => {
 
   throw new Error('Provide PVE_API_TOKEN or PVE_USERNAME and PVE_PASSWORD');
 };
+
+// ---------------------------------------------------------------------------
+// VNC bridge URL builders
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a bridge websocket URL for LXC GUI sessions from an operator-provided
+ * template. Supports {node}, {vmid}, and {ip}/{ipv4} placeholders.
+ */
+export const resolveLxcBridgeWsUrl = (
+  template: string, node: string, vmid: number, ipv4?: string
+): string => {
+  const replaced = template
+    .replaceAll('{node}', encodeURIComponent(node))
+    .replaceAll('{vmid}', encodeURIComponent(vmid.toString()))
+    .replaceAll('{ip}', encodeURIComponent(ipv4 ?? ''))
+    .replaceAll('{ipv4}', encodeURIComponent(ipv4 ?? ''));
+  const parsed = new URL(replaced);
+  if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+    throw new Error('LXC_VNC_BRIDGE_WS_URL must use ws:// or wss:// protocol');
+  }
+  return parsed.toString();
+};
+
+/** Build a bridge websocket URL from a resolved IPv4 address and env vars. */
+export const buildBridgeWsUrlFromIpv4 = (ipv4: string): string => {
+  const scheme = (process.env.LXC_VNC_BRIDGE_WS_SCHEME?.trim() || 'ws').toLowerCase();
+  const port = process.env.LXC_VNC_BRIDGE_WS_PORT?.trim() || '8001';
+  const rawPath = process.env.LXC_VNC_BRIDGE_WS_PATH?.trim() || '';
+
+  if (scheme !== 'ws' && scheme !== 'wss') {
+    throw new Error('LXC_VNC_BRIDGE_WS_SCHEME must be ws or wss');
+  }
+
+  if (!/^\d+$/.test(port)) {
+    throw new Error('LXC_VNC_BRIDGE_WS_PORT must be numeric');
+  }
+
+  const path = rawPath.length > 0 ? (rawPath.startsWith('/') ? rawPath : `/${rawPath}`) : '';
+  return `${scheme}://${ipv4}:${port}${path}`;
+};
