@@ -134,11 +134,29 @@ Rather than using `task.listen` client-side (which requires a client-side pve-cl
 
 2. **Silent background failure** — If the `setTimeout` background task failed (network error, Proxmox error, etc.), the user would see "destroying" indefinitely with no feedback. Fixed by adding `startedAt` timestamp to `pendingDestroy` entries and stale detection in `loadData.ts` — after `DESTROY_STALE_THRESHOLD_MS` (60s), the entry is marked as `failed` and the workload shows `destroyFailed` status with a red badge and explanatory tooltip.
 
-### Verified
+### Verified (2026-06-25)
 
-- ✅ 22/22 tests pass
+- ✅ 43/43 tests pass
 - ✅ `npm run check` — 0 errors (3 pre-existing warnings)
+- ✅ `npm run lint` — 0 errors
+- ✅ `pve-client npm run check` — 0 errors, 0 warnings
 - ✅ Dead code (`isRunningDestroyError`) removed
+- ✅ All validation gate checks pass per P3
+
+### Session — 2026-06-25: Validation Gate & Cleanup
+
+Fixed all issues found during quality gate run:
+
+| Issue | Fix |
+|-------|-----|
+| `PxMxAdmin.svelte` — `task.pid` property access | Removed from log output; `RecentTask` type has no `pid` |
+| `loadData.ts` — `vmid` on `Workload` type | Cast to `Record<string, unknown>` for raw property access; added explicit `status` cast |
+| `loadData.ts` — `.sort()` before `as Workload[]` | Moved cast before `.sort()` then re-applied after for correct comparator types |
+| `pve-client Display.ts` — `websocket: true as any` | Changed to `as Record<string, unknown>` |
+| `PxMxWorkloadList.svelte` — unused `form: _form` | Prefix with `_` and added `varsIgnorePattern` to ESLint |
+| `proxmox-actions.spec.ts` — `as any` casts | Replaced with `as Record<string, unknown>` |
+| `proxmox-actions.spec.ts` — unused `payload` param | Renamed to `_payload` |
+| pve-client unused eslint-disable directives | Auto-fixed 3 files |
 
 ### Usability Test — 2026-06-24
 

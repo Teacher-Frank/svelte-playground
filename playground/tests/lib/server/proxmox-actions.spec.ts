@@ -466,7 +466,7 @@ describe('proxmox page server actions', () => {
     // The current action no longer retries on collision — it fails fast.
     // Because the config PUT fails during background execution, the error is
     // caught and logged; the action itself returns success (clone started).
-    mocks.request.mockImplementation(async (path: string, method?: string, payload?: Record<string, unknown>) => {
+    mocks.request.mockImplementation(async (path: string, method?: string, _payload?: Record<string, unknown>) => {
       if (path === '/nodes/{node}/qemu/{vmid}/config' && method === 'PUT') {
         throw new Error('lvcreate \'pve/vm-101-cloudinit\' error: Logical Volume "vm-101-cloudinit" already exists in volume group "pve"');
       }

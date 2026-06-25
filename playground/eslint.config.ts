@@ -30,6 +30,8 @@ export default defineConfig(
 			// typescript-eslint strongly recommend that you do not use the no-undef lint rule on TypeScript projects.
 			// see: https://typescript-eslint.io/troubleshooting/faqs/eslint/#i-get-errors-from-the-no-undef-rule-about-global-variables-not-being-defined-even-though-there-are-no-typescript-errors
 			"no-undef": 'off',
+			// Allow underscore-prefixed destructured vars (e.g., form: _form for unused props)
+			"@typescript-eslint/no-unused-vars": ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
 			// Allow standard SvelteKit navigation without resolve() - these are valid in SvelteKit
 			"svelte/no-navigation-without-resolve": 'off',
 			// Warn when source files exceed 750 lines (tsserver/monaco performance limits)
