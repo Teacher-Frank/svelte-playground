@@ -48,7 +48,15 @@ These rules apply to any project. They guide reasoning, prevent mistakes, and po
 - If the parameter does **not** exist in the spec/types, document the gap and do not use it.
 - **Rationale:** fabricated API parameters (e.g., `cicommand`) silently fail at runtime — the server ignores unknown fields. A compile-time canary is the cheapest early warning.
 
-## P3: Validation Gate
+## P3: Impact Analysis Before Implementation
+- **Before enacting any change**, perform two impact analyses:
+  1. **Root cause:** What is the actual cause of the problem? Trace the failure to its source — don't treat symptoms.
+  2. **Solution impact:** What will this change affect downstream? Identify every consumer, dependent module, test, and UI surface that touches the affected code.
+- **Output before coding:** List the affected files, components, and tests. If the list is longer than expected, reconsider scope.
+- **Regression check:** For each affected area, ask "could this change break the existing behavior?" and verify with tests or code reading before writing the fix.
+- **Rationale:** Regressions are often introduced not by wrong fixes, but by incomplete understanding of what the fix will touch. Analyzing impact before writing code is cheaper than finding regressions after.
+
+## P3b: Validation Gate
 - Before any commit, merge, or PR: all required validation MUST pass. If validation fails, the change MUST NOT ship without an approved exception.
 - Validation success: command exits `0`, no unresolved errors, output is clean.
 
@@ -164,7 +172,15 @@ These rules are specific to this repository's stack, tooling, and domain.
 - If raw endpoint access is needed, use `client.request()` directly with typed path/args. Report so a decision can be made whether a named API is needed.
 - Server-side terminal/WebSocket responsibility lives in `pve-client`; playground wiring stays thin.
 - ESM TS in `pve-client`: use explicit `.js` extensions for relative imports.
-- **Background task outcome tracking** — when a server action offloads long-running work (e.g., VM deploy, destroy) to `setTimeout`, the HTTP response returns before work completes. Use a shared tracking map (e.g. `pendingStaticConversion`, `pendingDeploy`) written by the background task, and read by periodic page refreshes to surface results. Don't block the HTTP action; don't assume the client can await background work.
+- **Background task tracking** — when a server action offloads long-running work (e.g., VM deploy, destroy) to a background task, follow this pattern:
+  1. Fire the Proxmox task, capture and **store the UPID** in a shared tracking map (e.g., `pendingDestroy`, `pendingDeploy`)
+  2. Return HTTP response immediately — don't block on `task.wait()`
+  3. During periodic page refresh, **poll the task by UPID** to detect completion or failure
+  4. Surface the actual Proxmox task error message to the user — don't swallow it
+  5. Only use a stale-timeout as a **fallback** (not the primary detection mechanism)
+  6. Provide a **cancel/retry** action when a task fails so the user can recover from a stuck state
+  - Never use fire-and-forget `setTimeout` that swallows errors
+  - Never mark a task as failed purely on elapsed time when the UPID is available
 
 ## Proxmox Behavior
 - Use real node identity for all actions — never submit fallback values like `unknown`.
