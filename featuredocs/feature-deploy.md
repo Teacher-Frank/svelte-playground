@@ -407,6 +407,13 @@ This would require the same admin auth already used for terminal login (username
 | 2 | ut-ubuntu24 | 102 | ubuntu-24.04-cloud-template (9001) | ✅ PASS | 145.24.222.217 | IP discovered ~9m after start |
 | 3 | ut-ubuntu-desktop | 104 | UbuntuDesktop (103) | ✅ PASS | 145.24.222.126 | IP discovered ~2m after start |
 
+### VM Credentials (all 3 VMs)
+| VM Name | IP | Username | Password |
+|---------|----|----------|----------|
+| ut-debian12 | 145.24.222.113 | `root` | `TestP@ssw0rd123!` |
+| ut-ubuntu24 | 145.24.222.217 | `root` | `TestP@ssw0rd123!` |
+| ut-ubuntu-desktop | 145.24.222.126 | `root` | `TestP@ssw0rd123!` |
+
 ### Key Observations
 - All 3 templates deployed successfully — cloning + config + start completed without errors
 - Guest agent IP discovery works on all 3 templates (cloud-init via `cicustom` installed `qemu-guest-agent`)
