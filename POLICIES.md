@@ -251,7 +251,7 @@ Run commands from `svelte-playground/playground` for app changes, from `pve-clie
 - **Dev server:** Always start via `acctest-env.ps1` from `svelte-playground/playground/` — this script sets environment variables, builds `pve-client`, then runs `npm run dev`.
 - **pve-client first:** Mostly shared behavior (terminal/WebSocket protocol, API types) lives in `pve-client`. Harden it there, then keep playground wiring thin.
 
-# How to create and maintain a POLICIES.md
+# Appendix: How to create, maintain and use a POLICIES.md
 
 POLICIES.md solves two separate problems:
 
@@ -267,7 +267,49 @@ Workflow:
 5. **Check for contradictions** — scan the file. No rule should conflict with another. If it does, resolve it now.
 6. **Repeat** — POLICIES.md improves through this dialog. Humans observe failures; AI formulates rules concisely.
 
-Once you have a useful POLICIES.md, ask the AI to read it at the start of every new session. 
+Once you have a useful POLICIES.md, make sure the AI reads it at the start of every new session. Relying on memory alone is not enough — models will skip it when the user's first request appears urgent or unrelated.
+
+### Enforcing the AI Agent to Read POLICIES.md First
+
+The most reliable mechanism is a markdown file that your agent always reads a t startup like `AGENTS.md` or `copilot-instructions.md` in your repository root. The AI agent reads this file before each session and follows its directives.
+
+**Example pattern (using copilot in Visual Studio Code):**
+
+1. Create `.github/copilot-instructions.md` with a strong, unambiguous directive:
+
+```markdown
+# Workspace Copilot Instructions
+
+## Required Startup Step
+- **Read POLICIES.md before doing anything else.** This is not optional — even if the user's first message is a specific, urgent request, read the policy file first.
+- Treat POLICIES.md as the authoritative policy source for this workspace.
+
+## Ongoing Behavior
+- If a task conflicts with remembered habits, follow POLICIES.md.
+- If POLICIES.md is edited during a session, re-read it before continuing.
+- Do not create duplicate policy sources; reference POLICIES.md directly.
+```
+
+2. In `POLICIES.md` itself (P0), reinforce the directive:
+
+```markdown
+## P0: Read This File at Session Start
+- **Always** read `POLICIES.md` at the beginning of every new session before taking any other action.
+- This step is **never optional**, even when the user's first request is specific, urgent, or appears unrelated to policy.
+- Do not begin work on the user's request until this file has been read — the request can wait, the policy cannot.
+```
+
+**Why this works:**
+- Copilot's built-in `copilot-instructions.md` file is read by the agent **before** any user prompt is processed — it runs first.
+- P0 in `POLICIES.md` itself reinforces the directive once the file is in hand.
+- Double-binding (external trigger + internal directive) is more resilient than relying on either one alone.
+- Keeping the file in `.github/` ensures it's tracked by git, versioned, and visible on GitHub.
+
+**Common failure modes to avoid:**
+- Weak wording like "consider reading" or "you may want to review" — models will skip it.
+- Polite phrasing — models treat requests as suggestions unless stated as mandatory.
+- Placing instructions only inside POLICIES.md without an external trigger — the model won't know to read it before processing the user's request.
+- Storing `copilot-instructions.md` outside any git repo — changes become untracked and unreviewable. 
 
 
 
