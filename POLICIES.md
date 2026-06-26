@@ -195,6 +195,7 @@ These rules are specific to this repository's stack, tooling, and domain.
 All modal-based actions (deploy, rename, configure): optimistic, single-shot submit.
 - On submit: close modal immediately, show "action started" status, disable duplicate triggers.
 - On failure: clear optimistic message, show server error.
+- **Dialog buttons are always enabled** — confirm/cancel buttons in modal dialogs must never be conditionally disabled. The user should always have the choice to confirm or dismiss. Do not use `disabled` attributes on dialog buttons based on workload status, in-flight state, or any other condition.
 - **UI stuck-state detection** — when a UI state (e.g., "deploying") depends on conditions that can silently fail, add failure detection with timed grace periods instead of waiting for a hard cap. Surface the failure explicitly with a distinct status (e.g., "deploy-failed") and notification, rather than dropping the entry silently after a long timeout.
 - **Grace-period resolution with timestamps** — when resolving a pending UI state from multiple conditions, track the timestamp of when each condition settled, not just whether it settled. This allows distinguishing "still in progress" from "failed — give it a moment" from "confirm failed". Example: `tasksSettledAt` for deploy entries, with a grace period before marking failed.
 

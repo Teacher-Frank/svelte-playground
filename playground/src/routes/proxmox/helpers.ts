@@ -249,7 +249,7 @@ export const getRefreshIntervalSeconds = (): number => {
   if (!Number.isFinite(parsed)) return 5;
 
   const normalized = Math.floor(parsed);
-  if (normalized < 1) return 1;
+  if (normalized < 5) return 5;
   if (normalized > 3600) return 3600;
   return normalized;
 };

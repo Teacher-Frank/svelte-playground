@@ -54,21 +54,32 @@ export async function executeDestroyAction(
   const client = await createClient();
   const nodeApi = client.api.nodes.get(node);
 
+  // For destroyFailed: UI status is stale — query actual Proxmox status
+  let actualStatus = workloadStatus;
+  if (workloadStatus === 'destroyFailed') {
+    const statusResult = await (type === 'vm'
+      ? nodeApi.qemu.vmid(id).status.current()
+      : nodeApi.lxc.id(id).status.current());
+    // current() returns { status: 'running' | 'stopped' | ... }
+    actualStatus = statusResult?.status ?? 'running';
+  }
+
   // Phase 1: fire stop (if running) — fast
   let stopUpid: string | undefined;
-  if (workloadStatus === 'running') {
+  if (actualStatus === 'running') {
     stopUpid = (await (type === 'vm'
       ? nodeApi.qemu.vmid(id).status.stop()
       : nodeApi.lxc.id(id).status.stop())) as string;
   }
 
-  // Phase 2: wait for stop + delete — runs in background
+  // Phase 2: wait for stop (if needed) + delete — runs in background
   const clientRef = client;
   const nodeApiRef = nodeApi;
+  const stopUpidRef = stopUpid;
   setTimeout(async () => {
     try {
-      if (stopUpid) {
-        await clientRef.task.wait(stopUpid);
+      if (stopUpidRef) {
+        await clientRef.task.wait(stopUpidRef);
       }
 
       const destroyUpid = (await (type === 'vm'

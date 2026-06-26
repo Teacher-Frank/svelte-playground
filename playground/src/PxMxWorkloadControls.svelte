@@ -34,7 +34,7 @@
   } = $props();
 
   const controlsDisabled = $derived(
-    disabled || selectedWorkload?.status === 'deploying'
+    disabled || selectedWorkload?.status === 'deploying' || selectedWorkload?.status === 'destroyFailed'
   );
 
   // Terminal is only useful when the selected guest is currently running.
@@ -78,8 +78,10 @@
   });
 
   // Destructive actions are allowed whenever a concrete workload is selected.
+  // For destroyFailed: only delete is allowed, all other buttons are disabled.
   const deleteEnabled = $derived(
-    !controlsDisabled &&
+    !disabled &&
+    (selectedWorkload?.status !== 'deploying') &&
     selectedWorkload?.id != null &&
     selectedWorkload?.node != null
   );
@@ -438,14 +440,14 @@
             <input name="id" type="hidden" value={selectedWorkload?.id?.toString() ?? ''} />
             <input name="name" type="hidden" value={selectedWorkload?.name ?? ''} />
             <input name="node" type="hidden" value={selectedWorkload?.node ?? ''} />
-            <button type="submit" class="delete-confirm-yes" disabled={destroySubmitInFlight || controlsDisabled}>
+            <input name="status" type="hidden" value={selectedWorkload?.status ?? ''} />
+            <button type="submit" class="delete-confirm-yes">
               {destroySubmitInFlight ? 'DESTROYING...' : 'YES, DESTROY IT!!!'}
             </button>
           </form>
           <button
             type="button"
             class="delete-confirm-cancel"
-            disabled={destroySubmitInFlight || controlsDisabled}
             onclick={closeDeleteConfirm}
           >
             Cancel

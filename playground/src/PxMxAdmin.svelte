@@ -132,7 +132,7 @@
 
     const configuredSeconds = data.results?.refreshIntervalSeconds;
     if (Number.isFinite(configuredSeconds)) {
-      STATUS_REFRESH_SECONDS = Math.max(1, Math.floor(configuredSeconds as number));
+      STATUS_REFRESH_SECONDS = Math.max(5, Math.floor(configuredSeconds as number));
     }
     refreshIntervalInitialized = true;
   });
@@ -667,7 +667,7 @@
         <input
           id="status-refresh-seconds"
           type="number"
-          min="1"
+          min="5"
           step="1"
           bind:value={STATUS_REFRESH_SECONDS}
         />

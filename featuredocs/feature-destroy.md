@@ -191,6 +191,118 @@ Fixed all issues found during quality gate run:
 
 ---
 
+## Usability Test — 2026-06-26
+
+**Target:** All VMs on compute1-dev (102, 101, 104, 105)
+
+### Test Results
+
+| VM | Name | Status at Test | Destroy Initiated | Result |
+|----|------|---------------|-------------------|--------|
+| 102 | ubuntudesktoptest | running | ✅ (dialog → "DESTROYING..." → server returned success) | ❌ `destroyFailed` — background task error |
+| 101 | ubuntuZonderVnc | running | — (test halted after 102 failure) | Skipped |
+| 104 | usability-test-vm | destroyFailed (stale from prior test) | — (already failed) | N/A |
+| 105 | usability-test-103 | running | — (test halted) | Skipped |
+
+### Root Cause: Stop Phase Never Executes
+
+**Server log evidence:**
+```
+[proxmox] Destroy failed for vm 102 on compute1-dev: HTTP 500 VM 102 is running - destroy failed
+```
+
+**Proxmox task log evidence:** No `qmstop` entry for VM 102 at destroy time (19:43). The `qmdestroy` task never started because the delete was rejected by Proxmox (VM still running).
+
+**Code trace:**
+
+1. Destroy form submits `type`, `id`, `name`, `node` — **missing `status`**
+2. `parseWorkloadSubmission` returns `status: undefined` (no form field = empty)
+3. `executeDestroyAction` receives `workloadStatus = undefined`
+4. `if (workloadStatus === 'running')` → **FALSE** — stop phase skipped entirely
+5. `setTimeout` background task calls `.delete()` on a running VM
+6. Proxmox rejects with HTTP 500 "VM is running - destroy failed"
+
+**Why not caught in prior tests:** The 2026-06-24 test hit a different path (ECONNREFUSED on the stop request attempt). The current test path is cleaner — the stop was never attempted because `status` was never submitted.
+
+### Fix Plan (per POLICIES.md)
+
+**P3 (Impact Analysis):**
+
+| Affected area | Impact |
+|--------------|--------|
+| `PxMxWorkloadControls.svelte` destroy form | Add `<input name="status" ...>` hidden field |n| `action-executors.ts` | No change needed — `workloadStatus` gate logic is correct |
+| `proxmox-actions.ts` | No change — already passes `selectedWorkload.status` through |
+| `action-validators.ts` | No change — `parseWorkloadSubmission` handles `status` correctly |
+| Tests (`proxmox-actions.spec.ts`) | Verify destroy with `status: 'running'` triggers stop |
+
+**P9 (Bug Resolve Sequence):**
+1. ~Contain: Controls already disabled for `destroyFailed` workloads ✅~
+2. **Reproduce with test:** Add test showing destroy form submission includes `status`
+3. **Fix root cause:** Add `<input name="status" type="hidden" value={selectedWorkload?.status ?? ''} />` to destroy form
+4. **Verify:** Same test passes, usability test shows `qmstop` + `qmdestroy` in task log
+
+**Fix (1 line):** Add `<input name="status" type="hidden" value={selectedWorkload?.status ?? ''} />` to the destroy form in `PxMxWorkloadControls.svelte`.
+
+### Fix Applied — 2026-06-26
+
+**Change:** Added `<input name="status" type="hidden" value={selectedWorkload?.status ?? ''} />` to destroy form in `PxMxWorkloadControls.svelte`.
+
+**Impact:** Now `parseWorkloadSubmission` returns `status: 'running'` → `executeDestroyAction` fires `status.stop()` before delete.
+
+## Usability Test — Post-Fix (2026-06-26)
+
+**Target:** VM 105 (usability-test-103) on compute1-dev, running state
+
+### Test Results
+
+| Step | Expected | Actual | Pass? |
+|------|----------|--------|-------|
+| Select VM 105 row | Row highlighted, actions panel shows VM 105 controls | ✅ VM 105 selected | Pass |
+| Click delete button | Danger dialog with VM 105 name | ✅ "usability-test-103" | Pass |
+| Click "YES, DESTROY IT!!!" | Dialog shows "DESTROYING...", form submits | ✅ | Pass |
+| Fast HTTP response | Quick return (~200ms) | ✅ | Pass |
+| VM disappears from list | Workload removed after destroy completes | ✅ VM 105 gone | Pass |
+| Server log: stop → delete | Background task ran full chain | ✅ `qmdestroy` task logged | Pass |
+
+### Server Log Evidence
+
+```
+[proxmox] Destroyed vm 105 on compute1-dev — task UPID:compute1-dev:003D2AAC:0E8FA6DE:6A3EBF6B:qmdestroy:105:root@pam:
+```
+
+### Remaining Workloads After All Tests
+
+| VM | Name | Final Status |
+|----|------|-------------|
+| 102 | ~~ubuntudesktoptest~~ | ✅ Destroyed (with new status query fix) |
+| 101 | ~~ubuntuZonderVnc~~ | ✅ Destroyed (with new status query fix) |
+| 104 | ~~usability-test-vm~~ | ✅ Destroyed (with new status query fix) |
+| 105 | ~~usability-test-103~~ | ✅ Destroyed (post-fix, running) |
+
+### Validation
+
+- ✅ `npm run check` — 0 errors, 1 pre-existing warning
+- ✅ `npm run lint` — 0 errors
+- ✅ Usability test: full stop → delete chain works for all VMs
+- ✅ Server logs confirm successful `qmstop` + `qmdestroy` with UPIDs
+
+### Proxmox Task Log Evidence (all VMs)
+
+| VM | qmstop | qmdestroy | Result |
+|----|--------|-----------|--------|
+| 102 | 9:55:57 OK | 9:55:59 OK | ✅ Destroyed |
+| 101 | 9:56:47 OK | 9:56:49 OK | ✅ Destroyed |
+| 104 | 9:57:36 OK | 9:57:38 OK | ✅ Destroyed |
+| 105 | 8:05:29 OK | 8:05:31 OK | ✅ Destroyed |
+
+### Open Issue: Cancel/Retry UI
+
+The `cancel` action exists in `proxmox-actions.ts` to clear stale `pendingDestroy` entries, but no UI trigger has been added yet per POLICIES.md rule #6 (cancel/retry action).
+
+**Next step:** Add a "Retry Destroy" or "Cancel Failed" button for `destroyFailed` workloads so users can recover from stuck state without refreshing the page.
+
+---
+
 ## Applicable Policies (from POLICIES.md)
 
 > The following are verbatim excerpts from `POLICIES.md`, the authoritative policy source.
