@@ -245,16 +245,62 @@ Unified notification styles live in the `/* ── Unified Notification System �
 
 ---
 
-## 6. Known Gaps and Future Work
+## 6. Changes Applied
 
-- **`PxMxAdmin.svelte` server notifications** still use legacy ad-hoc `<div>` rendering instead of the unified `page` scope store.
-- **No notification queue** — if two actions fire in the same scope within the auto-dismiss window, the second overwrites the first.
-- **No sound or browser notification** — all feedback is visual within the app viewport.
-- **Legacy `.config-toast` CSS aliases** remain for transitional compatibility.
+### 6a. Migrated `PxMxAdmin.svelte` server notifications to unified store (2026-06-26)
+- Replaced legacy `<div>` rendering with `useToast('page')` + `<ToastNotification>`
+- Implements `$effect` with `shownNotificationCount` tracking to show only new server messages
+- Joins multiple messages into single notification to avoid overwrites
+- Removed dead CSS (`.pxmx-admin .action-status`, `.pxmx-admin .success`, `.pxmx-admin .error`)
+
+### 6b. Removed legacy CSS aliases (2026-06-26)
+- Deleted `.config-toast` transitional aliases from `PxMxStyle.css`
+- No component referenced these classes — safe removal
 
 ---
 
-## 7. Applicable Policies (from POLICIES.md)
+## 7. Remaining Gaps and Future Work
+
+- **No notification queue** — if two actions fire in the same scope within the auto-dismiss window, the second overwrites the first.
+- **No sound or browser notification** — all feedback is visual within the app viewport.
+
+---
+
+## 8. Notification Queue Analysis (2026-06-26)
+
+### All Callsites by Scope
+
+| Scope | Component | Pattern |
+|-------|-----------|---------|
+| `vm-templates` | PxMxVMTemplateList | `pending()` → `success()`/`error()` (intentional replacement) |
+| `lxc-templates` | PxMxLxcTemplateList | `pending()` → `success()`/`error()` (intentional replacement) |
+| `config` | PxMxWorkloadControls | Single `toast()` or `error()`/`success()` per action (mutually exclusive) |
+| `vm-workloads` / `container-workloads` | PxMxWorkloadList | `error()` on deploy failures, `error()`/`success()` from form |
+| `page` | PxMxAdmin | Single `success()` (already joins multiple messages) |
+
+### Where Could Two Notifications Overlap?
+
+| Scenario | Scope | Likelihood | Impact |
+|----------|-------|------------|--------|
+| **For-loop fires multiple `error()` calls** (2 workloads fail in same refresh) | vm-workloads / container-workloads | **Moderate** | 2nd overwrites 1st — user misses an error message |
+| **Form error + deploy-failed race** (two `$effect`s fire simultaneously) | vm-workloads / container-workloads | Low | 2nd overwrites 1st |
+| **Rapid consecutive deploys** (user submits again before 10s success dismisses) | vm-templates / lxc-templates | Low-Moderate | User loses first success confirmation, but 2nd action is the current state |
+
+### Verdict: **Queue is NOT needed — a simple fix suffices**
+
+The `pending → outcome` pattern (vm-templates, lxc-templates) is **intentional in-place replacement** — a queue would break the design.
+
+The only genuine data loss is `PxMxWorkloadList`'s for-loop calling `scopeNotify.error()` multiple times synchronously. The fix is trivial: **collect messages in the loop and show a single aggregated notification** rather than implementing a full queue.
+
+### Implemented: Fix PxMxWorkloadList for-loop (2026-06-26) ✅
+- **Location:** `PxMxWorkloadList.svelte` lines 148-170
+- **Issue:** When multiple workloads fail in the same data refresh, the for-loop called `scopeNotify.error()` for each one — subsequent calls overwrote the previous message
+- **Fix:** Collect failure names into an array, join them, and call `error()` once with an aggregated message. Singular form for 1 failure, plural form for 2+ failures.
+- **Impact:** User sees ALL failed workload names in one notification instead of just the last one
+
+---
+
+## 9. Applicable Policies (from POLICIES.md)
 
 > The following are verbatim excerpts from `svelte-playground/POLICIES.md`, the authoritative policy source.
 

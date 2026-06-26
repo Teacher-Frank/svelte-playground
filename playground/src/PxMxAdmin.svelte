@@ -1,6 +1,8 @@
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
   import './PxMxStyle.css';
+  import { useToast } from './notification-store.svelte.js';
+  import ToastNotification from './ToastNotification.svelte';
   import PxMxServerStatus from './PxMxServerStatus.svelte';
   import PxMxTasklist from './PxMxTasklist.svelte';
   import PxMxVMTemplateList from './PxMxVMTemplateList.svelte';
@@ -632,17 +634,25 @@
     activeTab = tab;
     writeTabCookie(tab);
   }
+
+  // Page-scoped notifications for server-generated one-time messages
+  const pageNotify = useToast('page');
+  let shownNotificationCount = $state(0);
+
+  $effect(() => {
+    const msgs = data.results?.notifications;
+    if (msgs?.length && msgs.length > shownNotificationCount) {
+      const newMsgs = msgs.slice(shownNotificationCount).join(' ');
+      pageNotify.success(newMsgs);
+      shownNotificationCount = msgs.length;
+    } else if (!msgs || msgs.length === 0) {
+      shownNotificationCount = 0;
+    }
+  });
 </script>
 
   <main class="pxmx-admin">
-    <!-- Toast notifications from server (e.g., DHCP→static conversions) -->
-    {#if data.results?.notifications?.length}
-      <div role="alert" class="action-status success" aria-live="polite">
-        {#each data.results.notifications as msg (msg)}
-          <p>{msg}</p>
-        {/each}
-      </div>
-    {/if}
+    <ToastNotification notify={pageNotify} inline={true} />
 
     <h1>Proxmox VE Client</h1>
     {#if data.results}

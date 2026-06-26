@@ -148,16 +148,26 @@
   const notifiedFailureNames = $state(new Set<string>());
 
   // Fire error notification when a deploy is detected as failed.
+  // Collects all failures from this refresh cycle into a single notification
+  // (one-notification-per-scope design — multiple calls would overwrite each other).
   $effect(() => {
     const scopeNotify = kind === 'vm' ? _vmNotify : _containerNotify;
+    const failures: string[] = [];
+
     for (const workload of workloads) {
       if (workload.status !== 'deploy-failed') continue;
       if (notifiedFailureNames.has(workload.name ?? '')) continue;
-
-      untrack(() => {
-        scopeNotify.error(`Deploy failed: "${workload.name}" — background setup error (clone succeeded, config/start failed). Check server logs for details.`);
-      });
+      failures.push(`"${workload.name}"`);
       notifiedFailureNames.add(workload.name ?? '');
+    }
+
+    if (failures.length > 0) {
+      untrack(() => {
+        const msg = failures.length === 1
+          ? `Deploy failed: ${failures[0]} — background setup error (clone succeeded, config/start failed). Check server logs for details.`
+          : `Deploy failed for: ${failures.join(', ')} — background setup error (clone succeeded, config/start failed). Check server logs for details.`;
+        scopeNotify.error(msg);
+      });
     }
   });
 

@@ -77,22 +77,6 @@
   padding: 0.65rem 0.85rem;
 }
 
-.pxmx-admin .action-status {
-  border-radius: 0.75rem;
-  margin-top: 0.9rem;
-  padding: 0.85rem 1rem;
-}
-
-.pxmx-admin .success {
-  background: #e6f5ea;
-  color: #215c33;
-}
-
-.pxmx-admin .error {
-  background: #fbe9e7;
-  color: #8b2e24;
-}
-
 /* Workload list/table primitives shared by VM and container views. */
 .pxmx-admin ul {
   list-style: none;
@@ -891,15 +875,4 @@
 
 .notify-bar .dismiss-btn:hover {
   opacity: 1;
-}
-
-/* Legacy: config-toast aliases → unified classes (transitional) */
-.config-toast {
-  @apply notify-toast;
-}
-.config-toast.success {
-  background: #2e7d32;
-}
-.config-toast.error {
-  background: #c62828;
 }
