@@ -227,7 +227,7 @@
               <li class="container-action-row">
                 <PxMxWorkloadControls
                   compact={true}
-                  disabled={workload.id == null || workload.status === 'deploying' || workload.status === 'destroying' || workload.status === 'destroyFailed'}
+                  disabled={workload.id == null || workload.status === 'deploying' || workload.status === 'destroying'}
                   containerGuiEnabled={containerGuiEnabled}
                   selectedWorkload={{
                     type: kind,
@@ -293,7 +293,7 @@
                 <!-- Forward row context directly so action forms submit authoritative node/type/id values. -->
                 <PxMxWorkloadControls
                   compact={true}
-                  disabled={workload.id == null || workload.status === 'deploying' || workload.status === 'destroying' || workload.status === 'destroyFailed'}
+                  disabled={workload.id == null || workload.status === 'deploying' || workload.status === 'destroying'}
                   containerGuiEnabled={containerGuiEnabled}
                   selectedWorkload={{
                     type: kind,

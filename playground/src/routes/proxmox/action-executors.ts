@@ -37,7 +37,7 @@ import { pendingDestroy } from './helpers.js';
  * Permanently destroys a VM or LXC container via the Proxmox API.
  *
  * Strategy (matches deploy flow):
- * _1. Fire stop (if running) — fast (~100ms)
+ * 1. Fire stop (if running) — fast (~100ms)
  * 2. Queue stop-wait + delete in `setTimeout` background task
  * 3. Return immediately so the HTTP response is fast
  *
@@ -75,12 +75,25 @@ export async function executeDestroyAction(
         ? nodeApiRef.qemu.vmid(id).delete({ $query: { purge: true } })
         : nodeApiRef.lxc.id(id).delete({ $query: { purge: true, force: true } }))) as string;
 
+      // Store the destroy UPID so loadData.ts can poll for completion
+      const entry = pendingDestroy.get(id);
+      if (entry) {
+        entry.destroyUpid = destroyUpid;
+      }
+
       console.info(`[proxmox] Destroyed ${type} ${id} on ${node} — task ${destroyUpid}`);
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
       console.error(
         `[proxmox] Destroy failed for ${type} ${id} on ${node}:`,
-        error instanceof Error ? error.message : String(error),
+        errorMsg,
       );
+      // Store the error in pendingDestroy so loadData.ts can surface it
+      const entry = pendingDestroy.get(id);
+      if (entry) {
+        entry.error = errorMsg;
+        entry.failedReason = errorMsg;
+      }
     }
   }, 0);
 

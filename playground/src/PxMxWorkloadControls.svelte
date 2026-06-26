@@ -252,7 +252,12 @@
           showDeleteConfirm = false;
 
           // Show notification only after server confirms destroy was initiated.
-          notify.pending(`Destroying ${typeLabel} ${workloadId}…`);
+          // Clean it after Proxmox confirms the destroy completed.
+          // NOTE: The workload row shows a "destroying" badge as persistent feedback,
+          // so we only toast the short-lived "initiated" notification and not floating
+          // pending bar that would get stuck if the workload disappears before a success/error
+          // notification arrives to clear it.
+          notify.toast(`Destroying ${typeLabel} ${workloadId}…`);
         }
 
         if (result?.type === 'failure') {

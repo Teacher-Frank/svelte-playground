@@ -832,10 +832,12 @@
   position: fixed;
   transform: translateX(-50%);
   z-index: 1100;
+  /* Default background for transient toasts (without kind-specific modifier) */
+  background: #166534;
 }
 
 .notify-toast.success {
-  background: #2e7d32;
+  background: #166534;
 }
 
 .notify-toast.error {

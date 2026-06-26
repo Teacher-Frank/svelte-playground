@@ -34,8 +34,17 @@ export const pendingDestroy = new Map<number, {
   name: string;
   node: string;
   startedAt: number;
+  // UPID of the Proxmox delete task (set once the delete API call starts)
+  destroyUpid?: string;
+  // Actual error message if the background task fails
+  error?: string;
   failedReason?: string;
 }>();
+
+/** Clears a failed destroy entry so the user can retry the operation. */
+export function clearPendingDestroy(id: number): void {
+  pendingDestroy.delete(id);
+}
 
 // ---------------------------------------------------------------------------
 // Timing

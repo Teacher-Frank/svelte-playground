@@ -346,14 +346,59 @@ const loadResults = async (): Promise<ProxmoxResults> => {
       continue;
     }
 
-    // Workload still exists — check if destroy has been stuck too long
-    if (!entry.failedReason && Date.now() - entry.startedAt > DESTROY_STALE_THRESHOLD_MS) {
+    /* ── Task-based resolution (primary) ── */
+    // If the background task already recorded an error, surface it
+    if (entry.error && !entry.failedReason) {
+      entry.failedReason = entry.error;
+      continue;
+    }
+
+    // If we have a destroy UPID, poll Proxmox for the real task status
+    if (entry.destroyUpid) {
+      try {
+        const taskStatus = await client.tasks.get(entry.destroyUpid);
+        const status = typeof taskStatus === 'object' && taskStatus && 'status' in taskStatus
+          ? (taskStatus as Record<string, unknown>).status
+          : undefined;
+        const normalizedStatus = typeof status === 'string' ? status.toLowerCase().trim() : '';
+
+        if (normalizedStatus === 'ok' || normalizedStatus === 'stopped') {
+          // Task succeeded — keep the entry only while the workload still shows in the list.
+          // Clear any stale failure that was previously flagged.
+          entry.failedReason = undefined;
+          // Remove entry if the workload has disappeared since the last check
+          if (!vmExists && !ctExists) {
+            pendingDestroy.delete(vmid);
+          }
+          continue;
+        }
+
+        if (normalizedStatus === 'error' || normalizedStatus === 'warnings') {
+          entry.failedReason = `Destroy task ended with status: ${status}`;
+          console.warn(
+            `[proxmox] Destroy task ${entry.destroyUpid} for ${entry.type} ${vmid} (${entry.name}) ended with status: ${status}`,
+          );
+          continue;
+        }
+        // Status is 'running'/null — task still in progress, skip stale check
+        continue;
+      } catch {
+        // Task not found yet — it may still be running or not yet started.
+        // Don't fall through to the stale check; the UPID is available, so the
+        // policy says "never mark as failed purely on elapsed time."
+        continue;
+      }
+    }
+
+    /* ── Stale-timeout fallback (only when no UPID is available) ── */
+    if (!entry.destroyUpid && !entry.failedReason && Date.now() - entry.startedAt > DESTROY_STALE_THRESHOLD_MS) {
       entry.failedReason = 'Destroy did not complete within 60s. The background task may have failed.';
       console.warn(
-        `[proxmox] Destroy stale for ${entry.type} ${vmid} (${entry.name}) on ${entry.node} — marking as failed`,
+        `[proxmox] Destroy stale for ${entry.type} ${vmid} (${entry.name}) on ${entry.node} — marking as failed (stale check)`,
       );
     }
   }
+
   const nodeCapacityByName = new Map<string, { maxcpu?: number; maxmem?: number; maxdisk?: number; availableStorage?: number }>(
     clusterNodes
       .filter((entry): entry is ClusterNode & { node: string } => typeof entry.node === 'string')

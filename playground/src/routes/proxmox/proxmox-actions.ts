@@ -20,6 +20,7 @@ import {
   executeWorkloadAction,
   executeWorkloadConfigureAction,
 } from './action-executors.js';
+import { clearPendingDestroy } from './helpers.js';
 import {
   deployVmFromTemplate,
   renameVmTemplate,
@@ -593,6 +594,44 @@ export const actions: Actions = {
         message: error instanceof Error ? error.message : String(error),
         workloadType: selectedWorkload?.type,
         formType: selectedWorkload?.type,
+      });
+    }
+  },
+
+  /**
+   * Cancels a failed destroy entry so the user can retry the destroy operation.
+   * When a destroy fails (timeout, API error), the workload is stuck in `destroyFailed`
+   * with all actions disabled. This action clears the entry from `pendingDestroy`.
+   */
+  cancel: async ({ request }: RequestEvent) => {
+    try {
+      const formData = await request.formData();
+
+      const rawId = formData.get('id');
+      if (rawId === null || rawId === undefined) {
+        return fail(400, {
+          status: 'error' as const,
+          message: 'Missing workload ID.',
+        });
+      }
+
+      const id = Number(rawId);
+      if (!Number.isInteger(id) || id <= 0) {
+        return fail(400, {
+          status: 'error' as const,
+          message: 'Invalid workload ID.',
+        });
+      }
+
+      clearPendingDestroy(id);
+      return {
+        status: 'success' as const,
+        message: `Cleared failed destroy for workload ${id}. You can now retry the operation.`,
+      };
+    } catch (error) {
+      return fail(500, {
+        status: 'error' as const,
+        message: error instanceof Error ? error.message : String(error),
       });
     }
   },

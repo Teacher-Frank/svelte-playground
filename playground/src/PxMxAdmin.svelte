@@ -512,6 +512,25 @@
     ...lxcWorkloadsFromServer.filter((workload) => !isShadowedByDeployingWorkload(workload, 'container')),
   ]);
 
+  // Coalesce all invalidateAll() calls into a single in-flight request so that:
+  // - The staggered container-start refreshes (4 calls in 8 s) don't create a storm
+  // - The periodic refresh and action-triggered refreshes don't overlap
+  // - Pending refresh requests are dropped if one is already in flight (data will be fresh anyway)
+  // NOTE: This variable persists across prop updates — the component instance is not
+  // recreated by invalidateAll(), so a plain `let` is sufficient.
+  let _refreshInFlight = false;
+  const refresh = async () => {
+    if (_refreshInFlight) return;
+    _refreshInFlight = true;
+    try {
+      await invalidateAll();
+    } finally {
+      // Small delay before releasing the lock — prevents microtask-level re-entrant calls
+      // that can happen when a page update triggers before the finally block runs.
+      setTimeout(() => { _refreshInFlight = false; }, 200);
+    }
+  };
+
   $effect(() => {
     if (form?.status !== 'success') {
       return;
@@ -561,7 +580,7 @@
 
     const timeouts = [0, 1500, 4000, 8000].map((delayMs) =>
       setTimeout(() => {
-        void invalidateAll();
+        void refresh();
       }, delayMs)
     );
 
@@ -578,21 +597,12 @@
       return;
     }
 
-    let refreshInFlight = false;
-
     // Refreshes server status, VM/container status, and the task log together.
     const intervalId = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) {
         return;
       }
-      if (refreshInFlight) {
-        return;
-      }
-
-      refreshInFlight = true;
-      void invalidateAll().finally(() => {
-        refreshInFlight = false;
-      });
+      void refresh();
     }, REFRESH_INTERVAL_MS);
 
     return () => {
