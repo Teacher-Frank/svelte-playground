@@ -17,7 +17,9 @@ Priority directives are numbered in descending order — P0 is highest and most 
 These rules apply to any project. They guide reasoning, prevent mistakes, and port across tools and teams.
 
 ## P0: Read This File at Session Start
-- Read `POLICIES.md` at the beginning of every new session before taking any other action.
+- **Always** read `POLICIES.md` at the beginning of every new session before taking any other action.
+- This step is **never optional**, even when the user's first request is specific, urgent, or appears unrelated to policy.
+- Do not begin work on the user's request until this file has been read — the request can wait, the policy cannot.
 - This is the highest priority directive — all other rules depend on it.
 
 ## P1: Single Source of Truth
