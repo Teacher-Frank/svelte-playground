@@ -388,3 +388,41 @@ The terminal error overlay (close code 4001) could offer an "Enable serial port"
 5. After restart, terminal becomes available
 
 This would require the same admin auth already used for terminal login (username/password), so no additional auth surface is needed.
+
+---
+
+## Usability Test — 2026-06-26 Deploy Results
+
+### Test Parameters
+- **Server:** compute1-dev (pve, 145.24.222.41:8006)
+- **Credentials:** root / TestP@ssw0rd123!
+- **Naming convention:** ut-{template-name}
+- **Started:** ~10:07 PM
+
+### Results Summary
+
+| # | VM Name | VMID | Template (ID) | Result | IP | Notes |
+|---|---------|------|---------------|--------|----|-------|
+| 1 | ut-debian12 | 101 | debian-12-cloud-template (9000) | ✅ PASS | 145.24.222.113 | IP discovered ~8m after start |
+| 2 | ut-ubuntu24 | 102 | ubuntu-24.04-cloud-template (9001) | ✅ PASS | 145.24.222.217 | IP discovered ~9m after start |
+| 3 | ut-ubuntu-desktop | 104 | UbuntuDesktop (103) | ✅ PASS | 145.24.222.126 | IP discovered ~2m after start |
+
+### Key Observations
+- All 3 templates deployed successfully — cloning + config + start completed without errors
+- Guest agent IP discovery works on all 3 templates (cloud-init via `cicustom` installed `qemu-guest-agent`)
+- Non-cloud UbuntuDesktop template (previously failing) now works — `cloud-init` was installed in the template
+- Deploy notifications showed correctly (pending → success)
+- No stuck states, no orphan VMs, no deploy-failed statuses
+- IP discovery times: ~8-9m for cloud templates, ~2m for UbuntuDesktop (just needed agent install + reboot cycle)
+
+### Timeline
+- 10:07:33 — debian-12 clone started (qmclone 9000)
+- 10:08:15 — ubuntu-24.04 clone started (qmclone 9001)
+- 10:08:40 — debian-12 start completed (qmstart OK VM 101)
+- 10:09:59 — ubuntu-24.04 start completed (qmstart OK VM 102)
+- 10:09:xx — UbuntuDesktop clone started (qmclone 103)
+- 10:12:xx — server timeout/reconnect event
+- 10:14:xx — server back online
+- 10:16:44 — UbuntuDesktop start completed (qmstart OK VM 104)
+- 10:17:xx — debian12 IP discovered (145.24.222.113)
+- 10:19:xx — all 3 VMs running with IPs
