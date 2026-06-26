@@ -305,3 +305,28 @@ The VNC page uses:
 | **Bridge mode requires guest setup** | For bridge mode to work, the guest must have a VNC server (e.g., TigerVNC) and websockify running. See `PxMx-Admin-For-Datalab-Guide.md` §1.4 for setup instructions. |
 | **Container GUI needs explicit enablement** | The VNC button is hidden for containers unless `containerGuiEnabled` is set — this is a safety gate since most containers don't have GUI installations. |
 | **IPv4-only bridge resolution** | Bridge mode resolves and connects via IPv4 only. IPv6-only guests cannot use bridge mode. |
+
+---
+
+## Applicable Policies (from POLICIES.md)
+
+> The following are verbatim excerpts from `POLICIES.md`, the authoritative policy source.
+
+### Architecture: pve-client + playground
+
+- **Fix API-surface gaps in `pve-client` first**; avoid consumer-side cast workarounds.
+- Server-side terminal/WebSocket responsibility lives in `pve-client`; playground wiring stays thin.
+
+*(VNC follows the same pattern: `Display` class and `DisplaySession` live in `pve-client`, while the playground provides the UI, server load, and WebSocket bridge.)*
+
+### P4a: Fail Fast
+
+- Prefer early, detectable failures. A compile-time type error beats a runtime `undefined`.
+- When a prerequisite is missing, fail with a clear, actionable message — never default to `undefined` or degraded behavior.
+
+*(The VNC button uses `vncEnabled` with explicit eligibility checks — disabled with contextual tooltips rather than failing silently. `getRunningVm()` in `Display` rejects stopped/missing VMs with clear errors.)*
+
+### P4b: Error Messages
+
+- Wrong/rejected values: always include the actual value in the error message so the caller can identify it.
+- Sensitive values (passwords, tokens, secrets) must never appear in error messages.

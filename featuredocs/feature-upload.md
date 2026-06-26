@@ -331,3 +331,25 @@ export const isUploadSupported = (type: 'vm' | 'container', status: string): boo
 3. **Resume support:** Not needed for MVP — full file upload only.
 4. **Multiple files:** MVP supports multiple file upload in a single session (handled).
 5. **LXC file-restore vs exec:** Exec chosen — simpler, more universal, and supports verification via `stat` (handled).
+
+---
+
+## Applicable Policies (from POLICIES.md)
+
+> The following are verbatim excerpts from `POLICIES.md`, the authoritative policy source.
+
+### Architecture: pve-client + playground
+
+- **Fix API-surface gaps in `pve-client` first**; avoid consumer-side cast workarounds.
+- Export and consume named typed APIs (`NodeScopedAPI`, `QemuScopedAPI`, `LxcScopedAPI`).
+
+*(This feature added `exec` and `exec_status` factory methods to `pve-client`'s LXC API surface, plus `LXCExec`/`LXCExecStatus` types, rather than workarounding in the consumer.)*
+
+### P2: Quality and Refactoring
+
+- Extract shared or utility code to dedicated modules — don't let architectural complexity block safe extractions.
+
+### P4b: Error Messages
+
+- Wrong/rejected values: always include the actual value in the error message so the caller can identify it.
+- Sensitive values (passwords, tokens, secrets) must never appear in error messages.

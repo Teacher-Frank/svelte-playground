@@ -227,3 +227,28 @@ Three significant issues were discovered and resolved during initial build (docu
 | `playground/src/routes/proxmox/terminal/+page.svelte` | App client | ~400 | xterm.js terminal page with resize convergence |
 | `playground/src/routes/proxmox/terminal/+page.server.ts` | App client | ~ | URL param validation |
 | `playground/server/index.ts` | App server | ~ | HTTP server entry, route attachment |
+
+---
+
+## Applicable Policies (from POLICIES.md)
+
+> The following are verbatim excerpts from `POLICIES.md`, the authoritative policy source.
+
+### Architecture: pve-client + playground
+
+- **Fix API-surface gaps in `pve-client` first**; avoid consumer-side cast workarounds.
+- Server-side terminal/WebSocket responsibility lives in `pve-client`; playground wiring stays thin.
+- ESM TS in `pve-client`: use explicit `.js` extensions for relative imports.
+
+*(Terminal is the canonical example of this pattern: `Terminal`, `TerminalSession`, `TerminalRenderer`, bridge, utils, and prompt nudge all live in `pve-client`. Playground wiring is thin WS upgrade → auth → `Terminal.open` → `bridgeTerminalSessionToSocket`.)*
+
+### P2: Quality and Refactoring
+
+- Extract shared or utility code to dedicated modules — don't let architectural complexity block safe extractions. Prefer `*-utils.ts` files over leaving duplication.
+
+*(Terminal was refactored from a single 750+ line file into `Terminal.ts` (core), `terminal-utils.ts` (pure helpers), `terminal-bridge.ts` (bridge), and `LocalPromptNudge.ts` (CLI).)*
+
+### P2b: Consistent Patterns
+
+- When a problem has a confirmed unified solution, apply it everywhere it's needed.
+- Never leave ad-hoc or legacy patterns alongside the canonical one — consolidate them.

@@ -186,3 +186,37 @@ Fixed all issues found during quality gate run:
 | Server crash during destroy | ✅ Handled — `pendingDestroy` is in-memory; page refresh clears stale state |
 | Multiple destroy requests for same workload | ✅ Handled — controls disabled during `destroying`/`destroyFailed` states |
 | Proxmox redirect/port issues | ⚠️ Infrastructure — ECONNREFUSED on POST to 145.24.222.41:443 (proxmox on 8006) |
+
+---
+
+## Applicable Policies (from POLICIES.md)
+
+> The following are verbatim excerpts from `POLICIES.md`, the authoritative policy source.
+
+### Background Task Tracking
+
+- **Background task tracking** — when a server action offloads long-running work (e.g., VM deploy, destroy) to a background task, follow this pattern:
+  1. Fire the Proxmox task, capture and **store the UPID** in a shared tracking map (e.g., `pendingDestroy`, `pendingDeploy`)
+  2. Return HTTP response immediately — don't block on `task.wait()`
+  3. During periodic page refresh, **poll the task by UPID** to detect completion or failure
+  4. Surface the actual Proxmox task error message to the user — don't swallow it
+  5. Only use a stale-timeout as a **fallback** (not the primary detection mechanism)
+  6. Provide a **cancel/retry** action when a task fails so the user can recover from a stuck state
+  - Never use fire-and-forget `setTimeout` that swallows errors
+  - Never mark a task as failed purely on elapsed time when the UPID is available
+
+*(This doc was the origin of the destroy flow refactor: non-blocking fire-and-forget with `pendingDestroy` tracking, `startedAt` timestamps, and 60s stale detection.)*
+
+### UI Interaction
+
+- All modal-based actions: optimistic, single-shot submit. On submit: close modal immediately, show "action started" status, disable duplicate triggers. On failure: clear optimistic message, show server error.
+- **UI stuck-state detection** — when a UI state depends on conditions that can silently fail, add failure detection with timed grace periods instead of waiting for a hard cap. Surface the failure explicitly with a distinct status and notification.
+
+### P4b: Error Messages
+
+- Wrong/rejected values: always include the actual value in the error message so the caller can identify it.
+- Sensitive values (passwords, tokens, secrets) must never appear in error messages.
+
+### P2a: Test-First Refactoring
+
+- Generate a unit test showing current behavior before changing it. Verify the refactor preserves it.
