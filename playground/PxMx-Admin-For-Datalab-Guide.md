@@ -37,14 +37,14 @@ Git repository under `playground/scripts/`. Transfer them to the target machine 
       - [1.4.1 Why cloud-init is required for the deploy flow](#141-why-cloud-init-is-required-for-the-deploy-flow)
       - [1.4.2 Installing cloud-init in the template](#142-installing-cloud-init-in-the-template)
       - [1.4.3 NoCloud datasource (required for Proxmox)](#143-nocloud-datasource-required-for-proxmox)
-      - [1.4.4 Cloud-init + QEMU guest agent combined (recommended)](#144-cloud-init--qemu-guest-agent-combined-recommended)
     - [1.5 Enable nesting at LXC container creation](#15-enable-nesting-at-lxc-container-creation)
       - [1.5.1 Why nesting is required for Ubuntu 24.04](#151-why-nesting-is-required-for-ubuntu-2404)
     - [1.6 LXC device passthrough (done automatically by the hook script)](#16-lxc-device-passthrough-done-automatically-by-the-hook-script)
-    - [1.7 QEMU guest agent (required for all VMs)](#17-qemu-guest-agent-required-for-all-vms)
-      - [1.7.1 Option A: pre-install in the base template (recommended)](#171-option-a-pre-install-in-the-base-template-recommended)
-      - [1.7.2 Option B: auto-install via cloud-init snippet (cicustom)](#172-option-b-auto-install-via-cloud-init-snippet-cicustom)
-      - [1.7.3 Option C: install manually on an existing guest](#173-option-c-install-manually-on-an-existing-guest)
+    - [1.7 QEMU guest agent — how it gets installed](#17-qemu-guest-agent--how-it-gets-installed)
+      - [1.7.1 How the deploy flow installs the agent (default path)](#171-how-the-deploy-flow-installs-the-agent-default-path)
+      - [1.7.2 Option A: auto-install via cloud-init snippet (cicustom)](#172-option-a-auto-install-via-cloud-init-snippet-cicustom)
+      - [1.7.3 Option B: pre-install in the base template](#173-option-b-pre-install-in-the-base-template)
+      - [1.7.4 Option C: install manually on an existing guest](#174-option-c-install-manually-on-an-existing-guest)
     - [1.8 Troubleshooting host-side issues](#18-troubleshooting-host-side-issues)
   - [2. Guest VM / container setup](#2-guest-vm--container-setup)
     - [2.1 What is a guest and why does it need configuration?](#21-what-is-a-guest-and-why-does-it-need-configuration)
@@ -58,14 +58,19 @@ Git repository under `playground/scripts/`. Transfer them to the target machine 
     - [3.4 Troubleshooting: VNC page stuck on "Submitting credentials..."](#34-troubleshooting-vnc-page-stuck-on-submitting-credentials)
   - [4. How the playground automates VM deployment](#4-how-the-playground-automates-vm-deployment)
     - [4.1 VM clone flow](#41-vm-clone-flow)
-    - [4.2 DHCP to static IP conversion](#42-dhcp-to-static-ip-conversion)
-    - [4.3 LXC container deploy flow](#43-lxc-container-deploy-flow)
+    - [4.1.1 Why the two-phase architecture?](#411-why-the-two-phase-architecture)
+    - [4.1.2 Serial port for terminal access](#412-serial-port-for-terminal-access)
+    - [4.2 Deploy outcomes and failure detection](#42-deploy-outcomes-and-failure-detection)
+      - [4.2.1 What happens when a deploy fails?](#421-what-happens-when-a-deploy-fails)
+      - [4.2.2 Deploy visibility timing](#422-deploy-visibility-timing)
+    - [4.3 DHCP to static IP conversion](#43-dhcp-to-static-ip-conversion)
+    - [4.4 LXC container deploy flow](#44-lxc-container-deploy-flow)
   - [Appendix A. Environment variables](#appendix-a-environment-variables)
     - [A.1 Proxmox connection and authentication](#a1-proxmox-connection-and-authentication)
-    - [A.2 LXC deployment and storage](#a2-lxc-deployment-and-storage)
-    - [A.3 Terminal and runtime](#a3-terminal-and-runtime)
-    - [A.4 Diagnostics and benchmarking](#a4-diagnostics-and-benchmarking)
-    - [A.5 VM template deploy guard](#a5-vm-template-deploy-guard)
+    - [A.2 VM deployment and storage](#a2-vm-deployment-and-storage)
+    - [A.3 LXC deployment and storage](#a3-lxc-deployment-and-storage)
+    - [A.4 Terminal and runtime](#a4-terminal-and-runtime)
+    - [A.5 Diagnostics and benchmarking](#a5-diagnostics-and-benchmarking)
     - [A.6 LXC VNC bridge variables](#a6-lxc-vnc-bridge-variables)
     - [A.7 Current `acctest-env.ps1` profile](#a7-current-acctest-envps1-profile)
   - [Appendix B. Troubleshooting index](#appendix-b-troubleshooting-index)
@@ -89,7 +94,7 @@ Follow these steps in order. Each step is explained in detail in the sections th
    ```bash
    sudo bash deploy-cloudinit-snippets.sh
    ```
-   Alternatively, pre-install the agent in the template directly (see [Section 1.7](#17-qemu-guest-agent-required-for-all-vms)).
+   Alternatively, pre-install the agent in the template directly (see [Section 1.7](#17-qemu-guest-agent--how-it-gets-installed)).
 4. **On your Windows admin workstation**, edit the environment profile (`acctest-env.ps1`)
    and update the credentials and URLs for your Proxmox cluster (see [Section 3.2](#32-environment-profiles-windows-admin-workstation)).
 5. **Run the environment profile** to start the playground dev server:
@@ -199,7 +204,7 @@ typically do not. Without cloud-init, the playground cannot inject credentials o
 the `runcmd` snippet that installs the guest agent.
 
 The deploy flow installs `qemu-guest-agent` automatically on first boot via a `cicustom`
-cloud-init snippet (see [Section 1.7.2](#172-option-b-auto-install-via-cloud-init-snippet-cicustom)).
+cloud-init snippet (see [Section 1.7.2](#172-option-a-auto-install-via-cloud-init-snippet-cicustom)).
 The template only needs `cloud-init` — **not** the guest agent itself.
 
 #### 1.4.1 Why cloud-init is required for the deploy flow
@@ -609,12 +614,6 @@ If the VNC page shows "Submitting credentials..." and never connects:
    sudo bash vm-checklist-verify.sh
    ```
 
-5. **Check if the guest has an IPv4 address.** The playground GUI action stays disabled
-   until the container IP is discovered. Run the verification script:
-   ```bash
-   sudo bash vm-checklist-verify.sh
-   ```
-
 **How the VNC bridge works end-to-end:**
 
 ```
@@ -638,17 +637,81 @@ playground admin page. Understanding this flow helps troubleshoot issues.
 
 ### 4.1 VM clone flow
 
-1. The playground clones the selected VM template on Proxmox.
-2. If the clone is missing a network interface, the playground adds `net0` on the
-   configured bridge (`PVE_VM_NETWORK_BRIDGE`, default `vmbr0`).
-3. If the clone is missing DHCP configuration, the playground sets `ipconfig0 ip=dhcp`.
-4. If the clone is missing a cloud-init drive, the playground attaches
-   `ide2=<storage>:cloudinit` (`PVE_VM_CLOUDINIT_STORAGE`, default `local-lvm`).
-5. The playground starts the cloned VM.
-6. The playground sets `cicustom` to point to the cloud-init guest-agent install snippet.
-7. If the clone has no usable serial port, the playground adds `serial0=socket` for terminal access.
-8. On first boot, cloud-init installs the QEMU guest agent (if the template was
-   prepared correctly — see [Section 1.4](#14-prepare-a-cloud-init-ready-vm-template)).
+The deploy process runs in two phases:
+
+1. **Clone (immediate):** The playground clones the selected VM template on Proxmox and
+   returns control to the UI immediately (you see a "Deploying..." row).
+2. **Configure + start (background):** After the clone task completes, the playground
+   runs the following steps in the background:
+   - If the clone is missing a network interface, the playground adds `net0` on the
+     configured bridge (`PVE_VM_NETWORK_BRIDGE`, default `vmbr0`).
+   - If the clone is missing DHCP configuration, the playground sets `ipconfig0 ip=dhcp`.
+   - If the clone is missing a cloud-init drive, the playground attaches
+     `ide2=<storage>:cloudinit` (`PVE_VM_CLOUDINIT_STORAGE`, default `local-lvm`).
+   - The playground sets `cicustom` to point to the cloud-init guest-agent install snippet.
+   - If the clone has no usable serial port, the playground adds `serial0=socket` for
+     terminal access (see [Section 4.1.2](#412-serial-port-for-terminal-access)).
+   - The playground starts the cloned VM.
+   - On first boot, cloud-init installs the QEMU guest agent (if the template was
+     prepared correctly — see [Section 1.4](#14-prepare-a-cloud-init-ready-vm-template)).
+
+If any background step fails after the clone has completed, the playground will
+automatically destroy the orphan VM (stop if running, then delete with purge).
+
+### 4.1.1 Why the two-phase architecture?
+
+The clone operation can take a minute or more. With the two-phase design, the UI
+displays the "Deploying..." status immediately rather than showing a loading spinner
+while waiting for the HTTP response. The configure + start steps run as a background
+task on the server.
+
+### 4.1.2 Serial port for terminal access
+
+The playground's terminal feature connects to VMs via the Proxmox `termproxy` endpoint,
+which requires a serial console configured on the VM. The deploy flow automatically
+adds `serial0=socket` if the clone doesn't already have a usable serial port.
+
+If an existing template lacks a serial port and you want terminal access, either:
+- Let the deploy flow add it automatically (recommended)
+- Add `serial0=socket` manually in Proxmox: `qm set <vmid> --serial0 socket` (requires
+  a VM reboot to take effect)
+
+### 4.2 Deploy outcomes and failure detection
+
+The playground tracks the state of every deploy and provides visual feedback:
+
+| Status | When it appears | Auto-removed? |
+|---|---|---|
+| **Deploying...** | Immediately after submit; shows a blue badge | Yes — when workload appears or failure detected |
+| **deploy-failed** | After 60s grace period if tasks settled but workload doesn't exist | Yes — after 10s with an error notification |
+
+#### 4.2.1 What happens when a deploy fails?
+
+If the background configure + start task fails after the clone has completed:
+1. The server automatically destroys the orphan VM (stops it if running, then deletes
+   with purge).
+2. The UI detects the failure after a **60-second grace period** following task
+   completion (this covers orphan cleanup time and any slow backend processing).
+3. The workload row shows a red "deploy-failed" badge for **10 seconds** before being
+   auto-removed.
+4. An inline error toast notification appears with context about the failure.
+
+**Common reasons for deploy failure:**
+- **Template lacks cloud-init** — Non-cloud images (Ubuntu Desktop, Windows) without
+  `cloud-init` cannot process the `cicustom` snippet. Fix: install `cloud-init` in
+  the template (Section 1.4).
+- **Snippet not deployed** — `install-agent.yaml` is missing from Proxmox snippets
+  storage. Fix: run `deploy-cloudinit-snippets.sh` (Section 1.7.2).
+- **Storage or network error** during clone or start operations.
+
+#### 4.2.2 Deploy visibility timing
+
+| Constant | Value | Purpose |
+|---|---|---|
+| Minimum "deploying" visible time | 30s | Prevents flash of deploy-complete before data refresh |
+| Failure grace period | 60s | Wait after tasks settle before declaring failure |
+| "deploy-failed" visible time | 10s | Brief red badge before auto-removal |
+| Hard cap | 10 minutes | Maximum time before forced cleanup of stale entries |
 
 ### 4.3 DHCP to static IP conversion
 
@@ -715,13 +778,7 @@ variable in code or scripts, update this guide in the same change.
 - `PLAYGROUND_DEV_BENCH_RUNS`: Number of benchmark runs for `npm run bench:dev-startup` (default `4`).
 - `PLAYGROUND_DEV_BENCH_BASE_PORT`: Base port used by dev-startup benchmarking (default `45173`).
 
-### A.5 VM template deploy
-
-- `PVE_VM_CLOUDINIT_STORAGE`: Preferred storage name for VM cloud-init disks in automation workflows (example: `local-lvm`).
-- `PVE_VM_NETWORK_BRIDGE`: Bridge used when VM deploy must add a missing NIC (`net0`) to a cloned VM (default: `vmbr0`).
-- `PVE_VM_NETWORK_MODEL`: Proxmox NIC model used when VM deploy must add a missing NIC (`net0`) to a cloned VM (default: `virtio`).
-
-### A.7 LXC VNC bridge variables
+### A.6 LXC VNC bridge variables
 
 - `LXC_VNC_BRIDGE_WS_URL`: Explicit websocket URL template for VNC bridge targets (supports placeholders like `{ip}` / `{ipv4}`).
 - `LXC_VNC_BRIDGE_ALLOWED_HOSTS`: Comma-separated host:port allowlist for bridge targets in explicit URL mode.
@@ -732,7 +789,7 @@ variable in code or scripts, update this guide in the same change.
 
 Bridge runtime configuration details are in [Section 3.3](#33-lxc-vnc-bridge-configuration).
 
-### A.8 Current `acctest-env.ps1` profile
+### A.7 Current `acctest-env.ps1` profile
 
 - Password authentication with `PVE_USERNAME`, `PVE_PASSWORD`, and `PVE_REALM`.
 - `PVE_INSECURE_TLS=true`.
