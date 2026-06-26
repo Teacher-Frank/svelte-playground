@@ -356,9 +356,10 @@ const loadResults = async (): Promise<ProxmoxResults> => {
     // If we have a destroy UPID, poll Proxmox for the real task status
     if (entry.destroyUpid) {
       try {
-        const taskUpid = entry.destroyUpid;
-        const nodeFromUpid = taskUpid.split(':')[1];
-        const taskStatusResult = await client.request(`/nodes/${nodeFromUpid}/tasks/${taskUpid}/status`, 'GET', {});
+        const nodeFromUpid = entry.destroyUpid.split(':')[1] ?? '';
+        const taskStatusResult = await client.request('/nodes/{node}/tasks/{upid}/status', 'GET', {
+          $path: { node: nodeFromUpid, upid: entry.destroyUpid },
+        });
         const status = typeof taskStatusResult === 'object' && taskStatusResult && 'status' in taskStatusResult
           ? (taskStatusResult as Record<string, unknown>).status
           : undefined;
