@@ -134,6 +134,8 @@ Rather than using `task.listen` client-side (which requires a client-side pve-cl
 
 2. **Silent background failure** — If the `setTimeout` background task failed (network error, Proxmox error, etc.), the user would see "destroying" indefinitely with no feedback. Fixed by adding `startedAt` timestamp to `pendingDestroy` entries and stale detection in `loadData.ts` — after `DESTROY_STALE_THRESHOLD_MS` (60s), the entry is marked as `failed` and the workload shows `destroyFailed` status with a red badge and explanatory tooltip.
 
+3. **Non-existent `client.tasks` API** (2026-06-26) — `loadData.ts` used `client.tasks.get(entry.destroyUpid)` to poll task status, but pve-client exposes `client.task` (singular) with only `.listen()` and `.wait()` — no `.get()` method. Fixed by replacing with `client.request('/nodes/{node}/tasks/{upid}/status', 'GET', { $path: {node, upid} })`, matching the typed path pattern used inside pve-client's own `task.listen()` implementation.
+
 ### Verified (2026-06-25)
 
 - ✅ 43/43 tests pass
