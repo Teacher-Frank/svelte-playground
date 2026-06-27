@@ -1,7 +1,7 @@
 # Workspace Copilot Instructions
 
 ## Required Startup Step
-- **Read POLICIES.md before doing anything else.** This is not optional — even if the user's first message is a specific, urgent request, read the policy file first.
+- **Read POLICIES.md before doing anything else.** This is not optional — even if the user's first message is a specific, urgent request, read the policy file first. **This is mandatory**
 - Treat POLICIES.md as the authoritative policy source for this workspace.
 
 ## Ongoing Behavior
