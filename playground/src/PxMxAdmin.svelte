@@ -155,8 +155,52 @@
     (data.results?.vms ?? []).filter((vm) => !vm.template && !vm.isTemplate)
   );
 
-  let deployingWorkloads = $state<DeployingWorkload[]>([]);
+  // ---------------------------------------------------------------------------
+  // localStorage persistence — survives browser reload
+  // ---------------------------------------------------------------------------
+
+  const DEPLOYING_STORAGE_KEY = 'pxmx:deployingWorkloads';
+  const DEPLOY_HARD_CAP_MS = 10 * 60 * 1000; // 10 minutes
+
+  /**
+   * Load persisting deploying workloads from localStorage, deserialize, and
+   * discard any entries that have already exceeded the hard cap (avoids
+   * resurrecting dead state from a stale save).
+   */
+  function loadPersistedDeployingWorkloads(): DeployingWorkload[] {
+    try {
+      const raw = localStorage.getItem(DEPLOYING_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as DeployingWorkload[];
+      const now = Date.now();
+      return parsed.filter((entry) => {
+        const age = now - entry.startedAt;
+        return age <= DEPLOY_HARD_CAP_MS;
+      });
+    } catch {
+      // Corrupted payload — start fresh
+      return [];
+    }
+  }
+
+  /** Persist the current deploying workloads array to localStorage. */
+  function saveDeployingWorkloads(list: DeployingWorkload[]): void {
+    if (list.length === 0) {
+      localStorage.removeItem(DEPLOYING_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(DEPLOYING_STORAGE_KEY, JSON.stringify(list));
+  }
+
+  let deployingWorkloads = $state<DeployingWorkload[]>(loadPersistedDeployingWorkloads());
   let lastHandledDeploySignature = $state<string | null>(null);
+
+  // Persist deploying workloads to localStorage whenever the array changes.
+  // This is a separate effect from the deploy manager below — it only reads
+  // the array and writes to storage, so it does not create a reactive loop.
+  $effect(() => {
+    saveDeployingWorkloads(deployingWorkloads);
+  });
 
   const makeDeployingKey = (kind: DeployWorkloadKind, name: string): string =>
     `${kind}:${name.trim().toLowerCase()}`;
