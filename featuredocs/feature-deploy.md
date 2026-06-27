@@ -95,13 +95,37 @@ runcmd:
 
 Then in the Proxmox config:
 ```
-qm set <vmid> --cicustom "user=local:snippets/install-agent.yaml"
+qm set <vmid> --cicustom "vendor=local:snippets/install-agent.yaml"
 ```
 
 Or via API, in the config body:
 ```typescript
-configBody.cicustom = 'user=local:snippets/install-agent.yaml';
+configBody.cicustom = 'vendor=local:snippets/install-agent.yaml';
 ```
+
+### ⚠️ Critical: Use `vendor=` NOT `user=`
+
+**Discovered 2026-06-27:** Using `user=` in `cicustom` causes password login to fail on deployed VMs.
+
+**Root cause:** When `cicustom` is set to `user=...`, it **replaces** Proxmox's auto-generated cloud-init user-data file. Proxmox normally writes the `ciuser`/`cipassword` values into this auto-generated user-data file. By replacing it with a custom snippet (which only contains `runcmd` for agent installation), the password from `cipassword` is **never written to the VM**.
+
+**Timeline of the bug:**
+1. `configBody.ciuser` and `configBody.cipassword` are sent to Proxmox ✓
+2. `configBody.cicustom = 'user=...'` tells Proxmox "use MY file instead of the auto-generated user-data"
+3. Proxmox's auto-generated user-data (which would have embedded `ciuser`/`cipassword`) is **discarded**
+4. The custom snippet (which only has `runcmd` for agent install) is used as the sole user-data source
+5. The VM boots, cloud-init runs `runcmd` (agent installs), but the password was never set
+6. Login fails: the credentials the user entered during deploy were silently ignored
+
+**Fix:** Use `vendor=` instead of `user=` — the `vendor=` cloud-data file is **merged on top of** the user-data (which still contains the password), rather than replacing it.
+
+**Proxmox `cicustom` data source keys:**
+
+| Key | What it does | Effect on `ciuser`/`cipassword` |
+|-----|-------------|-|
+| `user=` | **Replaces** Proxmox's auto-generated user-data | ✗ Password is lost |
+| `vendor=` | **Merges** with Proxmox's auto-generated user-data | ✓ Password preserved |
+| `network=` | Replaces network configuration | N/A |
 
 ### Steps to implement in deployment flow
 

@@ -225,7 +225,13 @@ async function runPostCloneSteps(
     // The snippet (install-agent.yaml) must be deployed to Proxmox host first:
     //   scripts/host/deploy-cloudinit-snippets.sh
     // See: featuredocs/feature-deploy.md for full investigation and design notes.
-    configBody.cicustom = `user=${snippetStorage}:snippets/install-agent.yaml`;
+    //
+    // IMPORTANT: Use `vendor=` NOT `user=` — Proxmox auto-generates the user-data
+    // file from ciuser/cipassword parameters. Using `user=` would *replace* that
+    // file, so the cloud-init credentials would never be written to the VM.
+    // The vendor-data file is merged on top of user-data, keeping both the
+    // password from Proxmox and the agent install commands from the snippet.
+    configBody.cicustom = `vendor=${snippetStorage}:snippets/install-agent.yaml`;
 
     await client.request('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
       $path: { node: templateNode, vmid: newid },
