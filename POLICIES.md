@@ -211,6 +211,7 @@ All modal-based actions (deploy, rename, configure): optimistic, single-shot sub
 - **Never call `mcp_gitkraken_cli_*` tools** — the user has no GitKraken account; all calls fail with an auth error.
 - Use `git` via the terminal (`run_in_terminal`) for all git operations instead.
 - **GitLens extension is separate** from GitKraken MCP — keep using GitLens as normal.
+- **`runSubagent`** — do not use default model (ChatGPT hits monthly credit limit). Use `model: "Qwen3.6:27b (copilot)"` instead for unlimited tokens.
 
 ## Runbook
 Run commands from `svelte-playground/playground` for app changes, from `pve-client` for library changes.
