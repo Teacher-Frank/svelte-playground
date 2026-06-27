@@ -320,6 +320,8 @@ The most reliable mechanism is a markdown file that your agent always reads a t 
 - Double-binding (external trigger + internal directive) is more resilient than relying on either one alone.
 - Keeping the file in `.github/` ensures it's tracked by git, versioned, and visible on GitHub.
 
+**Additional enforcement layer: persistent user memory**
+Critical startup directives (especially P0: read this file) should also be recorded in the assistant's persistent user memory (e.g., `/memories/00-session-startup.md`). User memory loads automatically at session start, before conversation begins — providing a third enforcement layer that fires even if the external trigger files are missed for any reason. Triple-binding (copilot-instructions.md → P0 → user memory) prevents the model from skipping policy on cold start.
 **Common failure modes to avoid:**
 - Weak wording like "consider reading" or "you may want to review" — models will skip it.
 - Polite phrasing — models treat requests as suggestions unless stated as mandatory.
