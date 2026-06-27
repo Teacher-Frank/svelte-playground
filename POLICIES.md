@@ -168,6 +168,12 @@ These rules are specific to this repository's stack, tooling, and domain.
 - **Multi-machine:** Fri–Tue primary station, Wed–Thu Surface Pro in Rotterdam.
 - Always `git pull` before starting. Re-read `AGENTS.md` and `POLICIES.md`.
 
+## Workspace Git Repositories
+- **This workspace contains two Git repositories:**
+  1. `svelte-playground` (primary — check first for git operations)
+  2. `pve-client` (secondary — check second)
+- **Never run git commands in the workspace root** (`c:\hrgit`) — it is not a Git repository.
+
 ## Architecture: pve-client + playground
 - **Fix API-surface gaps in `pve-client` first**; avoid consumer-side cast workarounds.
 - Avoid `as unknown as Record<...>` and similar double-cast patterns.
