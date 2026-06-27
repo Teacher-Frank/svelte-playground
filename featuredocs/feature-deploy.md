@@ -5,14 +5,21 @@
 
 ---
 
-## Session Summary (2026-06-27)
+## All Sessions Summary
 
-| Change | Why | How |
-|--------|-----|-----|
-| Deploy shadowing regression | During clone, two rows showed (deploying placeholder + real VM) because Proxmox returns placeholder names like `"VM 101"` during cloning | Propagate VMID through deploy chain (`nextid()` → server response → client shadow); match by VMID first, name+node as fallback |
-| Control disable logic | `destroyFailed` had all controls disabled (no retry); `deployFailed` had all controls enabled (Start/Stop/Restart on broken deploy) | Extract `isDisabledStatus()` for transient states; component-level logic for failure states (delete always enabled) |
-
-**Validation:** `npm run check` — 0 errors, `npm run lint` — 0 errors
+| Session | Date | Changes |
+|---------|------|---------|
+| **cicommand fabrication discovery** | 2026-06-19 | Found that `cicommand` is not a real Proxmox API parameter. Removed dead code from `action-template-deployers.ts`, created canary test in pve-client, consolidated test assertions |
+| **cicustom solution** | 2026-06-19 | Implemented `cicustom` + `runcmd` approach for guest agent installation via cloud-init snippet. Created `install-agent.yaml` and `deploy-cloudinit-snippets.sh` host script |
+| **Deploy flow refactor** | 2026-06-23 | Fixed 6 issues: YAML syntax error, notification gap (added `pending` kind), duplicate notifications consolidated, modal timeouts added (try/finally + 30s timeout), sticky dialog backdrop fix |
+| **Non-blocking server deploy** | 2026-06-24 | Server now returns clone UPID immediately; config+start runs in background. Added orphan VM cleanup (`destroyOrphanVm()`) when background task fails after clone. E2E test passed (VM 104, IP visible) |
+| **Deploy failure detection** | 2026-06-24 | Added `tasksSettledAt` tracking + 60s grace period. Show `deploy-failed` red badge + error notification, auto-remove after 10s. Fixed corrupted template literal syntax error in `proxmox-actions.ts` |
+| **Serial port configuration** | 2026-06-25 | Documented serial0=socket API surface. Added `serial0=socket` to `runPostCloneSteps` during deployment (same pattern as net0/ipconfig0/agent) for terminal access on every deployed VM |
+| **Admin guide template update** | 2026-06-25 | Updated `PxMx-Admin-For-Datalab-Guide.md` §1.4 and §1.7: template needs `cloud-init` + `/etc/cloud/cloud.cfg`; `qemu-guest-agent` is installed by deploy flow via `cicustom` |
+| **Debug logging** | 2026-06-25 | Added `[taskTransition]` console.info on task state changes + `window.pveDebug.allTasks()` for manual inspection |
+| **Usability testing** | 2026-06-26 | Deployed 3 VMs (debian-12, ubuntu-24.04, ubuntu-desktop). All passed: agent detected, IPs discovered, correct notifications, no stuck states |
+| **vendor= vs user= fix** | 2026-06-27 | Discovered `user=` in `cicustom` replaces Proxmox's auto-generated user-data (losing `cipassword`). Changed to `vendor=` which merges on top, preserving password login |
+| **Deploy shadowing + controls** | 2026-06-27 | Fixed dual-row regression during clone (VMID propagation + VMID-first shadowing). Fixed control disable state machine (extracted `isDisabledStatus()`, delete always enabled on failure states) |
 
 ---
 
