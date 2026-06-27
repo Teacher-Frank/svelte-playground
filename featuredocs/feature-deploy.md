@@ -1,7 +1,20 @@
 # Deploy Progress — Investigation Notes
 
-**Date:** 2026-06-18 → Updated 2026-06-19
+**Date:** 2026-06-18 → Updated 2026-06-27
 **Issue:** Ubuntu Desktop VM deployment stays stuck in "Deploying..." mode until the 10-minute hard cap expires.
+
+---
+
+## Session Summary (2026-06-27)
+
+| Change | Why | How |
+|--------|-----|-----|
+| Deploy shadowing regression | During clone, two rows showed (deploying placeholder + real VM) because Proxmox returns placeholder names like `"VM 101"` during cloning | Propagate VMID through deploy chain (`nextid()` → server response → client shadow); match by VMID first, name+node as fallback |
+| Control disable logic | `destroyFailed` had all controls disabled (no retry); `deployFailed` had all controls enabled (Start/Stop/Restart on broken deploy) | Extract `isDisabledStatus()` for transient states; component-level logic for failure states (delete always enabled) |
+
+**Validation:** `npm run check` — 0 errors, `npm run lint` — 0 errors
+
+---
 
 ## Root Cause: Guest Agent Not Installed
 
@@ -433,3 +446,96 @@ This would require the same admin auth already used for terminal login (username
 - 10:16:44 — UbuntuDesktop start completed (qmstart OK VM 104)
 - 10:17:xx — debian12 IP discovered (145.24.222.113)
 - 10:19:xx — all 3 VMs running with IPs
+
+---
+
+## Deploy Shadowing Regression — 2026-06-27
+
+### Problem
+
+During deployment, two rows appeared:
+
+| Row | ID | Name | Status |
+|----|----|------|--------|
+| 1 | `deploying-vm-1782555135218-0` | ubuntudesktoptest | deploying |
+| 2 | `101` | VM 101 | stopped |
+
+`isShadowedByDeployingWorkload` matches by **name + node** — but Proxmox returns a placeholder name (`"VM 101"`) during cloning, not the deploy name (`"ubuntudesktoptest"`). The shadow fails, both rows show.
+
+### Root Cause
+
+1. `nextid()` returns 101 (reused ID), clone starts with `{ newid, name: "ubuntudesktoptest" }`
+2. The clone takes 20–60 seconds — during that window, `qemu.list()` shows the VM with its placeholder/original name
+3. The deploy tracks `vmid` on the server but never propagates it to the client shadowing logic
+
+### Fix: Federated Deploy Shadowing by VMID
+
+**Strategy:** Extract the assigned VMID from the clone, propagate it through the server response, mark the deploying workload with its VMID, and use VMID as primary shadowing key.
+
+#### Chain
+
+| Layer | Change |
+|-------|--------|
+| `action-template-deployers.ts` | `deployVmFromTemplate` returns `{ cloneUpid, newid }` |
+| `proxmox-actions.ts` | Extract `newid`, return as `deployWorkloadId` |
+| `templates/EnhanceDialog.svelte` | Extract `deployWorkloadId` from result data, pass as `vmid` to `onDeployStarted` |
+| `templateDialogEnhance.ts` | Extend `EnhanceResult.data` with optional `deployWorkloadId` |
+| `PxMxAdmin.svelte` | Extend `DeployingWorkload` with optional `vmid`, update `markDeployingWorkload` to accept it, add VMID-first shadowing in `isShadowedByDeployingWorkload` |
+
+```typescript
+// Before — name-only shadow
+return deployingWorkloads.some((pending) =>
+  pending.name.trim().toLowerCase() === workloadName
+);
+
+// After — VMID-first, name fallback
+const workloadVmid = typeof workload.id === 'number' ? workload.id : undefined;
+if (workloadVmid != null) {
+  if (deployingWorkloads.some(
+    (pending) => pending.kind === kind && pending.vmid === workloadVmid
+  )) return true;
+}
+// ...name fallback...
+```
+
+**Result:** During clone, `"VM 101"` and `"ubuntudesktoptest"` no longer matter — shadow matches by `pending.vmid === workload.id === 101`.
+
+#### Files Changed
+
+| File | Change |
+|------|--------|
+| `action-template-deployers.ts` | Return `{ cloneUpid, newid }` |
+| `proxmox-actions.ts` | Extract `newid`, return as `deployWorkloadId` |
+| `templates/EnhanceDialog.svelte` | Pass `vmid` from `result.data.deployWorkloadId` to parent |
+| `templateDialogEnhance.ts` | Add optional `deployWorkloadId` to `EnhanceResult.data` |
+| `PxMxAdmin.svelte` | Add optional `vmid` to `DeployingWorkload`, update `markDeployingWorkload(..., vmid?)`, add VMID-first shadowing |
+
+### Control Disable State Machine — 2026-06-27
+
+The deploy/destroy flow also surfaced a control disable regression:
+
+**Before:**
+- `deployFailed` workloads had all controls enabled (including Start/Stop/Restart on a broken deploy)
+- `destroyFailed` workloads had all controls disabled (including delete — no way to retry)
+
+**After:**
+
+| Status | Start/Stop/Restart | Delete | Configure/Convert |
+|--------|-------------------|--------|-------------------|
+| `running` | ✅ | ✅ | ✅ |
+| `deploying` | ❌ (all disabled) | ❌ | ❌ |
+| `destroying` | ❌ (all disabled) | ❌ | ❌ |
+| `deployFailed` | ❌ (controlled by component) | ✅ (enable cleanup) | ❌ |
+| `destroyFailed` | ❌ (controlled by component) | ✅ (enable cleanup) | ❌ |
+
+#### Files Changed
+
+| File | Change |
+|------|--------|
+| `PxMxWorkloadList.svelte` | Add `isDisabledStatus()` helper + `DISABLED_STATUSES` constant, use in `disabled=` bindings |
+| `PxMxWorkloadControls.svelte` | Add `deployFailed` to `controlsDisabled` (delete stays enabled) |
+
+### Validation
+
+- ✅ `npm run check` — 0 errors
+- ✅ `npm run lint` — 0 errors

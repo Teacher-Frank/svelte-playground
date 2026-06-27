@@ -193,16 +193,6 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
       reconnectIntervalMs: 1500,
       reconnectMaxAttempts: 3,
     }, {
-      // Prompt nudge is enabled by default; the page also sends \n on WS open, so
-      // the bridge nudge acts as a safety net for early connect races.
-      enablePromptNudge: true,
-      promptNudgeMs: 400,
-      // The client sends JSON resize frames (not legacy "R:" prefix).
-      // parseBrowserFrame in the bridge handles both formats natively.
-      resizePrefix: 'R:',
-      // Binary stdin from xterm.js preserves control sequences; text frames (JSON
-      // resize) are handled as control-plane messages only.
-      allowTextInputFrames: true,
       // Format session errors as red ANSI lines for xterm.js display.
       onErrorFrame: (err: Error) =>
         Buffer.from(`\r\n\x1b[31mProxmox error: ${err.message}\x1b[0m\r\n`),

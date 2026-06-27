@@ -34,7 +34,7 @@
   } = $props();
 
   const controlsDisabled = $derived(
-    disabled || selectedWorkload?.status === 'deploying' || selectedWorkload?.status === 'destroyFailed'
+    disabled || selectedWorkload?.status === 'deploying' || selectedWorkload?.status === 'destroyFailed' || selectedWorkload?.status === 'deployFailed'
   );
 
   // Terminal is only useful when the selected guest is currently running.

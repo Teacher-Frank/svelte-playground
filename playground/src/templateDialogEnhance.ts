@@ -3,6 +3,7 @@ export type EnhanceResult = {
   data?: {
     message?: string;
     deployWorkloadName?: string;
+    deployWorkloadId?: number;
     deployTaskNode?: string;
     deployTaskUpids?: string[];
   };

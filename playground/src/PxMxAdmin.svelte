@@ -33,6 +33,8 @@
     kind: DeployWorkloadKind;
     name: string;
     node?: string;
+    // Assigned VMID — used to shadow the real workload row by ID (reliable during clone).
+    vmid?: number;
     startedAt: number;
     taskUpids: string[];
     // Earliest time at which resolution may be considered. Prevents the deploying
@@ -255,7 +257,34 @@
 
     // Hard cap: never hold a deploying entry beyond 10 minutes regardless of task state.
     if (ageMs > 10 * 60 * 1000) {
-      console.debug(`[isDeployResolved] "${pending.name}" — HARD CAP HIT after ${(ageMs / 1000).toFixed(1)}s (taskUpids: ${pending.taskUpids.length}, tasksSettledAt: ${pending.tasksSettledAt}, workloadExists: check below)`);
+      const states = pending.taskUpids.map((upid) => isTaskActive(upid));
+      const tasks = data.results?.recentTasks ?? [];
+      const taskDetails = pending.taskUpids.map((upid) => {
+        const task = tasks.find((t) => t.upid === upid);
+        return task
+          ? `  UPID ${upid} → type="${task.type ?? '?'}" status="${task.status ?? '?'}" endtime=${task.endtime ?? 'null'}`
+          : `  UPID ${upid} → NOT FOUND in recentTasks`;
+      });
+      // Compute workloadExists inline for diagnostics (same logic as below).
+      const pendingNameHardcap = pending.name.trim().toLowerCase();
+      const pendingNodeHardcap = (pending.node ?? '').trim().toLowerCase();
+      const sourceHardcap = pending.kind === 'vm' ? vmWorkloadsFromServer : lxcWorkloadsFromServer;
+      const workloadExistsHardcap = sourceHardcap.some((workload) => {
+        const workloadName = (workload.name ?? '').trim().toLowerCase();
+        if (workloadName !== pendingNameHardcap) return false;
+        if (pendingNodeHardcap.length === 0) return true;
+        return (workload.node ?? '').trim().toLowerCase() === pendingNodeHardcap;
+      });
+      console.warn(
+        `[isDeployResolved] "${pending.name}" — HARD CAP HIT after ${(ageMs / 1000).toFixed(1)}s\n` +
+        `  kind: ${pending.kind}, node: "${pending.node ?? '<none>'}"\n` +
+        `  startedAt: ${new Date(pending.startedAt).toISOString()}\n` +
+        `  resolveNotBefore: ${new Date(pending.resolveNotBefore).toISOString()}\n` +
+        `  tasksSettledAt: ${pending.tasksSettledAt ? new Date(pending.tasksSettledAt).toISOString() : 'null'}\n` +
+        `  taskUpids: ${pending.taskUpids.length}, states: ${JSON.stringify(states)}\n` +
+        `  workloadExists: ${workloadExistsHardcap}\n` +
+        `  task details:\n${taskDetails.join('\n')}`,
+      );
       return true;
     }
 
@@ -349,6 +378,17 @@
   };
 
   const isShadowedByDeployingWorkload = (workload: Workload, kind: DeployWorkloadKind): boolean => {
+    // First: shadow by VMID — most reliable, works even when Proxmox returns a placeholder name during cloning.
+    const workloadVmid = typeof workload.id === 'number' ? workload.id : undefined;
+    if (workloadVmid != null) {
+      if (deployingWorkloads.some(
+        (pending) => pending.kind === kind && pending.vmid === workloadVmid
+      )) {
+        return true;
+      }
+    }
+
+    // Fallback: shadow by name + node (for cases where VMID is not yet known).
     const workloadName = (workload.name ?? '').trim().toLowerCase();
     if (workloadName.length === 0) {
       return false;
@@ -371,11 +411,8 @@
 
   const DEPLOY_MIN_VISIBLE_MS = 30_000;
 
-  function markDeployingWorkload(kind: DeployWorkloadKind, name: string, node?: string, taskUpids?: string[]): void {
+  function markDeployingWorkload(kind: DeployWorkloadKind, name: string, node?: string, taskUpids?: string[], vmid?: number): void {
     const normalizedName = name.trim();
-    if (normalizedName.length === 0) {
-      return;
-    }
 
     const key = makeDeployingKey(kind, normalizedName);
     const normalizedUpids = normalizeUpids(taskUpids);
@@ -388,6 +425,7 @@
         kind,
         name: normalizedName,
         node,
+        vmid,
         startedAt: existing?.startedAt ?? Date.now(),
         taskUpids: normalizedUpids.length > 0 ? normalizedUpids : (existing?.taskUpids ?? []),
         resolveNotBefore: isUpgrade
@@ -714,8 +752,8 @@
             <PxMxVMTemplateList
               workloads={data.results.vms}
               form={templateForm}
-              onDeployStarted={({ name, node, taskUpids }: { name: string; node?: string; taskUpids?: string[] }) => {
-                markDeployingWorkload('vm', name, node, taskUpids);
+              onDeployStarted={({ name, node, vmid, taskUpids }: { name: string; node?: string; vmid?: number; taskUpids?: string[] }) => {
+                markDeployingWorkload('vm', name, node, taskUpids, vmid);
               }}
               onDeployFailed={({ name }: { name: string; node?: string }) => {
                 clearDeployingWorkload('vm', name);
@@ -738,8 +776,8 @@
               containerTemplates={lxcGuestTemplates}
               serverNode={data.results.serverNode}
               form={lxcTemplateForm}
-              onDeployStarted={({ name, node, taskUpids }: { name: string; node?: string; taskUpids?: string[] }) => {
-                markDeployingWorkload('container', name, node, taskUpids);
+              onDeployStarted={({ name, node, vmid, taskUpids }: { name: string; node?: string; vmid?: number; taskUpids?: string[] }) => {
+                markDeployingWorkload('container', name, node, taskUpids, vmid);
               }}
               onDeployFailed={({ name }: { name: string; node?: string }) => {
                 clearDeployingWorkload('container', name);

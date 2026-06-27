@@ -27,7 +27,7 @@
       message?: string;
       status?: 'success' | 'error';
     } | null;
-    onDeployStarted?: (payload: { name: string; node?: string; taskUpids?: string[] }) => void;
+    onDeployStarted?: (payload: { name: string; node?: string; vmid?: number; taskUpids?: string[] }) => void;
     onDeployFailed?: (payload: { name: string; node?: string }) => void;
   } = $props();
 
@@ -129,9 +129,11 @@
           const upids = Array.isArray(result.data?.deployTaskUpids)
             ? result.data?.deployTaskUpids.filter((upid): upid is string => typeof upid === 'string' && upid.trim().length > 0)
             : [];
+          const vmid = result.data?.deployWorkloadId != null ? Number(result.data.deployWorkloadId) : undefined;
           onDeployStarted?.({
             name: result.data?.deployWorkloadName?.trim() || pendingDeployContext.name,
             node: result.data?.deployTaskNode?.trim() || pendingDeployContext.node,
+            vmid,
             taskUpids: upids,
           });
 

@@ -108,6 +108,13 @@
     return `${Math.round(bytes / mib)} MiB`;
   };
 
+  /** Statuses that disable ALL controls (transient states — destroy/fail states use component-internal logic). */
+  const DISABLED_STATUSES = ['deploying', 'deployingFinalizing', 'destroying'] as const;
+
+  /** Returns `true` when a workload is in a state where all controls should be disabled. */
+  const isDisabledStatus = (status?: string): boolean =>
+    status == null || DISABLED_STATUSES.includes(status as (typeof DISABLED_STATUSES)[number]);
+
   const statusClass = (status?: string): string => {
     const normalized = (status ?? '').trim().toLowerCase();
     if (normalized === 'deploying') return 'status-deploying';
@@ -237,7 +244,7 @@
               <li class="container-action-row">
                 <PxMxWorkloadControls
                   compact={true}
-                  disabled={workload.id == null || workload.status === 'deploying' || workload.status === 'destroying'}
+                  disabled={isDisabledStatus(workload.status)}
                   containerGuiEnabled={containerGuiEnabled}
                   selectedWorkload={{
                     type: kind,
@@ -303,7 +310,7 @@
                 <!-- Forward row context directly so action forms submit authoritative node/type/id values. -->
                 <PxMxWorkloadControls
                   compact={true}
-                  disabled={workload.id == null || workload.status === 'deploying' || workload.status === 'destroying'}
+                  disabled={isDisabledStatus(workload.status)}
                   containerGuiEnabled={containerGuiEnabled}
                   selectedWorkload={{
                     type: kind,

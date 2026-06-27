@@ -335,7 +335,7 @@ export const actions: Actions = {
         });
       }
 
-      const { cloneUpid } = await deployVmFromTemplate(
+      const { cloneUpid, newid } = await deployVmFromTemplate(
         templateId,
         templateNode.trim(),
         newName.trim(),
@@ -348,6 +348,7 @@ export const actions: Actions = {
         message: `Deploying "${newName.trim()}" — clone task started. VM will start automatically once ready.`,
         formType: 'vm-template',
         deployWorkloadName: newName.trim(),
+        deployWorkloadId: newid,
         deployTaskNode: templateNode.trim(),
         deployTaskUpids: [cloneUpid],
       };

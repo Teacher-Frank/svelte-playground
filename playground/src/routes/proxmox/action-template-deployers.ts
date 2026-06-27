@@ -48,7 +48,7 @@ export async function deployVmFromTemplate(
   newName: string,
   ciUser: string,
   ciPassword: string,
-): Promise<{ cloneUpid: string }> {
+): Promise<{ cloneUpid: string; newid: number }> {
   const client = await createClient();
   const nodeApi: NodeScopedAPI = client.api.nodes.get(templateNode);
 
@@ -74,7 +74,7 @@ export async function deployVmFromTemplate(
     });
   }, 0);
 
-  return { cloneUpid };
+  return { cloneUpid, newid };
 }
 
 /**
