@@ -37,6 +37,7 @@ Git repository under `playground/scripts/`. Transfer them to the target machine 
       - [1.4.1 Why cloud-init is required for the deploy flow](#141-why-cloud-init-is-required-for-the-deploy-flow)
       - [1.4.2 Installing cloud-init in the template](#142-installing-cloud-init-in-the-template)
       - [1.4.3 NoCloud datasource (required for Proxmox)](#143-nocloud-datasource-required-for-proxmox)
+      - [1.4.4 Serial console getty (required for terminal access)](#144-serial-console-getty-required-for-terminal-access)
     - [1.5 Enable nesting at LXC container creation](#15-enable-nesting-at-lxc-container-creation)
       - [1.5.1 Why nesting is required for Ubuntu 24.04](#151-why-nesting-is-required-for-ubuntu-2404)
     - [1.6 LXC device passthrough (done automatically by the hook script)](#16-lxc-device-passthrough-done-automatically-by-the-hook-script)
@@ -238,6 +239,10 @@ sudo sed -i '/^datasource_list:/c\datasource_list: [NoCloud, None]' /etc/cloud/c
 
 # Disable cloud-init persistence so it runs fresh on each clone
 sudo cloud-init clean
+
+# Enable serial console getty — required for web terminal access (Section 4.1.2)
+# Without this, termproxy connects to the serial port but no login prompt appears.
+sudo systemctl enable --now serial-getty@ttyS0.service
 ```
 
 **For RHEL/CentOS/Fedora:**
@@ -249,12 +254,52 @@ sudo sed -i '/^datasource_list:/c\datasource_list: [NoCloud, None]' /etc/cloud/c
 
 # Disable cloud-init persistence
 sudo cloud-init clean
+
+# Enable serial console getty — required for web terminal access
+sudo systemctl enable --now serial-getty@ttyS0.service
 ```
 
 After installing cloud-init, shut down the VM and convert it to a template:
 ```bash
 qm template <vmid>
 ```
+
+#### 1.4.4 Serial console getty (required for terminal access)
+
+The playground's terminal feature connects via Proxmox's `termproxy` endpoint, which
+attaches to the VM's serial port. However, the serial port is just a pipe — the guest OS
+must have a getty/login process listening on it.
+
+**Symptom of missing serial-getty:** Terminal page shows `"starting serial terminal on
+interface serial0"` then hangs forever. No shell prompt appears, typing does nothing.
+This also affects the native Proxmox web console.
+
+**Fix in template (recommended):** Enable `serial-getty@ttyS0` in the golden template
+before converting it (see commands above). This ensures all cloned VMs inherit the
+setting.
+
+**Fix on existing VM:** Access via VNC/spice console and run:
+```bash
+sudo systemctl enable --now serial-getty@ttyS0.service
+```
+
+No reboot required — the getty starts immediately and the next terminal connection will
+show a login prompt.
+
+**Kernel console parameter (optional but recommended):** For full serial output visibility
+(boot messages, kernel panics), ensure the kernel passes console to ttyS0:
+```bash
+# Check current GRUB config
+grep GRUB_CMDLINE_LINUX /etc/default/grub
+
+# Add console=ttyS0,115200n8 if not present
+sudo sed -i 's/GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX="console=ttyS0,115200n8 /' /etc/default/grub
+sudo update-grub
+```
+
+> **Note:** The deploy flow adds `serial0=socket` if the clone lacks a serial port
+> (Section 4.1.2), but the guest OS still needs `serial-getty@ttyS0` running. This is
+> a template-time configuration, not a runtime addition.
 
 #### 1.4.3 NoCloud datasource (required for Proxmox)
 
@@ -808,6 +853,7 @@ Bridge runtime configuration details are in [Section 3.3](#33-lxc-vnc-bridge-con
 
 | Symptom | Likely cause | Section |
 |---|---|---|
+| Terminal stuck on "starting serial terminal" | No `serial-getty@ttyS0` running in guest | [1.4.4 Serial console getty](#144-serial-console-getty-required-for-terminal-access) |
 | Xorg fails with "no screens found" in LXC | Missing device passthrough; hook script not installed | [1.5 LXC device passthrough](#15-lxc-device-passthrough-done-automatically-by-the-hook-script) |
 | Container created but no `/dev/dri` | Hook script didn't run | [1.2 Install the LXC post-create hook script](#12-install-the-lxc-post-create-hook-script) |
 | VM clone fails with cloud-init LV collision | Stale cloud-init volume for that VMID | Section [1.8 Troubleshooting host-side issues](#18-troubleshooting-host-side-issues) |
