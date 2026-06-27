@@ -33,6 +33,7 @@ These rules apply to any project. They guide reasoning, prevent mistakes, and po
 - 2-space indentation for all source files.
 - When refactoring oversized files: see _Refactor Approach_ below.
 - Document _why_ a decision was made, not only _what_ it does.
+- **Unreachable code:** when detected, remove it immediately. If revisiting is ever needed, the code is recoverable from git history.
 
 ## P2b: Consistent Patterns
 - When a problem has a confirmed unified solution, apply it everywhere it's needed.

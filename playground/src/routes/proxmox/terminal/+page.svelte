@@ -502,12 +502,7 @@
       }}
       tabindex="-1"
     >
-      <div
-        class="upload-dialog"
-        onclick={(e) => e.stopPropagation()}
-        onkeydown={(e) => e.stopPropagation()}
-        role="document"
-      >
+      <div class="upload-dialog" onclick={(e) => e.stopPropagation()} role="document">
         <div class="upload-dialog-header">
           <h3>Upload to {workloadLabel}</h3>
           <button class="close-btn" onclick={closeUploadDialog}>&times;</button>
