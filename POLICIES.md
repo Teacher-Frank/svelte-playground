@@ -206,6 +206,12 @@ All modal-based actions (deploy, rename, configure): optimistic, single-shot sub
 - Playground env vars documented in `svelte-playground/playground/PxMx-Admin-For-Datalab-Guide.md`.
 - **Browser test prerequisite:** Before running `quality:gate` after a fresh checkout or Playwright update, run `npx playwright install chromium` from `svelte-playground/playground/` to download browser binaries. Without this, Vitest browser tests fail with `browserType.launch` error.
 
+## MCP Tools
+- **MCP extension stays enabled** — it provides useful tools.
+- **Never call `mcp_gitkraken_cli_*` tools** — the user has no GitKraken account; all calls fail with an auth error.
+- Use `git` via the terminal (`run_in_terminal`) for all git operations instead.
+- **GitLens extension is separate** from GitKraken MCP — keep using GitLens as normal.
+
 ## Runbook
 Run commands from `svelte-playground/playground` for app changes, from `pve-client` for library changes.
 
