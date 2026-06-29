@@ -189,19 +189,145 @@ Node HTTP server running SvelteKit handler + all WebSocket/HTTP proxy routes. At
 
 ---
 
-## 3. Known Issues & Resolved History
+## 3. Resolved Issue History
 
-Three significant issues were discovered and resolved during initial build (documented in `svelte-playground/About_terminals_in_browsers.md`):
+### 3a. Issue Summary
 
-1. **Held navigation key corruption** — Repeated arrow keys sent as ANSI repeat sequences were being corrupted. Fixed via orphan fragment repair in `terminal-utils.ts`.
-2. **Vi fullscreen mode breakage** — Application cursor mode (SS3) sequences weren't being handled. Fixed via SS3 → CSI normalization.
-3. **Shell prompt delay** — First shell prompt not visible until user types. Fixed via prompt nudge (delayed `\r` after `ready`).
+Three significant issues were discovered and resolved during initial build:
 
-**Current recommendation:** bash is the robust default shell for web terminals.
+| Issue | Description | Status |
+|-------|-------------|--------|
+| 1. Held navigation key corruption | Repeated arrow keys sent as ANSI repeat sequences were being corrupted | Fixed (accepted) |
+| 2. Vi fullscreen mode breakage | Application cursor mode (SS3) sequences weren't being handled; cursor jumps to middle | Fixed |
+| 3. Shell prompt delay | First shell prompt not visible until user types | Fixed (observed) |
+
+**Current operational recommendation:** use `bash` as the default guest shell. Do not treat `pwsh` as the default supported interactive shell for held-navigation stress behavior yet — pwsh still shows corruption under long-held navigation in the same conditions where bash is clean.
+
+### 3b. Issue 1 — Held Navigation Key Corruption (Fixed, Accepted)
+
+**What was observed:**
+- Prompt responsiveness was worse than expected
+- Held Left key produced corruption like `DDDDDDDD[DDDDD[DD[D[DD`
+- Corruption is structured and escape-sequence shaped, not random
+- Single-key navigation often worked; held-key repeats failed after a few seconds
+
+**Investigation findings:**
+- Even after browser-side deterministic CSI navigation and repeat batching, long held Left still produced visible corruption in pwsh/PSReadLine
+- Removing `PSReadLine` did not eliminate corruption — later check still produced `"[D[DDD[D"`
+- Running `pwsh -NoProfile` still produced corruption like `D[DD[DDDDD[DDD[DDDDDD`
+- The same held-Left test in `bash` showed **no corruption after 20 seconds** — strongest evidence the remaining problem is PowerShell-host-specific
+- Basic `sh` produced literal `^[[C` sequences (consistent with a shell lacking the same interactive line-editing as bash)
+- Profile-based compatibility logic was removed in favor of one stable raw-leaning path + bash recommendation
+
+**Resolution:** Issue 1 is considered fixed for this project scope by decision, with bash as the operational default shell.
+
+### 3c. Issue 2 — Cursor Jumps / Vi Not Fullscreen (Fixed)
+
+**What was observed:**
+- Cursor jumped to middle of screen
+- `vi` did not use the full screen
+- Initial PTY size stuck at `20x80` until manual browser resize
+
+**What was fixed:**
+- Browser-side forced `scrollToBottom()` calls on output/input/resize were removed — full-screen TUIs like `vi` can now control viewport without client-side scroll overrides
+- Startup resize convergence now force-sends initial and retry resize frames
+- Under bash, `stty size` and vi dimensions now converge correctly on open
+- Issue 2 had two sub-issues: incorrect initial screen size (fixed) and pwsh cursor hop toward mid-screen (fixed)
+
+### 3d. Issue 3 — Prompt Delay (Fixed, Observed)
+
+**What was observed:**
+- Shell appeared unresponsive on open — prompt not visible until user typed
+
+**Resolution:**
+- Enabling prompt nudge (one-time delayed `\r`) restored prompt appearance
+- Prompt/open behavior has been stable since; issue considered fixed unless it reappears
 
 ---
 
-## 4. Open Questions & Technical Debt
+## 4. Lessons Learned from Terminal Development
+
+### 4a. Main Lesson
+
+> A browser terminal is not just "xterm in a page". It is a multi-stage protocol path:
+> `keyboard -> browser event model -> xterm/browser terminal -> browser websocket -> app bridge -> proxmox websocket -> guest pty -> shell line editor`
+>
+> Any stage can preserve, rewrite, split, delay, or misinterpret control sequences.
+
+### 4b. Key Technical Learnings
+
+1. **Control-sequence problems were structured, not random** — Visible fragments like `D`, `[D`, `OD`, `[3~`, `;1;2D` are recognizable terminal navigation fragments with missing leading `ESC` or mismatched sequence family. This pointed to protocol fragmentation, mode mismatch, or line-editor timeout — not a classic buffer overflow.
+
+2. **CSI and SS3 are both standard sequence families** — CSI (`ESC [`) and SS3 (`ESC O`) are standard terminal control sequence forms inherited from VT/ANSI conventions. Both matter for cursor keys (e.g., CSI Left: `ESC [ D`, SS3 Left: `ESC O D`).
+
+3. **The guest shell and its line editor matter a lot** — bash (readline), zsh (ZLE), pwsh (PSReadLine), and fish each behave differently. pwsh in Linux containers appeared especially sensitive to repeated navigation input and cursor-mode mismatches.
+
+4. **Long held-key corruption was a separate sub-problem from single-key behavior** — Pointed to repeat-driven frame fragmentation, late loss of `ESC`, line editor timeout on partial escape streams, or interleaving with cursor-position response traffic.
+
+5. **Browser-side interception is cleaner than endless server-side repair** — Moving plain navigation-key handling earlier in the chain (intercepting in +page.svelte) avoids relying on xterm's cursor-mode output for the most problematic repeat cases.
+
+### 4c. What Worked
+
+1. **Prompt nudge re-enabled** — Restored prompt visibility after open
+2. **Profile system** — Controlled way to compare raw vs compatibility behavior without code edits; made iterative testing practical
+3. **Better trace labeling and richer bridge tracing** — Confirmed failures were structured sequence failures, not generic corruption
+4. **Modified cursor-key simplification** — Helped with `ESC[1;2D` → `ESC[D` collapse for Shift+Arrow scenarios
+5. **Split escape-tail coalescing** — Helped for fragmented escape sequences across WebSocket frames
+6. **Browser-side deterministic navigation sequences** — Cleanest architectural direction for compatibility profiles; moves decision earlier in the chain
+7. **Browser-side batching of intercepted navigation keys** — Reduced writes for long held keys
+8. **Removing `PSReadLine` as discriminating check** — Confirmed corruption persists without it; problem is deeper than PSReadLine alone
+9. **Testing in `bash` vs `pwsh`** — Confirmed bash is clean, pwsh is host-specific; justified the bash-default recommendation
+
+### 4d. What Did Not Work
+
+1. **Assuming problem was only Shift+Arrow or modified keys** — Too narrow; held plain navigation keys were the broader problem
+2. **Treating Home/End as isolated problems** — Corruption affects multiple navigation-key families
+3. **Relying on a single global SS3/CSI rule** — Not robust enough; some guests leaked `OD` or `[D`
+4. **Server-side orphan-fragment repair as the only strategy** — Showed diminishing returns as a primary strategy
+5. **Small coalescing-window tuning by itself** — Changed symptom timing but didn't remove root behavior
+6. **Browser-side deterministic CSI + repeat batching as complete answer** — Still failed under long held Left in pwsh
+7. **Binary-vs-text transport framing as complete answer** — Changed symptoms but neither mode alone solved the full problem
+8. **Assuming classic buffer overflow** — Evidence showed patterned, terminal-sequence-specific corruption, not random noise
+
+### 4e. Why Browser Terminals Are Hard to Make Universal
+
+The target environment is LXC containers across many Linux distributions, with user-chosen shells. The terminal must tolerate variation across:
+
+- Distros
+- Terminfo definitions
+- Shells and line editors
+- Full-screen programs
+- Guest cursor-mode behavior
+
+There is no single transform that is perfect for every guest. The practical approach is:
+
+1. Keep a raw path available
+2. Keep runtime behavior simple and predictable by default
+3. Keep trace logging available so failures are diagnosable
+
+### 4f. Current Runtime Policy
+
+Runtime policy is implemented in `playground/server/proxmoxTerminalWs.ts`. Current policy is intentionally simple:
+
+1. Binary stdin forwarding
+2. Resize forwarding
+3. Prompt nudge enabled
+4. Compatibility transforms disabled by default
+
+This keeps the runtime predictable while bash is the recommended default shell for web-terminal use.
+
+### 4g. Recommended Engineering Stance Going Forward
+
+1. Treat the browser terminal as a protocol stack, not a widget
+2. Prefer targeted compatibility profiles over one global rewrite path
+3. Add fixes at the earliest stable layer when possible
+4. Keep raw mode available for guests that already behave correctly
+5. Test against multiple shells and line editors, especially pwsh + PSReadLine
+6. Avoid broad repairs that can mutate ordinary user text
+
+---
+
+## 5. Open Questions & Technical Debt
 
 | Item | Severity | Description |
 |------|----------|-------------|
@@ -212,7 +338,7 @@ Three significant issues were discovered and resolved during initial build (docu
 
 ---
 
-## 5. File Map
+## 6. File Map
 
 | Path | Layer | Lines | Purpose |
 |------|-------|-------|---------|

@@ -1,6 +1,6 @@
 # Deploy Progress — Investigation Notes
 
-**Date:** 2026-06-18 → Updated 2026-06-27
+**Date:** 2026-06-18 → Updated 2026-06-29
 **Issue:** Ubuntu Desktop VM deployment stays stuck in "Deploying..." mode until the 10-minute hard cap expires.
 
 ---
@@ -20,6 +20,7 @@
 | **Usability testing** | 2026-06-26 | Deployed 3 VMs (debian-12, ubuntu-24.04, ubuntu-desktop). All passed: agent detected, IPs discovered, correct notifications, no stuck states |
 | **vendor= vs user= fix** | 2026-06-27 | Discovered `user=` in `cicustom` replaces Proxmox's auto-generated user-data (losing `cipassword`). Changed to `vendor=` which merges on top, preserving password login |
 | **Deploy shadowing + controls** | 2026-06-27 | Fixed dual-row regression during clone (VMID propagation + VMID-first shadowing). Fixed control disable state machine (extracted `isDisabledStatus()`, delete always enabled on failure states) |
+| **Static IP post-deploy** | 2026-06-29 | Implemented DHCP→static IP conversion in `install-agent.yaml` via `cicustom` vendor snippet. Second `runcmd` extracts DHCP IP + gateway, rewrites Netplan (`dhcp4: false` + static addresses/routes/nameservers), applies. Idempotent. Script updated + featuredoc section added. Awaiting host deployment + E2E test. |
 
 ---
 
@@ -211,6 +212,8 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 - [x] Add debug logging to `isDeployResolved` to trace why the 10-minute cap is hit
 
 - [x] **Add serial0=socket during deployment** — `runPostCloneSteps` now checks for a usable serial port and adds `serial0=socket` if missing (same pattern as net0/ipconfig0/agent). This ensures terminal access works on every deployed VM without manual Proxmox UI intervention.
+
+- [x] **Static IP post-deploy** — added DHCP→static `runcmd` to `install-agent.yaml` via `cicustom` vendor snippet. Waits for eth0 IP, reads gateway, rewrites Netplan from `dhcp4: true` to static config (addresses/routes/nameservers 1.1.1.1+8.8.8.8), applies via `netplan apply`. Idempotent (skips if already static). Fixed `${IP/24}` → `${IP}/24` bash bug. Updated script summary docs. Pending: host deployment + E2E test on fresh VM. |
 
 ## Policy Added
 
@@ -570,3 +573,131 @@ The deploy/destroy flow also surfaced a control disable regression:
 
 - ✅ `npm run check` — 0 errors
 - ✅ `npm run lint` — 0 errors
+
+---
+
+## Static IP Post-Deploy Configuration — 2026-06-29
+
+### Problem
+
+Deployed VMs receive a DHCP-assigned IP on first boot. The IP is ephemeral — it changes on every restart when DHCP reassigns. For any VM that needs a stable, predictable address (e.g., lab/test servers), the user must manually SSH in and edit Netplan after every deploy.
+
+**Observed:** VM 102 (`ut-ubuntu24`) restarted — DHCP still active (`dhcp4: true`), IP changed from `145.24.222.217` to `145.24.222.38`.
+
+### Desired State
+
+The post-clone flow should convert the DHCP-assigned IP to static **during first boot**, so the deployed VM has a permanent IP from the start.
+
+### Approach: Extend `cicustom` vendor snippet with DHCP→static conversion
+
+The deploy flow already uses `cicustom` with `vendor=` to merge a cloud-init snippet that installs `qemu-guest-agent` (see "Working Solution: `cicustom` with cloud-init `runcmd"` above). The same vehicle can carry an additional `runcmd` step.
+
+**Why `cicustom` + `vendor=` + `runcmd` is the right path:**
+
+1. **Already works** — the `vendor=` merge path is proven (agent install works on all templates).
+2. **Runs on first boot** — cloud-init executes `runcmd` during first boot, before user login.
+3. **Idempotent** — the script can check current state and skip if already static.
+4. **No server-side change needed** — the conversion logic lives in the VM guest, not in Proxmox.
+5. **Preserves credentials** — `vendor=` merges on top of Proxmox's user-data (password login unaffected).
+
+### Implemented `runcmd` in `deploy-cloudinit-snippets.sh`
+
+```yaml
+#cloud-config
+runcmd:
+  # 1. Install qemu-guest-agent (existing)
+  - >-
+    test -f /usr/sbin/qemu-ga ||
+    (apt-get update -qq && apt-get install -y qemu-guest-agent) &&
+    systemctl enable --now qemu-guest-agent
+
+  # 2. Convert DHCP to static IP (new)
+  - >-
+    bash -c '
+      # Wait for network to be ready
+      for i in $(seq 1 30); do
+        IP=$(ip -4 addr show eth0 2>/dev/null | grep -oP "inet \K[0-9.]+" | grep -v "^127.");
+        if [ -n "$IP" ]; then break; fi;
+        sleep 1;
+      done;
+
+      # Skip if already static
+      if ! grep -q "dhcp4: true" /etc/netplan/*.yaml 2>/dev/null; then
+        exit 0;
+      fi;
+
+      GATEWAY=$(ip route show default 2>/dev/null | awk "/default/{print $3}" | head -1);
+      if [ -z "$IP" ] || [ -z "$GATEWAY" ]; then exit 0; fi;
+
+      # Find the netplan file with dhcp4: true and rewrite it
+      NETPLAN_FILE=$(grep -l "dhcp4: true" /etc/netplan/*.yaml | head -1);
+      if [ -z "$NETPLAN_FILE" ]; then exit 0; fi;
+
+      # Build static config
+      MAC=$(ip link show eth0 | grep -oP "link/ether \K[0-9a-f:]+" );
+      cat > "$NETPLAN_FILE" << EOF
+      #cloud-config
+      network:
+        version: 2
+        ethernets:
+          eth0:
+            match:
+              macaddress: "$MAC"
+            dhcp4: false
+            addresses:
+              - "$IP/24"
+            routes:
+              - to: default
+                via: "$GATEWAY"
+            nameservers:
+              addresses:
+                - 1.1.1.1
+                - 8.8.8.8
+            set-name: eth0
+      EOF
+
+      netplan apply 2>/dev/null || true
+    '
+```
+
+### Execution order on first boot
+
+1. VM boots from clone → cloud-init starts
+2. cloud-init reads **both** data sources:
+   - Proxmox auto-generated user-data (`ciuser`, `cipassword`)
+   - Custom vendor-data snippet (`runcmd`: agent install + DHCP→static)
+3. `runcmd` executes in order:
+   - Agent install (existing)
+   - DHCP→static conversion (new)
+4. `netplan apply` takes effect — IP becomes static
+5. VM is ready with static IP that persists across reboots
+
+### Key design decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Extend existing snippet, not create new one** | One snippet via `vendor=` is enough — adding `runcmd` items is additive |
+| **Skip if already static** | Idempotent — safe if cloud-init reruns or template is redeployed |
+| **Use DHCP-discovered IP as static** | The IP the network already assigned is the one the user would expect to keep |
+| **Hardcoded `1.1.1.1` + `8.8.8.8` DNS** | No env var needed; Cloudflare + Google are universal fallbacks |
+| **No `PVE_` env var required** | The conversion logic is self-contained in the guest; no server-side config needed |
+
+### Alternatives considered
+
+| Approach | Rejected because… |
+|----------|-------------------|
+| Set `ipconfig0=CIDR` during deploy | Requires pre-allocating an IP range, tracking allocations, handling conflicts — over-engineered |
+| Post-deploy API call (agent/exec) | Agent must already be running (chicken/egg for first boot) |
+| Hookscript on Proxmox side | Runs on host, not guest — can't easily rewrite guest Netplan |
+| Proxmox `ipconfig0` with static IP field in deploy dialog | Requires UI change, IP allocation tracking, conflict detection — phase 2 |
+
+### Next implementation steps
+
+1. [x] Extend `install-agent.yaml` with DHCP→static `runcmd` (above) — done in `scripts/host/deploy-cloudinit-snippets.sh`
+2. [ ] Re-run `deploy-cloudinit-snippets.sh` on the Proxmox host to update the snippet
+3. [ ] Deploy test VM from clean template, verify:
+   - Agent detected ✓
+   - IP shown as static (not "dynamic" in `ip addr`)
+   - Netplan YAML shows `dhcp4: false` with `addresses`
+   - IP persists after manual reboot
+4. [ ] Update admin guide if deployment workflow changes for admins
