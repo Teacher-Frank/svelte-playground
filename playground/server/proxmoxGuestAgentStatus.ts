@@ -133,65 +133,82 @@ async function getContainerAgentStatus(
   return { available: true, availableSpace };
 }
 
-export function attachProxmoxAgentStatusHandler(httpServer: import('node:http').Server): void {
-  httpServer.on('request', async (req: IncomingMessage, res: ServerResponse) => {
+export async function handleProxmoxAgentStatus(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (req.method !== 'GET') {
+    sendJson(res, 405, { error: 'Method not allowed' });
+    return;
+  }
+
+  const url = new URL(req.url!, `http://${req.headers.host ?? 'localhost'}`);
+  const vmidStr = url.searchParams.get('vmid');
+  const node = url.searchParams.get('node');
+  const type = url.searchParams.get('type');
+
+  if (!vmidStr || !node || !type) {
+    sendJson(res, 400, { error: 'Missing vmid, node, or type query params' });
+    return;
+  }
+
+  const vmid = parseInt(vmidStr, 10);
+  if (!Number.isInteger(vmid) || vmid <= 0) {
+    sendJson(res, 400, { error: 'vmid must be a positive integer' });
+    return;
+  }
+
+  if (type !== 'vm' && type !== 'container') {
+    sendJson(res, 400, { error: `Invalid type: ${type}` });
+    return;
+  }
+
+  try {
+    const baseUrl = process.env.PVE_BASE_URL;
+    const username = process.env.PVE_USERNAME?.trim() || undefined;
+    const password = process.env.PVE_PASSWORD?.trim() || undefined;
+    const realm = process.env.PVE_REALM?.trim() || 'pam';
+    const insecureTls = process.env.PVE_INSECURE_TLS === 'true';
+
+    if (!baseUrl) {
+      sendJson(res, 500, { error: 'PVE_BASE_URL not configured' });
+      return;
+    }
+
+    if (!username || !password) {
+      sendJson(res, 500, { error: 'PVE_USERNAME and PVE_PASSWORD required' });
+      return;
+    }
+
+    const { Agent } = await import('node:https');
+    const agent = insecureTls ? new Agent({ rejectUnauthorized: false }) : undefined;
+
+    const client = createClient(baseUrl, username, password, realm, agent);
+    await client.login();
+
+    const result = type === 'vm'
+      ? await getVmAgentStatus(client, node, vmid)
+      : await getContainerAgentStatus(client, node, vmid);
+
+    sendJson(res, 200, result);
+  } catch (err: unknown) {
+    sendJson(res, 500, {
+      error: `Agent status check failed: ${(err as Error).message}`,
+      available: false,
+      availableSpace: null,
+    });
+  }
+}
+
+/**
+ * Legacy event-listener wrapper. Kept for backwards compatibility but
+ * preferred usage is handleProxmoxAgentStatus called inline from server/index.ts.
+ */
+export function attachProxmoxAgentStatusHandler(
+  httpServer: import('node:http').Server,
+): void {
+  httpServer.on('request', (req: IncomingMessage, res: ServerResponse) => {
     if (req.method !== 'GET' || !req.url?.startsWith('/proxmox/agent-status')) return;
-
-    const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
-    const vmidStr = url.searchParams.get('vmid');
-    const node = url.searchParams.get('node');
-    const type = url.searchParams.get('type');
-
-    if (!vmidStr || !node || !type) {
-      sendJson(res, 400, { error: 'Missing vmid, node, or type query params' });
-      return;
-    }
-
-    const vmid = parseInt(vmidStr, 10);
-    if (!Number.isInteger(vmid) || vmid <= 0) {
-      sendJson(res, 400, { error: 'vmid must be a positive integer' });
-      return;
-    }
-
-    if (type !== 'vm' && type !== 'container') {
-      sendJson(res, 400, { error: `Invalid type: ${type}` });
-      return;
-    }
-
-    try {
-      const baseUrl = process.env.PVE_BASE_URL;
-      const username = process.env.PVE_USERNAME?.trim() || undefined;
-      const password = process.env.PVE_PASSWORD?.trim() || undefined;
-      const realm = process.env.PVE_REALM?.trim() || 'pam';
-      const insecureTls = process.env.PVE_INSECURE_TLS === 'true';
-
-      if (!baseUrl) {
-        sendJson(res, 500, { error: 'PVE_BASE_URL not configured' });
-        return;
-      }
-
-      if (!username || !password) {
-        sendJson(res, 500, { error: 'PVE_USERNAME and PVE_PASSWORD required' });
-        return;
-      }
-
-      const { Agent } = await import('node:https');
-      const agent = insecureTls ? new Agent({ rejectUnauthorized: false }) : undefined;
-
-      const client = createClient(baseUrl, username, password, realm, agent);
-      await client.login();
-
-      const result = type === 'vm'
-        ? await getVmAgentStatus(client, node, vmid)
-        : await getContainerAgentStatus(client, node, vmid);
-
-      sendJson(res, 200, result);
-    } catch (err: unknown) {
-      sendJson(res, 500, {
-        error: `Agent status check failed: ${(err as Error).message}`,
-        available: false,
-        availableSpace: null,
-      });
-    }
+    void handleProxmoxAgentStatus(req, res);
   });
 }

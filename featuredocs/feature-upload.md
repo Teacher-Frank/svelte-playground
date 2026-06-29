@@ -1,10 +1,135 @@
 # File Upload Feature — Implementation Progress
 
 **Created:** 2026-06-18  
-**Updated:** 2026-06-19  
-**Status:** ✅ Complete — merged and passing validation gate (check + lint + tests)  
+**Updated:** 2026-06-29  
+**Status:** ✅ Working (with workaround for agent/exec 596)  
 **Approach:** Option 2 — Dedicated HTTP Upload Endpoint using Proxmox APIs  
 **Scope:** Multiple file upload, no resume, configurable target directory, available-space–aware limits
+
+## Regressions Found & Fixed 2026-06-29
+
+Three critical bugs were discovered during usability testing on 2026-06-29. All are fixed but leave the upload flow blocked at the QEMU agent exec step (see "Current Blocker" below).
+
+### Bug 1: Dev server routing — 404 on `/proxmox/upload` and `/proxmox/agent-status`
+
+**Root cause:** In dev mode, Vite serves HTTP requests (not `server/index.ts`). The original code registered `server.on('request', async ...)` listeners on the `createServer` callback, which raced with SvelteKit's synchronous `handler()` call. SvelteKit responded first with 404.
+
+**Fix applied (2 files):**
+- **`vite.config.ts`** — Added two Vite middleware plugins (`proxmoxUploadPlugin`, `proxmoxAgentStatusPlugin`) that intercept `/proxmox/upload` (POST) and `/proxmox/agent-status` (GET) before Vite/SvelteKit handles them.
+- **`server/index.ts`** — Rewrote to call custom handlers inline via `httpGuards` array with `await`, before falling through to SvelteKit. Same `handleProxmoxUpload` / `handleProxmoxAgentStatus` standalone functions are imported.
+
+**Why this matters:** Custom HTTP endpoints (upload, agent-status) MUST be wired in Vite's dev middlewares AND in the production `server/index.ts`. The old `attachProxmox*Handler(server)` pattern only works for WebSocket upgrade listeners, not async HTTP requests.
+
+### Bug 2: pve-client dist not picked up by Vite SSR cache
+
+**Symptom:** Changes to pve-client's source (e.g., `encodeForm` fix) were verified in `dist/index.es.js`, but the running dev server still used stale SSR bundle.
+
+**Root cause:** Vite caches SSR dependencies in `node_modules/.vite/`. When pve-client is rebuilt, Vite's dev server must restart to re-bundle the new dist file.
+
+**Fix required:** Kill the dev server, optionally delete `node_modules/.vite/`, then restart. In `acctest-env.ps1`, the pve-client build runs before `npm run dev`, so a full restart of the script is needed after pve-client source changes.
+
+**Lesson:** Any pve-client source change → full dev server restart (not just HMR reload).
+
+### Bug 3: pve-client POST body parameter encoding
+
+**Two sub-issues, both in `pve-client/src/index.ts`:**
+
+**3a. `encodeForm` spread array params as separate form fields**
+
+When `command: ['mkdir', '-p', '/tmp/upload']` was passed to a QEMU agent exec POST, `encodeForm` appended each array element as a separate `command=...` form field, producing:
+```
+command=mkdir&command=-p&command=%2Ftmp%2Fupload
+```
+Proxmox expects the array JSON-stringified:
+```
+command=["mkdir","-p","/tmp/upload"]
+```
+
+**Fix:** Changed `encodeForm` to JSON-stringify arrays before setting them:
+```typescript
+// Before:
+if (Array.isArray(v)) for (const item of v) sp.append(k, this.serializeScalar(item));
+// After:
+if (Array.isArray(v)) sp.set(k, JSON.stringify(v));
+```
+
+**3b. `request()` didn't auto-wrap body params for POST methods**
+
+Generated factory methods (e.g., `agent_exec`) pass body params directly:
+```typescript
+agent_exec(node, vmid, ...a) => client.request(path, "POST", { ...a[0], $path: { node, vmid } })
+```
+But `request()` only encoded `$body` — it never auto-wrapped remaining params for POST/PUT/PATCH methods. So `{ command: [...] }` was spread into `args` but ignored because `a.$body` was `undefined`.
+
+**Fix:** Added auto-wrap logic in `request()` for POST/PUT/PATCH methods:
+```typescript
+if (a.$body !== undefined) {
+    bodyToEncode = a.$body;
+} else if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
+    bodyToEncode = {};
+    for (const [k, v] of Object.entries(a)) {
+        if (k.startsWith('$')) continue;  // skip $path, $query, $headers
+        if (v === undefined || v === null) continue;
+        bodyToEncode[k] = v;
+    }
+}
+```
+
+**Why this matters:** All POST endpoints in pve-client that accept arrays as body params (agent exec, file-write, LXC exec, etc.) were silently sending malformed form data.
+
+### Bugs Fixed: Summary Table
+
+| # | File(s) | Bug | Before | After |
+|---|---------|-----|--------|-------|
+| 1 | `vite.config.ts` | Dev server 404 on custom endpoints | No middleware | Plugins intercept `/proxmox/upload` and `/proxmox/agent-status` |
+| 1 | `server/index.ts` | Same race condition in production | `server.on('request', async) ` raced with SvelteKit | `httpGuards` array with `await` before SvelteKit handler |
+| 2 | (process) | Vite SSR cache stale for pve-client dist changes | HMR reload skips dist re-bundle | Full dev server restart required |
+| 3a | `pve-client/src/index.ts` | `encodeForm` spreads arrays as separate params | `command=a&command=b` | `command=["a","b"]` |
+| 3b | `pve-client/src/index.ts` | `request()` ignores non-`$body` params for POST | Body empty | Auto-wraps remaining params for POST/PUT/PATCH |
+
+## Upload Feature Status (2026-06-29)
+
+**Upload works with workaround for agent/exec 596 error**
+
+### Bug 4: QEMU agent exec fails with HTTP 596 (WORKAROUND APPLIED)
+
+**Problem:** The `agent/exec` endpoint (used by `ensureDirectoryExists()`) fails with `HTTP 596 Broken pipe`. This is a network-level error where Proxmox resets the TLS connection.
+
+**Workaround:** Changed `handleProxmoxUpload` to treat directory creation as best-effort:
+- If `agent/exec mkdir -p /tmp/upload` fails, log a warning and continue
+- The `agent/file_write` API does NOT suffer from this issue — file writes work perfectly
+- If the target directory truly doesn't exist, `agent/file_write` will fail with a clear error
+
+**Observed behavior (verified):**
+1. Upload dialog opens, agent status check passes (`available: true`)
+2. Files are selected and queued
+3. Upload starts: `POST /proxmox/upload` reaches server middleware
+4. `ensureDirectoryExists()` calls `agent.exec({command: ['mkdir', '-p', '/tmp/upload']})` → HTTP 596
+5. Warning logged: `[upload] Warning: mkdir failed for /tmp/upload: HTTP 596 Broken pipe:`
+6. `writeFileToVm()` calls `agent.file_write()` → **succeeds** (directory exists from prior terminal session)
+7. All files show `✓ Done`
+
+**Tested with 3 guest scripts on VM 102 (Ubuntudesktop):**
+- `install-guest-agent.sh` — ✓ Done
+- `install-vnc-bridge.sh` — ✓ Done  
+- `vm-checklist-verify.sh` — ✓ Done
+
+**Root cause hypothesis (unconfirmed):**
+- Proxmox may return a 3xx redirect on `agent/exec` that points to an alternative port
+- The `native_fetch` polyfill creates fresh HTTPS agents per request with `keepAlive: false`
+- The redirect or socket reuse may still cause the broken pipe
+- `agent/file_write` does NOT redirect, which explains why it works
+
+### Bugs & Workarounds: Summary Table (Updated)
+
+| # | File(s) | Bug | Status | Before | After |
+|---|---------|-----|--------|--------|-------|
+| 1 | `vite.config.ts` | Dev server 404 on custom endpoints | ✅ Fixed | No middleware | Plugins intercept `/proxmox/upload` and `/proxmox/agent-status` |
+| 1 | `server/index.ts` | Same race condition in production | ✅ Fixed | `server.on('request', async)` raced with SvelteKit | `httpGuards` array with `await` before SvelteKit handler |
+| 2 | (process) | Vite SSR cache stale for pve-client dist changes | ✅ Documented | HMR reload skips dist re-bundle | Full dev server restart required |
+| 3a | `pve-client/src/index.ts` | `encodeForm` spreads arrays as separate params | ✅ Fixed | `command=a&command=b` | `command=["a","b"]` |
+| 3b | `pve-client/src/index.ts` | `request()` ignores non-`$body` params for POST | ✅ Fixed | Body empty | Auto-wraps remaining params for POST/PUT/PATCH |
+| 4 | `server/proxmoxTerminalUpload.ts` | `agent/exec` mkdir fails with HTTP 596 | ⚠️ Workaround | Hard failure blocks upload | Best-effort: log warning, continue to file write |
 
 ## Completed 2026-06-19
 

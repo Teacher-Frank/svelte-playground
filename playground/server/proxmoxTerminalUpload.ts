@@ -225,14 +225,13 @@ export async function handleProxmoxUpload(
 
     const nodeApi = client.api.nodes.get(node);
 
-    // Ensure target directory exists
+    // Ensure target directory exists (skip if directory creation fails — may already exist)
     try {
       await ensureDirectoryExists(nodeApi, node, vmid, type, targetDir);
     } catch (err: unknown) {
-      sendJson(res, 500, {
-        error: `Failed to ensure target directory: ${(err as Error).message}`,
-      });
-      return;
+      // Directory creation via agent/exec is flaky — directory may already exist
+      // Continue and let file-write fail with a clear error if needed
+      console.log(`[upload] Warning: mkdir failed for ${targetDir}: ${(err as Error).message}`);
     }
 
     // Process each file

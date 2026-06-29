@@ -4,6 +4,42 @@ import mkcert from 'vite-plugin-mkcert';
 import type { Plugin } from 'vite';
 import { attachProxmoxTerminalWsProxy } from './server/proxmoxTerminalWs.ts';
 import { attachProxmoxVncWsProxy } from './server/proxmoxVncWs.ts';
+import { handleProxmoxUpload } from './server/proxmoxTerminalUpload.ts';
+import { handleProxmoxAgentStatus } from './server/proxmoxGuestAgentStatus.ts';
+
+/** Dev-mode middleware plugin: POST /proxmox/upload */
+function proxmoxUploadPlugin(): Plugin {
+  return {
+    name: 'proxmox-upload-http',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (req.method === 'POST' && req.url?.startsWith('/proxmox/upload')) {
+          await handleProxmoxUpload(req, res);
+          return;
+        }
+        next();
+      });
+    },
+  };
+}
+
+/** Dev-mode middleware plugin: GET /proxmox/agent-status */
+function proxmoxAgentStatusPlugin(): Plugin {
+  return {
+    name: 'proxmox-agent-status-http',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (req.method === 'GET' && req.url?.startsWith('/proxmox/agent-status')) {
+          await handleProxmoxAgentStatus(req, res);
+          return;
+        }
+        next();
+      });
+    },
+  };
+}
 
 function proxmoxTerminalPlugin(): Plugin {
   return {
@@ -35,6 +71,8 @@ export default defineConfig(({ command, mode }) => {
       sveltekit(),
       proxmoxTerminalPlugin(),
       proxmoxVncPlugin(),
+      proxmoxUploadPlugin(),
+      proxmoxAgentStatusPlugin(),
       ...(useMkcert ? [mkcert()] : []),
     ],
     server: {
