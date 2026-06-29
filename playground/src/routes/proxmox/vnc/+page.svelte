@@ -208,6 +208,31 @@
           statusState = 'credentials';
         }
       });
+
+      /* ── Clipboard support ─────────────────────────────────────── */
+      // Client → guest: intercept paste inside the VNC container, forward to VM
+      const handlePaste = (event: ClipboardEvent) => {
+        if (statusState !== 'connected') return;
+        const text = event.clipboardData?.getData('text/plain');
+        if (text && text.length > 0) {
+          event.preventDefault();
+          rfb.sendClipboard(text);
+        }
+      };
+      containerEl.addEventListener('paste', handlePaste);
+
+      // Guest → client: receive clipboard text pushed from the VM
+      const handleClipboardReceived = (event: Event) => {
+        if (disposed) return;
+        const detail = (event as CustomEvent).detail as { text?: string };
+        const text = detail?.text;
+        if (typeof text === 'string' && text.length > 0) {
+          navigator.clipboard?.writeText(text).catch(() => {
+            // Clipboard write may fail in background tabs — silently degrade.
+          });
+        }
+      };
+      rfb.addEventListener('clipboard', handleClipboardReceived);
     };
 
     reconnectSession = async () => {

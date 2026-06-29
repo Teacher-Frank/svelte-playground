@@ -206,6 +206,15 @@ The "Reconnect" button is shown on warning/error states when a session has previ
 
 Dynamic form that shows only the fields the RFB server requested (`username`, `password`, `target`). Submit handler sends via `rfbSession.sendCredentials()`.
 
+**Clipboard support (bidirectional):**
+
+Two-directional clipboard bridging between the browser and the guest VM:
+
+| Direction | Mechanism | Implementation |
+|-----------|-----------|----------------|
+| **Browser → Guest (paste)** | `paste` event on the VNC container | Intercepts Ctrl+V/Cmd+V, reads `event.clipboardData.getData('text/plain')`, forwards to VM via `rfb.sendClipboard(text)` — no guest software required (RFB-level cut-text pseudo-encoding) |
+| **Guest → Browser (copy)** | `clipboard` event from noVNC RFB library | When the guest pushes text via RFB clipboard pseudo-encoding, writes it to the browser's clipboard via `navigator.clipboard.writeText(text)` |
+
 ### 2e. Vite Plugin (`vite.config.ts`)
 
 ```typescript
@@ -293,6 +302,7 @@ Icon: `static/vnc.svg` — monitor/display icon for GUI distinction.
 The VNC page uses:
 - `@novnc/novnc` — industry-standard RFB client, supports RFB 3.8-3.8
 - WebSocket API — required for the bridge connection
+- `navigator.clipboard` API — used for bidirectional clipboard bridge (guest → browser)
 - Modern ES modules — lazy-imported at runtime
 
 ---
@@ -305,6 +315,8 @@ The VNC page uses:
 | **Bridge mode requires guest setup** | For bridge mode to work, the guest must have a VNC server (e.g., TigerVNC) and websockify running. See `PxMx-Admin-For-Datalab-Guide.md` §1.4 for setup instructions. |
 | **Container GUI needs explicit enablement** | The VNC button is hidden for containers unless `containerGuiEnabled` is set — this is a safety gate since most containers don't have GUI installations. |
 | **IPv4-only bridge resolution** | Bridge mode resolves and connects via IPv4 only. IPv6-only guests cannot use bridge mode. |
+| **Paste works without guest agent; copy requires one** | Browser-to-guest paste uses the RFB protocol's cut-text pseudo-encoding and needs no guest software. Guest-to-browser copy requires the guest to push clipboard text — typically via a clipboard agent (e.g., `xfce4-clipman`, QEMU guest agent with spice-vdagent, or the VNC server's built-in clipboard sharing). Without a clipboard agent, paste-to-VM works but copy-from-VM does not. |
+| **Browser clipboard write may be blocked** | `navigator.clipboard.writeText()` requires the tab to be in the foreground and the user to have granted clipboard permissions. In background tabs the write silently fails — the operator can recover by manually copying from the VNC window. |
 
 ---
 
