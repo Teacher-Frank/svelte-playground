@@ -35,7 +35,7 @@ Browser keyboard → xterm.js → Browser WebSocket → Playground server → pv
 
 ### 1a. Core Terminal Module (`src/helpers/Terminal.ts`)
 
-~520 lines. The heart of terminal functionality.
+The heart of terminal functionality.
 
 | Export | Kind | Purpose |
 |--------|------|---------|
@@ -55,7 +55,7 @@ Browser keyboard → xterm.js → Browser WebSocket → Playground server → pv
 
 ### 1b. Terminal Utils (`src/helpers/terminal-utils.ts`)
 
-~290 lines. Pure functions for wire-data parsing, conversion, and repair.
+Pure functions for wire-data parsing, conversion, and repair.
 
 | Function | Purpose |
 |----------|---------|
@@ -74,7 +74,7 @@ All functions are pure and take/return Buffers. Repair functions activate only w
 
 ### 1c. Terminal Bridge (`src/helpers/terminal-bridge.ts`)
 
-~370 lines. Extracted from `Terminal.ts` to stay under the 750-line ESLint threshold.
+Extracted from `Terminal.ts` to stay under the 750-line ESLint threshold.
 
 | Export | Signature | Purpose |
 |--------|-----------|---------|
@@ -130,22 +130,30 @@ All terminal classes, functions, and types are re-exported from `pve-client/src/
 
 ### 2a. Server WebSocket Handler (`playground/server/proxmoxTerminalWs.ts`)
 
-~160 lines. Intercepts HTTP upgrades on `/proxmox/terminal/ws`.
+Intercepts HTTP upgrades on `/proxmox/terminal/ws`.
 
 **Flow:**
-1. Lazy-imports `pve-client` `Client` and `ws` `WebSocketServer`
+1. Lazy-imports `pve-client` `Client`
 2. Validates `vmid` query param (positive integer)
 3. Reads env vars: `PVE_BASE_URL`, `PVE_USERNAME`, `PVE_PASSWORD`, `PVE_REALM`, `PVE_INSECURE_TLS`
 4. Creates `Client`, calls `client.login()` (username/password only — API tokens explicitly unsupported for terminal sessions)
-5. Calls `client.helpers.terminal(vmid).open({ reconnect: true })`
-6. Wires manual event handlers:
-   - `session.on('data')` → `browserWs.send(chunk)` (binary forwarding)
-   - `session.on('error')` → sends red ANSI error text to browser
-   - `session.on('close')` → closes browser WS
-   - `browserWs.on('message')` → parses JSON resize frames OR forwards as `session.write(text)`
-   - `browserWs.on('close')` / `browserWs.on('error')` → `session.close()`
+5. Proactively checks terminal ticket via `terminal.createTicket()` to catch fatal provisioning errors (serial not configured, VM not found, etc.) before wiring the bridge
+6. Calls `openTerminalBridge(terminal, browserSocket, ...)` — the canonical bridge from pve-client
 
-**⚠️ Divergence:** Does NOT use `bridgeTerminalSessionToSocket` or `openTerminalBridge` from pve-client. Implements a simplified manual bridge with its own `tryParseResizeFrame` and `toUtf8Text` helpers. This means all pve-client bridge features (ANSI tail reassembly, SS3 normalization, orphan repair, nav coalescing, prompt nudge, structured trace) are **inactive** in this path.
+**Bridge wiring:** Uses `openTerminalBridge` from pve-client with `TerminalBrowserSocket` adapter. This activates all bridge features:
+- Pre-ready input buffering (queues keystrokes until Proxmox session is ready)
+- ANSI tail reassembly (handles ESC bytes split across WebSocket frames)
+- SS3 → CSI normalization
+- Orphan fragment repair
+- Navigation repeat coalescing
+- Prompt nudge (sends `\\r` if no output arrives within 400ms)
+- Proper binary stdin forwarding via `writeRaw`
+- Error logging on browser socket close
+
+**Additional safeguards:**
+- Fatal Proxmox error detection (`isFatalProxmoxError`) closes immediately with helpful messages for provisioning issues
+- Browser socket error handler logs and gracefully closes on TLS failures, malformed frames, etc.
+- Finite reconnect limit (3 attempts) prevents infinite loops on fatal errors
 
 ### 2b. File Upload Handler (`playground/server/proxmoxTerminalUpload.ts`)
 
@@ -157,7 +165,7 @@ Mounted in `playground/server/index.ts` alongside terminal, VNC, and agent-statu
 
 ### 2c. Client Terminal Page (`playground/src/routes/proxmox/terminal/+page.svelte`)
 
-~400 lines. Svelte page rendering xterm.js terminal with WebSocket connection.
+Svelte page rendering xterm.js terminal with WebSocket connection.
 
 **Key architecture:**
 - Dynamic imports of `@xterm/xterm` and `@xterm/addon-fit` in `onMount` (SSR-safe)
@@ -307,14 +315,16 @@ There is no single transform that is perfect for every guest. The practical appr
 
 ### 4f. Current Runtime Policy
 
-Runtime policy is implemented in `playground/server/proxmoxTerminalWs.ts`. Current policy is intentionally simple:
+Runtime policy is implemented in `playground/server/proxmoxTerminalWs.ts` via `openTerminalBridge` bridge options.
 
-1. Binary stdin forwarding
-2. Resize forwarding
-3. Prompt nudge enabled
-4. Compatibility transforms disabled by default
+Current policy:
+1. Prompt nudge enabled (one-time `\r` after readiness)
+2. Compatibility transforms explicitly disabled:
+   - `enableInputRepairCompatibility: false` — orphan fragment repair off
+   - `normalizeSs3CursorKeys: false` — SS3 → CSI normalization off
+   - `coalesceNavigationRepeats: false` — navigation repeat coalescing off
 
-This keeps the runtime predictable while bash is the recommended default shell for web-terminal use.
+**Why disabled:** These transforms were implemented during initial debugging before pwsh was identified as the root cause of corruption. With `bash` as the operational default shell, the transforms are unnecessary — bash handles standard CSI sequences cleanly. Leaving them off avoids unintended input mutation and keeps the protocol chain predictable.
 
 ### 4g. Recommended Engineering Stance Going Forward
 

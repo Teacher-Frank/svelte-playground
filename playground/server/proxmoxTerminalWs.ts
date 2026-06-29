@@ -193,6 +193,14 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
       reconnectIntervalMs: 1500,
       reconnectMaxAttempts: 3,
     }, {
+      // Prompt nudge is the only active behavior — brings shell to life on open.
+      // Compatibility transforms (SS3 normalization, orphan repair, nav coalescing)
+      // were implemented during pwsh debugging but are unnecessary with bash as the
+      // default shell. Keeping them disabled avoids unintended input mutation.
+      enablePromptNudge: true,
+      enableInputRepairCompatibility: false,
+      normalizeSs3CursorKeys: false,
+      coalesceNavigationRepeats: false,
       // Format session errors as red ANSI lines for xterm.js display.
       onErrorFrame: (err: Error) =>
         Buffer.from(`\r\n\x1b[31mProxmox error: ${err.message}\x1b[0m\r\n`),
