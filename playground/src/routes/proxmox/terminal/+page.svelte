@@ -521,7 +521,7 @@
           </div>
         {/if}
 
-        {#if type === 'vm'}
+        {#if data.type === 'vm'}
           <div class="upload-notice">
             ℹ️ Files are uploaded as root. <code>sudo</code> is required to modify or move them.
           </div>
