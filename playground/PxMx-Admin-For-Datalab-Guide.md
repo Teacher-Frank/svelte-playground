@@ -760,12 +760,27 @@ If the background configure + start task fails after the clone has completed:
 
 ### 4.3 DHCP to static IP conversion
 
-Every deployed VM initially receives a DHCP address. Once the guest agent reports the
-first IPv4 address, the playground **automatically** converts `ipconfig0` to a static IP
-(e.g., `ip=145.24.222.128/24`).
+Every deployed VM initially receives a DHCP address. There are **two layers** of
+automatic DHCP-to-static conversion — both are idempotent and safe to coexist:
 
-- This happens without user interaction on the next page refresh.
-- A green toast notification appears confirming the conversion.
+1. **Cloud-init snippet (guest-side):** If the `install-agent.yaml` snippet was deployed
+   to the Proxmox host (via `deploy-cloudinit-snippets.sh`, Section 1.7.2), it includes
+   a `runcmd` that rewrites the Ubuntu netplan YAML: sets `dhcp4: false`, writes the
+   discovered IP with `/24` prefix, adds a default route, and configures DNS (`1.1.1.1`,
+   `8.8.8.8`). This runs on first boot **inside the guest** and survives networkManager
+   restarts or template drift.
+
+2. **Playground server (Proxmox side):** Once the guest agent reports the first IPv4
+   address, the playground converts `ipconfig0` to a static IP
+   (e.g., `ip=145.24.222.128/24`) via the Proxmox API. This ensures the Proxmox-level
+   ZKBMetadata stays in sync and the IP appears correctly in the Proxmox GUI.
+
+- The playground server conversion happens without user interaction on the next page
+  refresh, and a green toast notification confirms it.
+- The cloud-init snippet conversion requires the snippet to be deployed (Section 1.7.2)
+  and is independent of the playground server — it will work even if the playground is
+  not running at boot time.
+- If both mechanisms run, the second one is a no-op (the IP is already static).
 - This only works if the guest agent is running (Section 1.7).
 
 Manual override (if automatic conversion fails):
