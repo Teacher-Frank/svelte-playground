@@ -191,11 +191,21 @@ These rules are specific to this repository's stack, tooling, and domain.
   - Never use fire-and-forget `setTimeout` that swallows errors
   - Never mark a task as failed purely on elapsed time when the UPID is available
 
+## External API Research (P0 — before any API call)
+- **ALWAYS read official documentation before using an external API parameter, endpoint, or method.**
+- If the API has online docs (Proxmox, browser APIs, npm packages, etc.), fetch them with `fetch_webpage` or equivalent.
+- If the API has type definitions in the codebase (`types.ts`, OpenAPI specs, interfaces), read them.
+- **Cross-reference sources.** Auto-generated types (`pve-client/src/api/nodes/types.ts`) can be stale or incomplete. Official docs always trump code comments.
+- **Never assume** parameter names, types, defaults, or semantics — even if they seem obvious, mirror a sibling endpoint, or "just make sense".
+- **If you catch yourself guessing, STOP and look it up.** One round-trip to the docs saves multiple broken commits.
+- **Rationale:** Multiple times the model has fabricated API semantics (wrong param name, wrong return type) and pushed broken code that only fails at runtime against a real server.
+
 ## Proxmox API Debugging Lessons
 - **Verify API parameter semantics before touching serialization.** Example: `agent/file-write` `encode=1` means "Proxmox base64-encodes for you", `encode=0` means "content is already encoded". Sending pre-encoded content with `encode=true` causes double-encoding (files stored as base64 text). Root cause was parameter misunderstanding, not serialization.
 - **Fix calling logic at the application layer, not the library layer.** When Proxmox params fail, check the calling code first (wrong flag, wrong encoding, wrong endpoint). Don't reach for `pve-client` serialization fixes unless the library is genuinely broken.
 - **Numeric literals beat booleans across bundler transforms.** Proxmox rejects the string `"false"` for boolean form params. Vite SSR can serialize booleans as `"false"` (via `String(false)`) instead of `"0"`. When sending boolean params to Proxmox, prefer numeric `0`/`1` literals over `false`/`true` booleans.
 - **Terminal/UI error messages are high-signal.** Proxmox returns explicit validation errors (e.g., `type check ('boolean') failed - got 'false'`). Read them first to rule in/out serialization vs. logic hypotheses.
+- **Endpoint-specific params matter.** `file-write` uses `encode`; `file-read` uses `decode`. Different endpoints have different parameter sets — don't reuse one endpoint's params on another.
 
 ## Proxmox Behavior
 - Use real node identity for all actions — never submit fallback values like `unknown`.
