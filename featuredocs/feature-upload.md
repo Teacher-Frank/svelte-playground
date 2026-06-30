@@ -1,8 +1,8 @@
 # File Upload Feature — Implementation Progress
 
 **Created:** 2026-06-18  
-**Updated:** 2026-07-02  
-**Status:** ✅ Working (verified on VM 102 Ubuntudesktop)  
+**Updated:** 2026-07-02 (Bug 9 fix)  
+**Status:** ⏳ awaiting re-test on VM 102  
 **Approach:** Option 2 — Dedicated HTTP Upload Endpoint using Proxmox APIs  
 **Scope:** Multiple file upload, no resume, configurable target directory, available-space–aware limits
 
@@ -38,8 +38,10 @@
 - Returns: `{"data": null}` (fire-and-forget)
 
 ### `agent/file-read` (verification)
-- `GET /nodes/{node}/qemu/{vmid}/agent/file-read?file=...`
-- Returns: `{ content: "base64", bytes-read: N }`
+- `GET /nodes/{node}/qemu/{vmid}/agent/file-read` — `decode` (boolean, default 1): QEMU guest agent sends base64 → `decode=1` (default): Proxmox decodes → raw content string
+- `decode=0`: QEMU base64 passes through → Proxmox returns base64
+- Returns: `{ content: string, truncated?: boolean }` — **no `bytes-read` field**
+- For verification: use `decode: 0`, then `Buffer.from(content, 'base64')` for byte comparison
 
 ### `agent/exec` (chmod, directory creation)
 - `POST /nodes/{node}/qemu/{vmid}/agent/exec`
@@ -86,6 +88,10 @@
 **Cause:** Dialog rendered `{#if type === 'vm'}` but `type` isn't scoped — should be `data.type`.  
 **Fix:** `{#if data.type === 'vm'}`.
 
+### Bug 9: file-read verification always returns ~22 bytes ✅
+**Cause:** `agent/file-read` uses `decode` param (NOT `encode` — that's only on `file-write`). Default `decode=1` means QEMU sends base64, Proxmox decodes, returns raw content string. Code was doing `Buffer.from(rawText, 'base64')` — decoding plain text as base64 → garbage (~22 bytes). I first tried adding `encode=1` which Proxmox rejected with HTTP 400 ("property is not defined in schema").
+**Fix:** Use `decode: 0` so Proxmox passes through QEMU's base64 unchanged, then `Buffer.from(content, 'base64')` decodes correctly. Added `decode`, `count`, `offset` params to pve-client file-read types.
+
 ---
 
 ## Bugs Summary
@@ -102,6 +108,7 @@
 | 6 | `upload.ts` | Verification timeout | ✅ | 6s → 30s |
 | 7 | `upload.ts`, `+page.svelte` | Root-owned, non-executable | ✅ | chmod +x, notice |
 | 8 | `+page.svelte` | `type` ReferenceError | ✅ | `data.type` |
+| 9 | `upload.ts`, `types.ts` | file-read decode semantics | ✅ | `decode: 0` passthrough |
 
 ---
 
