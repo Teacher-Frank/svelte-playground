@@ -34,7 +34,26 @@ function readFileToBuffer(req: IncomingMessage): Promise<{ fields: Record<string
     });
 
     busboy.on('file', (_fieldname, file, filenameBuffer) => {
-      const filename = filenameBuffer.name;
+      // Busboy 1.x file event third arg is a FileInfo object: { filename, encoding, mime }
+      // In some versions it may be a Buffer or string.
+      let filename: string | undefined;
+      if (typeof filenameBuffer === 'string') {
+        filename = filenameBuffer;
+      } else if (typeof filenameBuffer === 'object' && filenameBuffer !== null) {
+        const fb = filenameBuffer as Record<string, unknown>;
+        // FileInfo has .filename (may be Buffer or string)
+        if (fb.filename !== undefined) filename = String(fb.filename);
+        // Legacy fallback: Buffer.toString
+        else if (typeof (filenameBuffer as Buffer)['toString'] === 'function') filename = (filenameBuffer as Buffer).toString('utf8');
+      }
+      if (!filename) {
+        console.log(`[upload] Warning: empty filename received, skipping file`);
+        file.resume(); // drain the stream
+        return;
+      }
+
+      console.log(`[upload] Received file: ${filename}`);
+
       const chunks: Buffer[] = [];
 
       file.on('data', (chunk: Buffer) => {
@@ -113,14 +132,57 @@ async function writeFileToVm(
   fileBuffer: Buffer,
 ): Promise<void> {
   const base64Content = fileBuffer.toString('base64');
+  const filename = filePath.split('/').pop() ?? filePath;
+
+  console.log(`[upload:vm] Writing file: ${filename} (${fileBuffer.length} bytes) to ${filePath}`);
 
   // agent_file_write has size limits (~500MB max depending on version)
   // For large files, we'd need chunking, but MVP handles reasonable sizes
-  await nodeApi.qemu.vmid(vmid).agent.file_write({
-    file: filePath,
-    content: base64Content,
-    encode: true,
-  });
+  try {
+    const result = await nodeApi.qemu.vmid(vmid).agent.file_write({
+      file: filePath,
+      content: base64Content,
+      encode: true,
+    });
+    console.log(`[upload:vm] file_write returned:`, JSON.stringify(result).substring(0, 200));
+
+    // file_write is async on the guest agent - wait briefly for the file to appear
+    // then verify with a read check
+    let retries = 0;
+    const maxRetries = 6;
+    while (retries < maxRetries) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      retries++;
+      try {
+        // agent/file-read is a GET endpoint — params go in $query, not body
+        // file-read does NOT support `encode` param (only file-write does)
+        const readResult = await nodeApi.qemu.vmid(vmid).agent.file_read({
+          $query: { file: filePath },
+        });
+        // Proxmox file-read returns JSON: { content: "<base64>", bytes-read: N }
+        // pve-client decodes JSON, so readResult is an object with content field
+        const base64 = (readResult as { content?: string })?.content ?? '';
+        const readContent = Buffer.from(base64, 'base64');
+        if (Number(readContent.length) === fileBuffer.length) {
+          console.log(`[upload:vm] Verified ${filename} on VM (${readContent.length} bytes)`);
+          return;
+        }
+        console.log(
+          `[upload:vm] Retry ${retries}/${maxRetries} for ${filename}: read ${readContent.length} bytes, expected ${fileBuffer.length}`
+        );
+      } catch (err: unknown) {
+        const msg = (err as Error).message;
+        console.log(`[upload:vm] Retry ${retries}/${maxRetries} for ${filename}: ${msg}`);
+        // File not ready yet - keep waiting
+      }
+    }
+
+    throw new Error(`Timed out waiting for ${filename} to appear on VM after ${maxRetries}s`);
+  } catch (err: unknown) {
+    const msg = (err as Error).message;
+    console.log(`[upload:vm] Error writing ${filename}:`, msg);
+    throw err;
+  }
 }
 
 async function writeFileToContainer(

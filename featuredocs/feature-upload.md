@@ -1,9 +1,9 @@
 # File Upload Feature — Implementation Progress
 
-**Created:** 2026-06-18  
-**Updated:** 2026-06-29  
-**Status:** ✅ Working (with workaround for agent/exec 596)  
-**Approach:** Option 2 — Dedicated HTTP Upload Endpoint using Proxmox APIs  
+**Created:** 2026-06-18
+**Updated:** 2026-06-30
+**Status:** ✅ Working (verified with 3 guest scripts on VM 102)
+**Approach:** Option 2 — Dedicated HTTP Upload Endpoint using Proxmox APIs
 **Scope:** Multiple file upload, no resume, configurable target directory, available-space–aware limits
 
 ## Regressions Found & Fixed 2026-06-29
