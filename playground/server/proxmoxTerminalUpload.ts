@@ -162,13 +162,16 @@ async function writeFileToVm(
       await new Promise((resolve) => setTimeout(resolve, 1000));
       retries++;
       try {
-        // agent/file-read is a GET endpoint — params go in $query, not body
-        // file-read does NOT support `encode` param (only file-write does)
+        // agent/file-read is a GET endpoint — params go in $query
+        // encode=1 tells Proxmox to base64-encode the content before returning it,
+        // so we get a clean JSON response with the content field as a base64 string.
+        // Without encode=1, Proxmox returns raw binary which decodes to garbage (~22 bytes).
         const readResult = await nodeApi.qemu.vmid(vmid).agent.file_read({
-          $query: { file: filePath },
+          $query: { file: filePath, encode: 1 },
         });
-        // Proxmox file-read returns JSON: { content: "<base64>", bytes-read: N }
-        // pve-client decodes JSON, so readResult is an object with content field
+        // Proxmox file-read with encode=1 returns: { content: "<base64>", "bytes-read": N }
+        // pve-client unwraps { data: ... }, so readResult is the inner object directly.
+        console.log(`[upload:vm] file_read result keys: ${Object.keys(readResult as object).join(',')}`);
         const base64 = (readResult as { content?: string })?.content ?? '';
         const readContent = Buffer.from(base64, 'base64');
         if (Number(readContent.length) === fileBuffer.length) {
