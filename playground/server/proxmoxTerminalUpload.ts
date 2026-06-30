@@ -139,17 +139,25 @@ async function writeFileToVm(
   // agent_file_write has size limits (~500MB max depending on version)
   // For large files, we'd need chunking, but MVP handles reasonable sizes
   try {
+    // Proxmox agent/file-write `encode` param (default=1) controls a base64-encoding step:
+    //   encode=1: Proxmox base64-encodes `content`, then QEMU decodes → yields raw bytes
+    //   encode=0: Proxmox passes `content` through untouched to QEMU, which still decodes → content MUST be pre-encoded
+    // We pre-base64 encode and set encode=0 so our encoding is the one that QEMU decodes.
+    // CRITICAL: Must use numeric 0 (not boolean false) because Vite SSR transforms serialize
+    // booleans inconsistently, and Proxmox rejects "true"/"false" strings (expects "0"/"1").
+    // encode: 0 tells QEMU to pass content through as-is (we pre-base64 encoded).
+    // Numeric 0 is required — boolean false gets mangled by bundler serialization.
     const result = await nodeApi.qemu.vmid(vmid).agent.file_write({
       file: filePath,
       content: base64Content,
-      encode: true,
+      encode: 0,
     });
     console.log(`[upload:vm] file_write returned:`, JSON.stringify(result).substring(0, 200));
 
     // file_write is async on the guest agent - wait briefly for the file to appear
     // then verify with a read check
     let retries = 0;
-    const maxRetries = 6;
+    const maxRetries = 30;
     while (retries < maxRetries) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       retries++;
@@ -165,6 +173,30 @@ async function writeFileToVm(
         const readContent = Buffer.from(base64, 'base64');
         if (Number(readContent.length) === fileBuffer.length) {
           console.log(`[upload:vm] Verified ${filename} on VM (${readContent.length} bytes)`);
+          // QEMU guest agent writes as root and doesn't set executable bit.
+          // Run chmod +x to make shell scripts executable (best-effort — skip if agent/exec flaky).
+          // Only apply to .sh, .bash, .py, .pl, .rb, or files without extension.
+          if (/\.(sh|bash|py|pl|rb)$/.test(filename) || !filename.includes('.')) {
+            try {
+              const chmodResult = await nodeApi.qemu.vmid(vmid).agent.exec({
+                command: ['chmod', '+x', filePath],
+              });
+              for (let c = 0; c < 10; c++) {
+                const chmodStatus = await nodeApi.qemu.vmid(vmid).agent.exec_status({
+                  $query: { pid: chmodResult.pid },
+                });
+                if (chmodStatus.exited) {
+                  if (chmodStatus.exitcode === 0) {
+                    console.log(`[upload:vm] chmod +x ${filename}`);
+                  }
+                  break;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 500));
+              }
+            } catch (chmodErr: unknown) {
+              console.log(`[upload:vm] Warning: chmod +x failed for ${filePath}: ${(chmodErr as Error).message}`);
+            }
+          }
           return;
         }
         console.log(

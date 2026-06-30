@@ -120,6 +120,45 @@ if (a.$body !== undefined) {
 - The redirect or socket reuse may still cause the broken pipe
 - `agent/file_write` does NOT redirect, which explains why it works
 
+### Bug 5: Uploaded files stored as base64-encoded text on disk (FIXED)
+
+**Problem:** Files uploaded via `agent/file_write` were stored as the raw base64-encoded string inside the VM, not decoded to their original binary content. E.g., a `.sh` file contained `IyEvYmluL2Jhc2gK...` instead of `#!/bin/bash\n...`.
+
+**Root cause:** Misunderstanding of Proxmox `agent/file-write` `encode` parameter semantics:
+- `encode=1` (default): Proxmox base64-encodes `content`, then QEMU guest agent decodes → yields raw bytes
+- `encode=0`: Proxmox passes `content` through untouched, QEMU still base64-decodes → content MUST be pre-encoded
+
+The original code sent pre-base64-encoded content *with* `encode: true` — Proxmox re-encoded the already-encoded string, then QEMU decoded once, leaving the file as base64 text.
+
+**Fix (2026-06-30):** Two layers:
+
+1. **Root cause (MIS)interpretation of `encode` param:** The original code sent `encode: true` *with* pre-base64-encoded content. Proxmox's `encode=1` means "I'll base64-encode your raw content for you" — so Proxmox re-encoded our already-encoded string, QEMU decoded once, leaving base64 text on disk.
+
+2. **Serialization issue:** Proxmox rejects the string `"false"` for boolean params (expects `"0"`). The pve-client `encodeForm` correctly serializes booleans as `"0"`/`"1"`, but Vite SSR transforms sometimes produce `"false"` (via `String(false)`). Sending numeric `0` bypasses this:```typescript
+// Before (double-encoded, wrong flag + serialization issues):
+{ file: filePath, content: base64Content, encode: true }
+// After (numeric 0 — QEMU decodes our base64 encoding):
+{ file: filePath, content: base64Content, encode: 0 }
+```
+
+**Also fixed:** Updated `pve-client/src/api/nodes/types.ts` to accept `boolean | number` for the `encode` param, so numeric values type-check correctly.
+
+**Reverted:** An intermediate incorrect fix that changed `encodeForm` to serialize booleans as `"true"`/`"false"` — Proxmox API rejects these strings.
+
+### Bug 6: file_write verification timeout too short (FIXED)
+
+**Problem:** After `file_write`, the server polls `file_read` to verify the file arrived. Default maxRetries was 6 (6 seconds). QEMU guest agent is fire-and-forget and can take longer to flush files, especially larger ones. Files arrived on disk but were reported as failed.
+
+**Fix:** Increased `maxRetries` from 6 to 30 in `writeFileToVm`. This gives up to 30 seconds for verification.
+
+### Bug 7: Uploaded files owned by root and not executable (FIXED)
+
+**Problem:** QEMU guest agent writes files as root, and doesn't set the executable bit. Shell scripts uploaded via `.sh` extension were owned by `root:root` and not directly executable.
+
+**Fix:** After file verification succeeds in `writeFileToVm`, run `chmod +x` via `agent/exec` on `.sh`, `.bash`, `.py`, `.pl`, `.rb`, and extensionless files (e.g., `Makefile`). Uses the same best-effort pattern as `mkdir` (skips with warning if agent/exec fails). Root ownership is inherent to the guest agent — no API param controls this.
+
+**UI:** Added ℹ️ notice in the upload dialog (VMs only): "Files are uploaded as root. `sudo` is required to modify or move them."
+
 ### Bugs & Workarounds: Summary Table (Updated)
 
 | # | File(s) | Bug | Status | Before | After |
@@ -130,6 +169,9 @@ if (a.$body !== undefined) {
 | 3a | `pve-client/src/index.ts` | `encodeForm` spreads arrays as separate params | ✅ Fixed | `command=a&command=b` | `command=["a","b"]` |
 | 3b | `pve-client/src/index.ts` | `request()` ignores non-`$body` params for POST | ✅ Fixed | Body empty | Auto-wraps remaining params for POST/PUT/PATCH |
 | 4 | `server/proxmoxTerminalUpload.ts` | `agent/exec` mkdir fails with HTTP 596 | ⚠️ Workaround | Hard failure blocks upload | Best-effort: log warning, continue to file write |
+| 5 | `server/proxmoxTerminalUpload.ts` | Files stored as base64 text (double-encoding) | ✅ Fixed | `encode: true` + pre-encoded content | `encode: 0` + pre-encoded content |
+| 6 | `server/proxmoxTerminalUpload.ts` | file_write verification timeout too short | ✅ Fixed | 6s timeout | 30s timeout |
+| 7 | `server/proxmoxTerminalUpload.ts`, `+page.svelte` | Uploaded files not executable, owned by root | ✅ Fixed | Root-owned, non-executable | chmod +x on scripts, notice in dialog |
 
 ## Completed 2026-06-19
 

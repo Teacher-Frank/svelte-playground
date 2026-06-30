@@ -191,6 +191,12 @@ These rules are specific to this repository's stack, tooling, and domain.
   - Never use fire-and-forget `setTimeout` that swallows errors
   - Never mark a task as failed purely on elapsed time when the UPID is available
 
+## Proxmox API Debugging Lessons
+- **Verify API parameter semantics before touching serialization.** Example: `agent/file-write` `encode=1` means "Proxmox base64-encodes for you", `encode=0` means "content is already encoded". Sending pre-encoded content with `encode=true` causes double-encoding (files stored as base64 text). Root cause was parameter misunderstanding, not serialization.
+- **Fix calling logic at the application layer, not the library layer.** When Proxmox params fail, check the calling code first (wrong flag, wrong encoding, wrong endpoint). Don't reach for `pve-client` serialization fixes unless the library is genuinely broken.
+- **Numeric literals beat booleans across bundler transforms.** Proxmox rejects the string `"false"` for boolean form params. Vite SSR can serialize booleans as `"false"` (via `String(false)`) instead of `"0"`. When sending boolean params to Proxmox, prefer numeric `0`/`1` literals over `false`/`true` booleans.
+- **Terminal/UI error messages are high-signal.** Proxmox returns explicit validation errors (e.g., `type check ('boolean') failed - got 'false'`). Read them first to rule in/out serialization vs. logic hypotheses.
+
 ## Proxmox Behavior
 - Use real node identity for all actions — never submit fallback values like `unknown`.
 - Node-scoped workload lists use typed node APIs.

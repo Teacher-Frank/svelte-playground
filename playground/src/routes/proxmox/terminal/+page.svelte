@@ -502,6 +502,7 @@
       }}
       tabindex="-1"
     >
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div class="upload-dialog" onclick={(e) => e.stopPropagation()} role="document">
         <div class="upload-dialog-header">
           <h3>Upload to {workloadLabel}</h3>
@@ -517,6 +518,12 @@
         {#if uploadAvailableSpace !== null}
           <div class="upload-space">
             Available: {formatSize(uploadAvailableSpace)}
+          </div>
+        {/if}
+
+        {#if type === 'vm'}
+          <div class="upload-notice">
+            ℹ️ Files are uploaded as root. <code>sudo</code> is required to modify or move them.
           </div>
         {/if}
 
@@ -723,6 +730,23 @@
     color: #8ab88a;
     font-size: 0.85rem;
     margin-bottom: 0.8rem;
+  }
+
+  .upload-notice {
+    background: #2d353d;
+    border: 1px solid #3d4d5a;
+    color: #88b8e0;
+    padding: 0.6rem 0.8rem;
+    border-radius: 4px;
+    margin-bottom: 0.8rem;
+    font-size: 0.85rem;
+  }
+
+  .upload-notice code {
+    background: #333a40;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-family: var(--font-mono);
   }
 
   .upload-label {
