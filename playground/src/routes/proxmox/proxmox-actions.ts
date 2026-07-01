@@ -20,7 +20,7 @@ import {
   executeWorkloadAction,
   executeWorkloadConfigureAction,
 } from './action-executors.js';
-import { clearPendingDestroy } from './helpers.js';
+import { acquireDeployLock, releaseDeployLock, clearPendingDestroy } from './helpers.js';
 import {
   deployVmFromTemplate,
   renameVmTemplate,
@@ -335,6 +335,16 @@ export const actions: Actions = {
         });
       }
 
+      // Concurrency guard: reject if another deploy is already in progress
+      const lockError = acquireDeployLock('vm', newName.trim());
+      if (lockError !== null) {
+        return fail(409, {
+          status: 'error' as const,
+          message: lockError,
+          formType: 'vm-template',
+        });
+      }
+
       const { cloneUpid, newid } = await deployVmFromTemplate(
         templateId,
         templateNode.trim(),
@@ -353,6 +363,8 @@ export const actions: Actions = {
         deployTaskUpids: [cloneUpid],
       };
     } catch (error) {
+      // Release lock on unexpected errors — idempotent, safe with empty name
+      releaseDeployLock('vm', '');
       return fail(500, {
         status: 'error' as const,
         message: error instanceof Error ? error.message : String(error),
@@ -470,23 +482,39 @@ export const actions: Actions = {
         });
       }
 
-      const { cloneUpid, startUpid } = await cloneLxcGuestTemplate(
-        templateId,
-        templateNode.trim(),
-        newName.trim(),
-      );
+      // Concurrency guard: reject if another deploy is already in progress
+      const lockError = acquireDeployLock('lxc', newName.trim());
+      if (lockError !== null) {
+        return fail(409, {
+          status: 'error' as const,
+          message: lockError,
+          formType: 'lxc-template',
+        });
+      }
 
-      return {
-        status: 'success' as const,
-        message:
-          `Cloned guest template ${templateId} as "${newName.trim()}" — clone task ${cloneUpid}. ` +
-          `Started container ${newName.trim()} — start task ${startUpid}.`,
-        formType: 'lxc-template',
-        deployWorkloadName: newName.trim(),
-        deployTaskNode: templateNode.trim(),
-        deployTaskUpids: [cloneUpid, startUpid],
-      };
+      try {
+        const { cloneUpid, startUpid } = await cloneLxcGuestTemplate(
+          templateId,
+          templateNode.trim(),
+          newName.trim(),
+        );
+
+        return {
+          status: 'success' as const,
+          message:
+            `Cloned guest template ${templateId} as "${newName.trim()}" — clone task ${cloneUpid}. ` +
+            `Started container ${newName.trim()} — start task ${startUpid}.`,
+          formType: 'lxc-template',
+          deployWorkloadName: newName.trim(),
+          deployTaskNode: templateNode.trim(),
+          deployTaskUpids: [cloneUpid, startUpid],
+        };
+      } finally {
+        releaseDeployLock('lxc', newName.trim());
+      }
     } catch (error) {
+      // Release lock on unexpected errors — idempotent, safe with empty name
+      releaseDeployLock('lxc', '');
       return fail(500, {
         status: 'error' as const,
         message: error instanceof Error ? error.message : String(error),
@@ -679,22 +707,38 @@ export const actions: Actions = {
         });
       }
 
-      const upid = await cloneLxcTemplate(
-        templateVolid.trim(),
-        templateNode.trim(),
-        newName.trim(),
-        rootPassword as string,
-      );
+      // Concurrency guard: reject if another deploy is already in progress
+      const lockError = acquireDeployLock('lxc', newName.trim());
+      if (lockError !== null) {
+        return fail(409, {
+          status: 'error' as const,
+          message: lockError,
+          formType: 'lxc-template',
+        });
+      }
 
-      return {
-        status: 'success' as const,
-        message: `Deploying LXC template "${templateVolid}" as "${newName.trim()}" — task ${upid}.`,
-        formType: 'lxc-template',
-        deployWorkloadName: newName.trim(),
-        deployTaskNode: templateNode.trim(),
-        deployTaskUpids: [upid],
-      };
+      try {
+        const upid = await cloneLxcTemplate(
+          templateVolid.trim(),
+          templateNode.trim(),
+          newName.trim(),
+          rootPassword as string,
+        );
+
+        return {
+          status: 'success' as const,
+          message: `Deploying LXC template "${templateVolid}" as "${newName.trim()}" — task ${upid}.`,
+          formType: 'lxc-template',
+          deployWorkloadName: newName.trim(),
+          deployTaskNode: templateNode.trim(),
+          deployTaskUpids: [upid],
+        };
+      } finally {
+        releaseDeployLock('lxc', newName.trim());
+      }
     } catch (error) {
+      // Release lock on unexpected errors — idempotent, safe with empty name
+      releaseDeployLock('lxc', '');
       return fail(500, {
         status: 'error' as const,
         message: error instanceof Error ? error.message : String(error),

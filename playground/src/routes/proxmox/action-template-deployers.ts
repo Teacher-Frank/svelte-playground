@@ -4,7 +4,7 @@
  * Extracted from proxmox-actions.ts to keep that module under the 750-line threshold.
  */
 import type { NodeScopedAPI } from 'pve-client';
-import { createClient, pendingStaticConversion } from './helpers.js';
+import { createClient, pendingStaticConversion, releaseDeployLock } from './helpers.js';
 
 // ---------------------------------------------------------------------------
 // Environment configuration
@@ -259,6 +259,10 @@ async function runPostCloneSteps(
     }
 
     throw error;
+  } finally {
+    // Release deploy lock on both success and failure paths.
+    // This is the background task — the lock was acquired in the action handler.
+    releaseDeployLock('vm', newName);
   }
 }
 

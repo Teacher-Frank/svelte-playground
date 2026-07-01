@@ -14,6 +14,11 @@ import type { LxcInterface, Workload } from './types.js';
 // ---------------------------------------------------------------------------
 
 export const PROXMOX_REQUEST_TIMEOUT_MS = 8000;
+/**
+ * Deployment lock — imported by both `proxmox-actions.ts` (acquire) and
+ * `action-template-deployers.ts` (release).  Singleton across the server
+ * process so concurrent form submissions hit the same gate.
+ */
 export const PROFILE_PROXMOX_LOAD = process.env.PLAYGROUND_PROFILE_LOAD === 'true';
 export const VM_AGENT_RETRY_DELAY_MS = 60_000;
 
@@ -44,6 +49,58 @@ export const pendingDestroy = new Map<number, {
 /** Clears a failed destroy entry so the user can retry the operation. */
 export function clearPendingDestroy(id: number): void {
   pendingDestroy.delete(id);
+}
+
+// ---------------------------------------------------------------------------
+// Deploy concurrency guardrail
+// ---------------------------------------------------------------------------
+
+// Deploy concurrency guardrail — prevents simultaneous deployments that crash
+// the dev server.  A singleton lock ensures only one deploy (VM or LXC) runs
+// at a time across all server requests.
+
+const DEPLOY_LOCK_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes — matches client hard cap
+
+interface DeployLock {
+  kind: 'vm' | 'lxc';
+  name: string;
+  startedAt: number;
+}
+
+let pendingDeployLock: DeployLock | null = null;
+
+/**
+ * Acquires the deployment lock. Returns `null` if deployment can proceed,
+ * or an error message if a deploy is already in progress.
+ */
+export function acquireDeployLock(kind: 'vm' | 'lxc', name: string): string | null {
+  if (pendingDeployLock !== null) {
+    const elapsed = Date.now() - pendingDeployLock.startedAt;
+    if (elapsed > DEPLOY_LOCK_TIMEOUT_MS) {
+      // Lock expired — stale deploy, force-clear
+      console.warn(
+        `[proxmox] Deploy lock expired after ${(elapsed / 1000 / 60).toFixed(1)}m ` +
+        `for ${pendingDeployLock.kind} "${pendingDeployLock.name}" — releasing`,
+      );
+      pendingDeployLock = null;
+      return acquireDeployLock(kind, name); // retry
+    }
+    return `Deployment already in progress for "${pendingDeployLock.name}" (${pendingDeployLock.kind}). ` +
+      `Please wait for it to complete before starting another.`;
+  }
+  pendingDeployLock = { kind, name, startedAt: Date.now() };
+  return null;
+}
+
+/** Releases the deployment lock after deploy completes or fails. Idempotent. */
+export function releaseDeployLock(kind: 'vm' | 'lxc', name: string): void {
+  if (pendingDeployLock !== null && pendingDeployLock.kind === kind && pendingDeployLock.name === name) {
+    const elapsed = Date.now() - pendingDeployLock.startedAt;
+    console.info(
+      `[proxmox] Deploy lock released for ${kind} "${name}" after ${(elapsed / 1000).toFixed(1)}s`,
+    );
+    pendingDeployLock = null;
+  }
 }
 
 // ---------------------------------------------------------------------------

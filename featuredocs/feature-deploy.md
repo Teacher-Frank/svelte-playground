@@ -1,6 +1,6 @@
 # Deploy Progress — Investigation Notes
 
-**Date:** 2026-06-18 → Updated 2026-06-29
+**Date:** 2026-06-18 → Updated 2026-07-01
 **Issue:** Ubuntu Desktop VM deployment stays stuck in "Deploying..." mode until the 10-minute hard cap expires.
 
 ---
@@ -21,6 +21,7 @@
 | **vendor= vs user= fix** | 2026-06-27 | Discovered `user=` in `cicustom` replaces Proxmox's auto-generated user-data (losing `cipassword`). Changed to `vendor=` which merges on top, preserving password login |
 | **Deploy shadowing + controls** | 2026-06-27 | Fixed dual-row regression during clone (VMID propagation + VMID-first shadowing). Fixed control disable state machine (extracted `isDisabledStatus()`, delete always enabled on failure states) |
 | **Static IP post-deploy** | 2026-06-29 | Implemented DHCP→static IP conversion in `install-agent.yaml` via `cicustom` vendor snippet. Second `runcmd` extracts DHCP IP + gateway, rewrites Netplan (`dhcp4: false` + static addresses/routes/nameservers), applies. Idempotent. Script updated + featuredoc section added. Awaiting host deployment + E2E test. |
+| **Deploy concurrency guardrail** | 2026-07-01 | Added singleton `pendingDeployLock` in `helpers.ts` to prevent simultaneous deployments that crashed the dev server. All three deploy actions (`cloneFromTemplate`, `cloneLxcGuestTemplate`, `cloneLxcTemplate`) now acquire lock before deploy, release in finally/catch. Returns `fail(409)` with descriptive message when a deploy is already in progress. Lock auto-expires after 10 min. |
 
 ---
 
@@ -214,6 +215,8 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 - [x] **Add serial0=socket during deployment** — `runPostCloneSteps` now checks for a usable serial port and adds `serial0=socket` if missing (same pattern as net0/ipconfig0/agent). This ensures terminal access works on every deployed VM without manual Proxmox UI intervention.
 
 - [x] **Static IP post-deploy** — added DHCP→static `runcmd` to `install-agent.yaml` via `cicustom` vendor snippet. Waits for eth0 IP, reads gateway, rewrites Netplan from `dhcp4: true` to static config (addresses/routes/nameservers 1.1.1.1+8.8.8.8), applies via `netplan apply`. Idempotent (skips if already static). Fixed `${IP/24}` → `${IP}/24` bash bug. Updated script summary docs. Pending: host deployment + E2E test on fresh VM. |
+
+- [x] **Deploy concurrency guardrail** — added singleton `pendingDeployLock` in `helpers.ts`. All three deploy actions acquire the lock before starting; second request gets `fail(409)" Deployment already in progress for '...'"`. Lock released in `finally`/catch (LXC synchronous) or `runPostCloneSteps finally` (VM background). Auto-expires after 10 min (matches hard cap). `npm run check` + `npm run lint` clean.
 
 ## Policy Added
 
@@ -701,3 +704,35 @@ runcmd:
    - Netplan YAML shows `dhcp4: false` with `addresses`
    - IP persists after manual reboot
 4. [ ] Update admin guide if deployment workflow changes for admins
+
+---
+
+## Deploy Concurrency Guardrail — 2026-07-01
+
+### Problem
+
+Two simultaneous deploys (triggered from tabs or rapid clicks) crashed the dev server. The root cause was that the VM deploy runs `deployVmFromTemplate` → fire clone → `setTimeout` background work, with no coordination between requests. Concurrent requests could share Proxmox client state, race on `cluster.nextid()`, or hit the background `runPostCloneSteps` work simultaneously.
+
+### Fix: Singleton `pendingDeployLock` in `helpers.ts`
+
+A singleton lock (following the existing `pendingDestroy` Map pattern) ensures only one deploy operation runs at a time across all server requests.
+
+| Component | Change |
+|-----------|--------|
+| `helpers.ts` | Added `pendingDeployLock`, `acquireDeployLock()`, `releaseDeployLock()` — singleton process-level lock with 10-minute expiry |
+| `proxmox-actions.ts` (`cloneFromTemplate`) | Acquires `vm` lock after validation, before `deployVmFromTemplate`; releases in catch |
+| `proxmox-actions.ts` (`cloneLxcGuestTemplate`) | Acquires `lxc` lock; releases in `finally` + catch |
+| `proxmox-actions.ts` (`cloneLxcTemplate`) | Acquires `lxc` lock; releases in `finally` + catch |
+| `action-template-deployers.ts` (`runPostCloneSteps`) | Adds `finally` block releasing `vm` lock after background work (success or failure) |
+
+### Lock semantics
+
+- **Acquire:** returns `null` if lock is free; returns error string if held
+- **Stale lock expiry:** 10 minutes (matches client hard cap) — auto-released with warning
+- **Release:** idempotent (checks kind + name match); safe to call with empty string in catch
+- **HTTP response:** second request gets `fail(409, "Deployment already in progress for '...'")`
+
+### Validation
+
+- ✅ `npm run check` — 0 errors
+- ✅ `npm run lint` — 0 errors
