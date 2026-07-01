@@ -42,6 +42,7 @@ green "  \$SNIPPET_DIR ready."
 bold "Step 2: Deploying install-agent.yaml cloud-init snippet"
 
 cat > "$SNIPPET_DIR/install-agent.yaml" <<'CLOUD-INIT'
+#cloud-config
 # Cloud-init vendor-data snippet for Proxmox cicustom (vendor=).
 # Installed by playground scripts/host/deploy-cloudinit-snippets.sh
 #
@@ -130,21 +131,71 @@ green "  $SNIPPET_DIR/install-agent.yaml deployed."
 # ── verify the snippets storage is available in Proxmox ─────────────────────
 bold "Step 3: Checking Proxmox snippets storage"
 
-if command -v pvesh &>/dev/null; then
-  STORAGE_STATUS=$(pvesm status 2>/dev/null | grep "$SNIPPET_STORAGE" | head -1 || true)
-  if echo "$STORAGE_STATUS" | grep -qi content; then
-    CONTENTS=$(echo "$STORAGE_STATUS" | awk '{print $NF}')
-    if echo "$CONTENTS" | grep -qi "snippets"; then
-      green "  '$SNIPPET_STORAGE' storage has snippets content-type enabled. cicustom will work."
+if ! command -v pvesh &>/dev/null && ! command -v pvesm &>/dev/null; then
+  yellow "  pvesh/pvesm not found — skipping snippets storage check."
+  yellow "  This is expected if running outside the Proxmox shell."
+  exit 0
+fi
+
+bold "  Storage overview:"
+pvesm status 2>/dev/null | while IFS= read -r line; do
+  bold "    $line"
+done
+
+# ── check content types in storage config ──────────────────────────────────
+if [ -f /etc/pve/storage.cfg ]; then
+  STORAGE_CFG="/etc/pve/storage.cfg"
+  bold "  Checking content types in $STORAGE_CFG for '$SNIPPET_STORAGE':"
+
+  # Extract the storage block for our storage ID and look for content line
+  IN_BLOCK=0
+  CONTENT_TYPES=""
+  while IFS= read -r line; do
+    # Match start of storage block
+    if echo "$line" | grep -q "^nwfs \|^\s*nfs \|^\s*dir \|^\s*lvmthin \|^\s*pbs \|^\s*zfs \|^\s*lvm \|^\s*fc \|^\s*iscsi \|^\s*cifs \|^\s*btrfs \|^\s*glusterfs \|^\s*pveges \|^"; then
+      # Check if this line contains our storage ID
+      STORAGE_LINE=$(echo "$line" | sed -E 's/^\s*//')
+      STORAGE_ID=$(echo "$STORAGE_LINE" | awk '{print $NF}')
+      if [ "$STORAGE_ID" = "$SNIPPET_STORAGE:" ]; then
+        IN_BLOCK=1
+        continue
+      else
+        if [ "$IN_BLOCK" -eq 1 ]; then
+          break
+        fi
+      fi
+    fi
+
+    if [ "$IN_BLOCK" -eq 1 ]; then
+      if echo "$line" | grep -qi "content"; then
+        CONTENT_TYPES=$(echo "$line" | sed -E 's/^\s*content\s*:\s*//')
+        break
+      fi
+      if echo "$line" | grep -q "^[a-z]"; then
+        break
+      fi
+    fi
+  done < "$STORAGE_CFG"
+
+  if [ -n "$CONTENT_TYPES" ]; then
+    bold "    Content types: $CONTENT_TYPES"
+    if echo "$CONTENT_TYPES" | grep -qi "snippets"; then
+      green "  ✓ '$SNIPPET_STORAGE' storage has 'snippets' content-type enabled."
     else
-      yellow "  '$SNIPPET_STORAGE' storage content: $CONTENTS"
-      yellow "  Snippets may need to be enabled. See note below if cicustom fails."
+      red "  ✗ '$SNIPPET_STORAGE' storage is missing 'snippets' content-type."
+      yellow "  To fix: Datacenter → Storage → '$SNIPPET_STORAGE' → Content → check 'Snippets'"
+      yellow "  Or add to $STORAGE_CFG:"
+      yellow "    content: snippets"
     fi
   else
-    yellow "  '$SNIPPET_STORAGE' storage not found — check pvesm status."
+    yellow "  Could not parse content types for '$SNIPPET_STORAGE' from $STORAGE_CFG."
+    bold "  First 15 lines of $STORAGE_CFG:"
+    head -15 "$STORAGE_CFG" | while IFS= read -r line; do
+      bold "    $line"
+    done
   fi
 else
-  yellow "  pvesh not found — skipping snippets storage check."
+  yellow "  $STORAGE_CFG not found — cannot verify content types."
 fi
 
 # ── summary ─────────────────────────────────────────────────────────────────
@@ -162,8 +213,9 @@ bold ""
 bold "  3. Via qm CLI:"
 bold "     qm set <vmid> --cicustom 'vendor=${SNIPPET_STORAGE}:snippets/install-agent.yaml'"
 bold ""
-bold "  The snippet performs two tasks on first boot:"
+bold "  The snippet performs three tasks on first boot:"
 bold "    1. Installs qemu-guest-agent (for IP discovery & graceful shutdown)"
-bold "    2. Converts the DHCP-assigned IP to static (persists across reboots)"
+bold "    2. Enables serial-getty on ttyS0 (required for terminal access)"
+bold "    3. Converts the DHCP-assigned IP to static (persists across reboots)"
 bold ""
 yellow "Note: Set PVE_SNIPPET_STORAGE env var to change the target storage."
