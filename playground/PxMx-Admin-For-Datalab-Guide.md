@@ -36,8 +36,8 @@ Git repository under `playground/scripts/`. Transfer them to the target machine 
     - [1.4 Prepare a cloud-init ready VM template](#14-prepare-a-cloud-init-ready-vm-template)
       - [1.4.1 Why cloud-init is required for the deploy flow](#141-why-cloud-init-is-required-for-the-deploy-flow)
       - [1.4.2 Installing cloud-init in the template](#142-installing-cloud-init-in-the-template)
-      - [1.4.3 NoCloud datasource (required for Proxmox)](#143-nocloud-datasource-required-for-proxmox)
       - [1.4.4 Serial console getty (required for terminal access)](#144-serial-console-getty-required-for-terminal-access)
+      - [1.4.3 NoCloud datasource (required for Proxmox)](#143-nocloud-datasource-required-for-proxmox)
     - [1.5 Enable nesting at LXC container creation](#15-enable-nesting-at-lxc-container-creation)
       - [1.5.1 Why nesting is required for Ubuntu 24.04](#151-why-nesting-is-required-for-ubuntu-2404)
     - [1.6 LXC device passthrough (done automatically by the hook script)](#16-lxc-device-passthrough-done-automatically-by-the-hook-script)
@@ -274,9 +274,14 @@ must have a getty/login process listening on it.
 interface serial0"` then hangs forever. No shell prompt appears, typing does nothing.
 This also affects the native Proxmox web console.
 
-**Fix in template (recommended):** Enable `serial-getty@ttyS0` in the golden template
-before converting it (see commands above). This ensures all cloned VMs inherit the
-setting.
+**Automatic path (default):** The deploy flow's cloud-init vendor snippet enables
+`serial-getty@ttyS0` on every cloned VM during first boot (Section 1.7.2). This is
+idempotent, so if you also enable it in the template there's no conflict.
+
+**Fix in template (recommended for non-cloud images):** If your template uses a distro or
+init system not supported by the cloud-init snippet, enable `serial-getty@ttyS0` in the
+golden template before converting it (see commands above). This ensures all cloned VMs
+inherit the setting.
 
 **Fix on existing VM:** Access via VNC/spice console and run:
 ```bash
@@ -297,9 +302,10 @@ sudo sed -i 's/GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX="console=ttyS0,115200n8 /
 sudo update-grub
 ```
 
-> **Note:** The deploy flow adds `serial0=socket` if the clone lacks a serial port
-> (Section 4.1.2), but the guest OS still needs `serial-getty@ttyS0` running. This is
-> a template-time configuration, not a runtime addition.
+> **Note:** The deploy flow both adds `serial0=socket` if the clone lacks a serial port
+> (Section 4.1.2) **and** enables `serial-getty@ttyS0` during first boot via the cloud-init
+> vendor snippet. So for cloud-init-capable templates, terminal access should work out of
+> the box after deployment.
 
 #### 1.4.3 NoCloud datasource (required for Proxmox)
 
@@ -385,8 +391,8 @@ Without it, a deployed VM will show:
 
 #### 1.7.1 How the deploy flow installs the agent (default path)
 
-The playground's deploy flow automatically sets `cicustom=user=local:snippets/install-agent.yaml`
-on each cloned VM. This points to a cloud-init user-data snippet that was deployed by
+The playground's deploy flow automatically sets `cicustom=vendor=local:snippets/install-agent.yaml`
+on each cloned VM. This points to a cloud-init vendor-data snippet that was deployed by
 `deploy-cloudinit-snippets.sh` (Step 3 of the [Quick start](#quick-start-get-up-and-running)).
 
 On first boot, cloud-init reads the snippet and executes:

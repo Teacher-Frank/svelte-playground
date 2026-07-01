@@ -23,9 +23,9 @@ PASS=0
 FAIL=0
 WARN=0
 
-pass() { echo "  ✓ $1"; ((PASS++)); }
-fail() { echo "  ✗ $1"; ((FAIL++)); }
-warn() { echo "  ⚠ $1"; ((WARN++)); }
+pass() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
+fail() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
+warn() { echo "  ⚠ $1"; WARN=$((WARN + 1)); }
 
 echo "=========================================="
 echo " Playground Guest VM Checklist Verification"

@@ -109,6 +109,12 @@ Output format: findings ordered by severity with file refs → open questions �
 - Never introduce duplicate policy sources.
 - Avoid destructive repository operations unless explicitly requested.
 
+## P10a: Cross-Session Memory
+- **Before using knowledge from persistent memory (`/memories/`)** that originates from a previous conversation session, discuss it with the user first.
+- State what the remembered knowledge is, where it came from, and why you think it applies.
+- Let the user determine whether it's still valid for the current feature or context.
+- **Rationale:** remembered knowledge may be stale, partially incorrect, or conflated with other sessions' hallucinations. The user is the single source of truth for current intent and state.
+
 ## P11: Maintenance
 - At the end of meaningful sessions, append or refine directives here when a new durable pattern is confirmed.
 - During monthly review, validate each exception — remove or refresh justification.
@@ -125,6 +131,10 @@ Output format: findings ordered by severity with file refs → open questions �
 - **Pattern:** `Get-Content` + index ranges + `Out-File -Encoding UTF8`. Select and export existing lines rather than constructing new arrays.
 - Contiguous: `@('header') + $lines[123..479] | Out-File -Encoding UTF8 output.ts`
 - Non-contiguous: `($lines[480..821] + $lines[998..1065] + $lines[1166..1209]) | Out-File -Encoding UTF8 output.ts`
+## Svelte 5 Runtime Behavior
+- **Avoid assigning a new array/object to the same `$state` inside an `$effect` unless content actually changed** — otherwise tests fail with `effect_update_depth_exceeded`.
+- Use conditional guards or `$derived` when reaction depends on computed state, not unconditional reassignment.
+
 ## Svelte File Extensions
 - Use `.svelte.ts` for files that contain Svelte-specific syntax (runes like `$state`, `$derived`, `$effect`, `$props()`, etc.).
 - Use `.ts` for plain TypeScript modules (no Svelte runes or compiler features).

@@ -42,19 +42,19 @@ green "  \$SNIPPET_DIR ready."
 bold "Step 2: Deploying install-agent.yaml cloud-init snippet"
 
 cat > "$SNIPPET_DIR/install-agent.yaml" <<'CLOUD-INIT'
-#cloud-config
-# Cloud-init user-data snippet for Proxmox cicustom (vendor=).
+# Cloud-init vendor-data snippet for Proxmox cicustom (vendor=).
 # Installed by playground scripts/host/deploy-cloudinit-snippets.sh
 #
 # On first boot this:
 #   1. Installs & enables qemu-guest-agent
-#   2. Converts the DHCP-assigned IP to static so it survives restarts.
+#   2. Enables serial console getty (required for terminal access)
+#   3. Converts the DHCP-assigned IP to static so it survives restarts.
 #
 # Usage in VM config (or deploy code):
 #   cicustom: vendor=${SNIPPET_STORAGE}:snippets/install-agent.yaml
 
 runcmd:
-  # Install qemu-guest-agent if not already present, then enable it.
+  # 1. Install qemu-guest-agent if not already present, then enable it.
   - |
     set -e && \
     if [ ! -f /usr/sbin/qemu-ga ]; then \
@@ -63,7 +63,13 @@ runcmd:
     fi && \
     systemctl enable --now qemu-guest-agent
 
-  # Convert DHCP→static IP on first boot.
+  # 2. Enable serial console getty — required for terminal access via termproxy.
+  #    Without this, the serial port connects but shows no login prompt.
+  #    Idempotent: systemctl enable is safe to re-run.
+  - |
+    systemctl enable --now serial-getty@ttyS0.service 2>/dev/null || true
+
+  # 3. Convert DHCP→static IP on first boot.
   # - Waits for eth0 to have an IP, reads gateway from route table.
   # - Rewrites the netplan YAML (dhcp4: false + addresses + routes + nameservers).
   # - Idempotent: skips if the interface is already static.
