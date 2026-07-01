@@ -188,6 +188,7 @@ These rules are specific to this repository's stack, tooling, and domain.
   1. `svelte-playground` (primary — check first for git operations)
   2. `pve-client` (secondary — check second)
 - **Never run git commands in the workspace root** (`c:\hrgit`) — it is not a Git repository.
+- **Use native `git` CLI via terminal** for all git operations (add, commit, push, pull, etc.). Do not use GitKraken MCP tools or any third-party git tooling wrapper — the native CLI is simpler, more predictable, and consistent with how all other commands are executed.
 
 ## Architecture: pve-client + playground
 - **Fix API-surface gaps in `pve-client` first**; avoid consumer-side cast workarounds.
