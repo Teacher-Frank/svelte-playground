@@ -202,6 +202,7 @@ async function runPostCloneSteps(
     const configBody: Record<string, unknown> = {
       ciuser: ciUser,
       cipassword: ciPassword,
+      ciupgrade: 1,
     };
     if (!hasCloudInitDisk) {
       configBody.ide2 = `${cloudInitStorage}:cloudinit`;
