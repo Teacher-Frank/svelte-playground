@@ -14,6 +14,7 @@
     status?: string;
     isTemplate?: boolean;
     template?: number | boolean;
+    maxdisk?: number;
   };
 
   let {
@@ -35,7 +36,7 @@
     workloads.filter((workload) => workload.isTemplate === true || workload.template === 1 || workload.template === true)
   );
 
-  const templateTableHeaders = ['ID', 'Name', 'Node', 'Deploy'];
+  const templateTableHeaders = ['ID', 'Name', 'Node', 'Size (MB)', 'Deploy'];
 
   const templateTableRows = $derived(
     templates.map((templateVm, index) => ({
@@ -44,6 +45,7 @@
         templateVm.id?.toString() ?? '-',
         templateVm.name ?? 'Unnamed template',
         templateVm.node ?? '-',
+        templateVm.maxdisk ? Math.round(templateVm.maxdisk / (1024 * 1024)).toString() : '-',
       ],
       deployTitle: 'Deploy VM from template',
       deployLabel: 'Deploy VM from template',
