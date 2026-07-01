@@ -75,6 +75,15 @@ Git repository under `playground/scripts/`. Transfer them to the target machine 
     - [A.6 LXC VNC bridge variables](#a6-lxc-vnc-bridge-variables)
     - [A.7 Current `acctest-env.ps1` profile](#a7-current-acctest-envps1-profile)
   - [Appendix B. Troubleshooting index](#appendix-b-troubleshooting-index)
+    - [A.7 Current `acctest-env.ps1` profile](#a7-current-acctest-envps1-profile-1)
+  - [Appendix C. Static IP conversion — approaches](#appendix-c-static-ip-conversion--approaches)
+    - [Why multiple methods?](#why-multiple-methods)
+    - [Conversion approaches (in order attempted)](#conversion-approaches-in-order-attempted)
+      - [A) Netplan direct (no NetworkManager renderer)](#a-netplan-direct-no-networkmanager-renderer)
+      - [B) NetworkManager (nmcli)](#b-networkmanager-nmcli)
+      - [C) ifupdown (`/etc/network/interfaces`)](#c-ifupdown-etcnetworkinterfaces)
+    - [Fallback](#fallback)
+    - [Manual conversion (outside cloud-init)](#manual-conversion-outside-cloud-init)
 
 ## Quick start: get up and running
 
@@ -890,6 +899,85 @@ Bridge runtime configuration details are in [Section 3.3](#33-lxc-vnc-bridge-con
 | GUI action is grayed/disabled | Guest IP not yet discovered | [2.4 Run the verification checklist](#24-run-the-verification-checklist) |
 | VNC page shows "Target closed connection" | VNC server auth failing inside guest | [3.4 VNC troubleshooting](#34-troubleshooting-vnc-page-stuck-on-submitting-credentials) |
 | Ubuntu 24.04 LXC has no console or network | Missing `nesting=1` feature flag | [1.4 Enable nesting](#14-enable-nesting-at-lxc-container-creation) |
+
+---
+
+Manual per-host conversion steps are covered in [Section 4.3](#43-dhcp-to-static-ip-conversion).
+
+---
+
+### A.7 Current `acctest-env.ps1` profile
+
+---
+
+## Appendix C. Static IP conversion — approaches
+
+The cloud-init snippet (`install-agent.yaml`) converts the DHCP-assigned IP to a static
+IP inside the guest on first boot. It uses a **try-multiple-methods** strategy:
+each method is tested in turn; the first one that succeeds stops the flow.
+If no method is applicable, the IP remains DHCP (non-fatal).
+
+### Why multiple methods?
+
+Different Linux distros and desktop editions use different network stacks:
+
+| Guest OS | Network stack | Configuration file/location |
+|---|---|---|
+| Ubuntu Server 20.04–24.04 | Netplan (direct, no renderer) | `/etc/netplan/*.yaml` |
+| Ubuntu Desktop / NetworkManager managed | Netplan → NetworkManager | `nmcli` connections |
+| Debian / older Ubuntu | ifupdown | `/etc/network/interfaces` |
+| RHEL / Fedora / Rocky | NetworkManager (no Netplan) | `nmcli` connections |
+| Alpine Linux | OpenRC (ifupdown-style) | `/etc/network/interfaces` or `/etc/network.d/` |
+
+### Conversion approaches (in order attempted)
+
+#### A) Netplan direct (no NetworkManager renderer)
+
+| Check | `grep -rq '^\s*addresses:' /etc/netplan/` && no `renderer: NetworkManager` |
+|---|---|
+| How | Overwrites the Netplan YAML with `dhcp4: false`, static `addresses`, `routes`, and `nameservers`, then runs `netplan apply`. |
+| Verify | `ip -4 addr show to <new-ip>` returns a match after 2 s. |
+
+#### B) NetworkManager (nmcli)
+
+| Prerequisite | The bridged connection has `ipv4.method: manual` in nmcli. |
+|---|---|
+| How | Writes the config with `nvmod con mod "$CON_NAME" ipv4.method manual ipv4.addresses "$IP" ipv4.gateway "$GATEWAY" ipv4.dns "$DNS1,$DNS2"` then
+brings the connection up. |
+| Verify | `ip -4 addr show to <new-ip>` returns a match after 2 s. |
+
+#### C) ifupdown (`/etc/network/interfaces`)
+
+| Check | File exists with a `dhcp` entry. |
+|---|---|
+| How | Rewrites `method dhcp` → `method static` plus `address`, `netmask`, `gateway`,
+and `dns-nameservers`. Restares the interface with `ifup <interface>`. |
+| Verify | `ip -4 addr show to <new-ip>` returns a match after 2 s. |
+
+### Fallback
+
+If none of the above methods match, the IP stays on DHCP. The guest-side checklist
+script (`vm-checklist-verify.sh`) reports this as a **warning** (not a failure).
+
+### Manual conversion (outside cloud-init)
+
+To convert a VM/LXC guest manually:
+
+1. **Netplan** — edit `/etc/netplan/*.yaml`, set `dhcp4: false`, add static config,
+   then run `sudo netplan apply`.
+2. **NetworkManager** — run:
+   ```bash
+   sudo nmcli con mod <CON_NAME> \
+     ipv4.method manual \
+     ipv4.addresses "145.24.222.23/24" \
+     ipv4.gateway "145.24.222.1" \
+     ipv4.dns "1.1.1.1,8.8.8.8"
+   sudo nmcli con up <CON_NAME>
+   ```
+3. **ifupdown** — edit `/etc/network/interfaces`, replace `dhcp` with `static`,
+   add address/netmask/gateway, then `sudo ifup eth0`.
+
+Verify with `ip -4 addr show`.
 
 ---
 

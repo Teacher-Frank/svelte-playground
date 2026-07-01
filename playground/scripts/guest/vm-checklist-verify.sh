@@ -33,7 +33,7 @@ echo " Playground Guest VM Checklist Verification"
 echo "=========================================="
 echo ""
 
-# ---- Distro detection ----
+# ---- 0. Distro detection ----
 DISTRO_ID="unknown"
 if [ -f /etc/os-release ]; then
     DISTRO_ID=$(. /etc/os-release && echo "${ID}") || DISTRO_ID="unknown"
@@ -63,7 +63,6 @@ pkg_installed() {
     elif is_rhel_based; then
         rpm_is_installed "$1"
     else
-        # Fallback: check if binary is on PATH
         command -v "$1" &>/dev/null
     fi
 }
@@ -90,7 +89,7 @@ svc_is_enabled() {
     has_systemd && systemctl is-enabled --quiet "$1" 2>/dev/null
 }
 
-# ---- 1. QEMU guest agent ---
+# ---- 1. QEMU guest agent ----
 echo "--- QEMU Guest Agent ---"
 if pkg_installed "qemu-guest-agent"; then
     pass "qemu-guest-agent package is installed"
@@ -102,7 +101,7 @@ if pkg_installed "qemu-guest-agent"; then
     fi
 else
     fail "qemu-guest-agent is NOT installed"
-    echo "       Fix: sudo bash install-guest-agent.sh"
+    echo "       Fix: $(pkg_install_cmd qemu-guest-agent)"
 fi
 echo ""
 
@@ -131,7 +130,7 @@ else
 fi
 echo ""
 
-# ---- 3. Serial console getty (required for terminal access)---
+# ---- 3. Serial console getty (required for terminal access) ----
 echo "--- Serial Console Getty (terminal access) ---"
 if svc_is_enabled serial-getty@ttyS0; then
     pass "serial-getty@ttyS0 is enabled"
@@ -194,12 +193,10 @@ echo ""
 # ---- 7. websockify bridge (port 8001) ----
 echo "--- websockify VNC Bridge (port 8001) ---"
 if pkg_installed websockify; then
-
     pass "websockify package is installed"
     if ss -tlnp 2>/dev/null | grep -q ":8001 "; then
         pass "websockify is listening on port 8001"
     elif svc_is_active websockify-vnc; then
-
         pass "websockify-vnc service is active (port may take a moment to bind)"
     else
         warn "websockify is NOT listening on port 8001"
@@ -225,15 +222,17 @@ else
     warn "ip command not available, skipping IP check"
 fi
 
-# Check if IP is statically configured or DHCP
+# ---- 8b. Static IP configuration check ----
 echo ""
-# Check all Netplan files — renderer or addresses can be in ANY file
 NETPLAN_DIR="/etc/netplan"
+NETPLAN_HANDLED=false
 if [ -d "$NETPLAN_DIR" ] && ls "$NETPLAN_DIR"/*.yaml 1>/dev/null 2>&1; then
-    # Check if ANY Netplan file delegates to NetworkManager
+    # Netplan exists — check all files across directory
     if grep -rq 'renderer:.*NetworkManager' "$NETPLAN_DIR" 2>/dev/null; then
-        : # Fall through to other checks below
+        # Netplan delegates to NetworkManager — let NM check handle it below
+        :
     else
+        NETPLAN_HANDLED=true
         # Netplan manages networking directly
         if grep -rqE '^\s+addresses:' "$NETPLAN_DIR" 2>/dev/null; then
             pass "IP is statically configured (Netplan)"
@@ -244,52 +243,9 @@ if [ -d "$NETPLAN_DIR" ] && ls "$NETPLAN_DIR"/*.yaml 1>/dev/null 2>&1; then
             warn "Could not determine IP configuration method (Netplan)"
         fi
     fi
-else
-    # No Netplan files found — check other network managers
-    if [ -f /etc/network/interfaces ]; then
-        # Debian-style /etc/network/interfaces
-        if grep -qE '^\s+address\s' /etc/network/interfaces 2>/dev/null; then
-            pass "IP is statically configured (/etc/network/interfaces)"
-        elif grep -qE '^\s+method\s+(dhcp|auto)' /etc/network/interfaces 2>/dev/null; then
-            warn "IP is assigned via DHCP (/etc/network/interfaces)"
-            echo "       A static IP is recommended for servers to prevent address changes."
-        else
-            warn "Could not determine IP configuration method (/etc/network/interfaces)"
-        fi
-    elif command -v nmcli &>/dev/null; then
-        # NetworkManager — use nmcli connection show (IP4.CONFIG was removed from device show in newer NM)
-        ACTIVE_DEV=$(nmcli -t -f DEVICE,STATE device status 2>/dev/null | grep ':connected' | head -1 | cut -d: -f1)
-        if [ -n "$ACTIVE_DEV" ]; then
-            # Get the connection name for this device
-            CON_NAME=$(nmcli -t -f NAME,DEVICE connection show 2>/dev/null | grep ":${ACTIVE_DEV}$" | cut -d: -f1)
-            if [ -n "$CON_NAME" ]; then
-                METHOD=$(nmcli -t -f ipv4.method connection show "$CON_NAME" 2>/dev/null | head -1 | cut -d: -f2)
-                if [ "$METHOD" = "manual" ] || [ "$METHOD" = "shared" ]; then
-                    if [ "$METHOD" = "manual" ]; then
-                        pass "IP is statically configured (NetworkManager)"
-                    else
-                        pass "IP is effectively static (NetworkManager, 'shared' mode)"
-                        echo "       The host runs the DHCP server, so the address will not change externally."
-                    fi
-                elif [ "$METHOD" = "auto" ] || [ "$METHOD" = "dhcp" ]; then
-                    warn "IP is assigned via DHCP (NetworkManager)"
-                    echo "       A static IP is recommended for servers to prevent address changes."
-                else
-                    warn "Could not determine IP configuration method (NetworkManager, method: $METHOD)"
-                fi
-            else
-                warn "Could not determine connection name for device $ACTIVE_DEV"
-            fi
-        else
-            warn "No active NetworkManager connection found"
-        fi
-    else
-        warn "Could not find network configuration method (no Netplan, /etc/network/interfaces, or NetworkManager)"
-    fi
 fi
-if [ -z "$NETPLAN_FILE" ]; then
+if [ "$NETPLAN_HANDLED" = false ]; then
     if [ -f /etc/network/interfaces ]; then
-        # /etc/network/interfaces (Debian/older Ubuntu)
         if grep -qE '^\s+address\s' /etc/network/interfaces 2>/dev/null; then
             pass "IP is statically configured (/etc/network/interfaces)"
         elif grep -qE '^\s+method\s+(dhcp|auto)' /etc/network/interfaces 2>/dev/null; then
@@ -299,10 +255,9 @@ if [ -z "$NETPLAN_FILE" ]; then
             warn "Could not determine IP configuration method (/etc/network/interfaces)"
         fi
     elif command -v nmcli &>/dev/null; then
-        # NetworkManager — use nmcli connection show (IP4.CONFIG was removed from device show in newer NM)
+        # NetworkManager — use nmcli connection show
         ACTIVE_DEV=$(nmcli -t -f DEVICE,STATE device status 2>/dev/null | grep ':connected' | head -1 | cut -d: -f1)
         if [ -n "$ACTIVE_DEV" ]; then
-            # Get the connection name for this device
             CON_NAME=$(nmcli -t -f NAME,DEVICE connection show 2>/dev/null | grep ":${ACTIVE_DEV}$" | cut -d: -f1)
             if [ -n "$CON_NAME" ]; then
                 METHOD=$(nmcli -t -f ipv4.method connection show "$CON_NAME" 2>/dev/null | head -1 | cut -d: -f2)
