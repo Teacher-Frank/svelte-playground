@@ -33,11 +33,68 @@ echo " Playground Guest VM Checklist Verification"
 echo "=========================================="
 echo ""
 
-# ---- 1. QEMU guest agent ----
+# ---- Distro detection ----
+DISTRO_ID="unknown"
+if [ -f /etc/os-release ]; then
+    DISTRO_ID=$(. /etc/os-release && echo "${ID}") || DISTRO_ID="unknown"
+fi
+echo " Distro: ${DISTRO_ID}"
+echo ""
+
+# ---- Distro-agnostic helpers ----
+dpkg_is_installed() {
+    dpkg -l "$1" 2>/dev/null | grep -q "^ii"
+}
+rpm_is_installed() {
+    rpm -q "$1" &>/dev/null
+}
+
+is_debian_based() {
+    [ "$DISTRO_ID" = "ubuntu" ] || [ "$DISTRO_ID" = "debian" ] || [ "$DISTRO_ID" = "pop" ]
+}
+
+is_rhel_based() {
+    [ "$DISTRO_ID" = "rhel" ] || [ "$DISTRO_ID" = "centos" ] || [ "$DISTRO_ID" = "fedora" ] || [ "$DISTRO_ID" = "rocky" ] || [ "$DISTRO_ID" = "almalinux" ]
+}
+
+pkg_installed() {
+    if is_debian_based; then
+        dpkg_is_installed "$1"
+    elif is_rhel_based; then
+        rpm_is_installed "$1"
+    else
+        # Fallback: check if binary is on PATH
+        command -v "$1" &>/dev/null
+    fi
+}
+
+pkg_install_cmd() {
+    if is_debian_based; then
+        echo "sudo apt install -y $1"
+    elif is_rhel_based; then
+        echo "sudo dnf install -y $1"
+    else
+        echo "sudo [package-manager] install $1  (distro ${DISTRO_ID} not recognized)"
+    fi
+}
+
+has_systemd() {
+    [ -d /run/systemd/system ]
+}
+
+svc_is_active() {
+    has_systemd && systemctl is-active --quiet "$1" 2>/dev/null
+}
+
+svc_is_enabled() {
+    has_systemd && systemctl is-enabled --quiet "$1" 2>/dev/null
+}
+
+# ---- 1. QEMU guest agent ---
 echo "--- QEMU Guest Agent ---"
-if dpkg -l qemu-guest-agent 2>/dev/null | grep -q "^ii"; then
+if pkg_installed "qemu-guest-agent"; then
     pass "qemu-guest-agent package is installed"
-    if systemctl is-active --quiet qemu-guest-agent; then
+    if svc_is_active "qemu-guest-agent"; then
         pass "qemu-guest-agent service is running"
     else
         fail "qemu-guest-agent service is NOT running"
@@ -51,7 +108,7 @@ echo ""
 
 # ---- 2. cloud-init + NoCloud datasource ----
 echo "--- Cloud-init ---"
-if dpkg -l cloud-init 2>/dev/null | grep -q "^ii"; then
+if pkg_installed cloud-init; then
     pass "cloud-init package is installed"
 
     # Check NoCloud datasource
@@ -69,16 +126,16 @@ if dpkg -l cloud-init 2>/dev/null | grep -q "^ii"; then
     fi
 else
     fail "cloud-init is NOT installed"
-    echo "       Fix: sudo apt install -y cloud-init"
+    echo "       Fix: $(pkg_install_cmd cloud-init)"
     echo "            sudo sed -i '/^datasource_list:/c\\datasource_list: [NoCloud, None]' /etc/cloud/cloud.cfg"
 fi
 echo ""
 
-# ---- 3. Serial console getty (required for terminal access) ----
+# ---- 3. Serial console getty (required for terminal access)---
 echo "--- Serial Console Getty (terminal access) ---"
-if systemctl is-enabled serial-getty@ttyS0.service 2>/dev/null | grep -qiE '(enabled|yes)'; then
+if svc_is_enabled serial-getty@ttyS0; then
     pass "serial-getty@ttyS0 is enabled"
-    if systemctl is-active --quiet serial-getty@ttyS0 2>/dev/null; then
+    if svc_is_active serial-getty@ttyS0; then
         pass "serial-getty@ttyS0 is active"
     else
         warn "serial-getty@ttyS0 is enabled but not running"
@@ -136,11 +193,13 @@ echo ""
 
 # ---- 7. websockify bridge (port 8001) ----
 echo "--- websockify VNC Bridge (port 8001) ---"
-if dpkg -l websockify 2>/dev/null | grep -q "^ii"; then
+if pkg_installed websockify; then
+
     pass "websockify package is installed"
     if ss -tlnp 2>/dev/null | grep -q ":8001 "; then
         pass "websockify is listening on port 8001"
-    elif systemctl is-active --quiet websockify-vnc; then
+    elif svc_is_active websockify-vnc; then
+
         pass "websockify-vnc service is active (port may take a moment to bind)"
     else
         warn "websockify is NOT listening on port 8001"
