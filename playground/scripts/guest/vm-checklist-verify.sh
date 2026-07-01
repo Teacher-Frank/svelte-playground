@@ -13,6 +13,7 @@
 #   6. VNC server listening on port 5901 (optional - required for GUI)
 #   7. websockify VNC bridge listening on port 8001 (optional - required for GUI)
 #   8. Network connectivity (can reach gateway/DNS)
+#   9. Static IP configuration check (recommended vs DHCP)
 #
 # Usage:
 #   sudo bash vm-checklist-verify.sh
@@ -163,6 +164,68 @@ if command -v ip &>/dev/null; then
     fi
 else
     warn "ip command not available, skipping IP check"
+fi
+
+# Check if IP is statically configured or DHCP
+echo ""
+NETPLAN_FILE=$(ls /etc/netplan/*.yaml 2>/dev/null | head -1)
+if [ -n "$NETPLAN_FILE" ]; then
+    # If Netplan delegates to NetworkManager, skip Netplan parsing
+    if grep -q 'renderer:.*NetworkManager' "$NETPLAN_FILE" 2>/dev/null; then
+        NETPLAN_FILE=""  # Fall through to other checks below
+    else
+        # Netplan manages the network directly
+        if grep -qE '^\s+addresses:' "$NETPLAN_FILE" 2>/dev/null && ! grep -qE '^\s+dhcp4:\s*(true|yes)' "$NETPLAN_FILE" 2>/dev/null; then
+            pass "IP is statically configured (Netplan)"
+        elif grep -qE '^\s+dhcp4:\s*(true|yes)' "$NETPLAN_FILE" 2>/dev/null; then
+            warn "IP is assigned via DHCP (Netplan)"
+            echo "       A static IP is recommended for servers to prevent address changes."
+        else
+            warn "Could not determine IP configuration method (Netplan)"
+        fi
+    fi
+fi
+if [ -z "$NETPLAN_FILE" ]; then
+    if [ -f /etc/network/interfaces ]; then
+        # /etc/network/interfaces (Debian/older Ubuntu)
+        if grep -qE '^\s+address\s' /etc/network/interfaces 2>/dev/null; then
+            pass "IP is statically configured (/etc/network/interfaces)"
+        elif grep -qE '^\s+method\s+(dhcp|auto)' /etc/network/interfaces 2>/dev/null; then
+            warn "IP is assigned via DHCP (/etc/network/interfaces)"
+            echo "       A static IP is recommended for servers to prevent address changes."
+        else
+            warn "Could not determine IP configuration method (/etc/network/interfaces)"
+        fi
+    elif command -v nmcli &>/dev/null; then
+        # NetworkManager — use nmcli connection show (IP4.CONFIG was removed from device show in newer NM)
+        ACTIVE_DEV=$(nmcli -t -f DEVICE,STATE device status 2>/dev/null | grep ':connected' | head -1 | cut -d: -f1)
+        if [ -n "$ACTIVE_DEV" ]; then
+            # Get the connection name for this device
+            CON_NAME=$(nmcli -t -f NAME,DEVICE connection show 2>/dev/null | grep ":${ACTIVE_DEV}$" | cut -d: -f1)
+            if [ -n "$CON_NAME" ]; then
+                METHOD=$(nmcli -t -f ipv4.method connection show "$CON_NAME" 2>/dev/null | head -1 | cut -d: -f2)
+                if [ "$METHOD" = "manual" ] || [ "$METHOD" = "shared" ]; then
+                    if [ "$METHOD" = "manual" ]; then
+                        pass "IP is statically configured (NetworkManager)"
+                    else
+                        pass "IP is effectively static (NetworkManager, 'shared' mode)"
+                        echo "       The host runs the DHCP server, so the address will not change externally."
+                    fi
+                elif [ "$METHOD" = "auto" ] || [ "$METHOD" = "dhcp" ]; then
+                    warn "IP is assigned via DHCP (NetworkManager)"
+                    echo "       A static IP is recommended for servers to prevent address changes."
+                else
+                    warn "Could not determine IP configuration method (NetworkManager, method: $METHOD)"
+                fi
+            else
+                warn "Could not determine connection name for device $ACTIVE_DEV"
+            fi
+        else
+            warn "No active NetworkManager connection found"
+        fi
+    else
+        warn "Could not find network configuration method (no Netplan, /etc/network/interfaces, or NetworkManager)"
+    fi
 fi
 
 if command -v ping &>/dev/null; then

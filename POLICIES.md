@@ -63,6 +63,11 @@ These rules apply to any project. They guide reasoning, prevent mistakes, and po
 - Before any commit, merge, or PR: all required validation MUST pass. If validation fails, the change MUST NOT ship without an approved exception.
 - Validation success: command exits `0`, no unresolved errors, output is clean.
 
+## P3c: Bash Script Syntax Check
+- **After editing any `.sh` file**, run `bash -n <file>` to verify syntax before presenting the change as complete or asking the user to test it.
+- This is non-negotiable — a script with a syntax error (unclosed `if`, missing `fi`, etc.) is guaranteed to fail at runtime.
+- **Rationale:** the editor's string-replace tool can silently break control-flow structure (missing `fi`, broken indentation) that only tools like `bash -n` can detect.
+
 ## P4a: Fail Fast
 - Prefer early, detectable failures. A compile-time type error beats a runtime `undefined`.
 - When a prerequisite is missing, fail with a clear, actionable message — never default to `undefined` or degraded behavior.
