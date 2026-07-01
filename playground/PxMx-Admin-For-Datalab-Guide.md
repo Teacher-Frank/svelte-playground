@@ -561,9 +561,14 @@ sudo bash vm-checklist-verify.sh
 
 This checks:
 - QEMU guest agent installed and running
+- Cloud-init installed with NoCloud datasource
+- Serial console getty (required for terminal access)
+- Kernel serial console parameter (recommended)
+- LXC device passthrough for VNC (LXC only)
 - VNC server listening on port 5901 (optional)
 - websockify bridge listening on port 8001 (optional)
 - Network connectivity (IPv4 address and internet reachability)
+- Static IP configuration (warning if DHCP is detected; see [4.3 DHCP to static IP conversion](#43-dhcp-to-static-ip-conversion))
 
 A summary shows passed, failed, and warning counts. If any check fails, the output
 includes the fix command.
