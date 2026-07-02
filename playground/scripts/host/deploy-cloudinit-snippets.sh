@@ -55,6 +55,11 @@ cat > "$SNIPPET_DIR/install-agent.yaml" <<'CLOUD-INIT'
 #   cicustom: vendor=${SNIPPET_STORAGE}:snippets/install-agent.yaml
 
 runcmd:
+  # 0. Write a marker log so we can verify this snippet ran.
+  - |
+    TIMESTAMP=$(date -u +%F\ %T\ UTC)
+    echo "install-agent snippet ran at $TIMESTAMP" > /root/snippet.log
+
   # 1. Install qemu-guest-agent if not already present, then enable it.
   - |
     set -e && \
