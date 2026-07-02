@@ -246,13 +246,37 @@ sudo apt update && sudo apt install -y cloud-init
 # Configure NoCloud datasource — required for Proxmox cloud-init to work
 sudo sed -i '/^datasource_list:/c\datasource_list: [NoCloud, None]' /etc/cloud/cloud.cfg
 
-# Disable cloud-init persistence so it runs fresh on each clone
+# CRITICAL: reset cloud-init state so it re-runs on each cloned VM.
+# Without this, cloud-init sees its own state files and skips all processing —
+# the cicustom vendor snippet (runcmd for agent install, credential injection,
+# network config, DHCP→static conversion) will silently do nothing on first boot
+# of the cloned VM. The deploy flow will then fail after the grace period with
+# no IP discovered and no agent detected.
 sudo cloud-init clean
 
 # Enable serial console getty — required for web terminal access (Section 4.1.2)
 # Without this, termproxy connects to the serial port but no login prompt appears.
 sudo systemctl enable --now serial-getty@ttyS0.service
 ```
+
+> **⚠️ Important:** `cloud-init clean` is **mandatory** before converting a VM to a template.
+> Every time the VM is booted (even briefly to install packages or configure settings),
+> cloud-init creates state files under `/var/lib/cloud/`. Those state files survive
+> `qm template` and are copied into every clone. If the state says "already processed",
+> cloud-init skips everything — user-data, vendor-data, `runcmd`, credentials, network.
+>
+> **How to verify it worked:** After deploying a clone, SSH in and check:
+> ```bash
+> cat /root/snippet.log  # should show a timestamp
+> cloud-init status --long  # should show "active" or "done" with a recent time
+> ```
+> If `snippet.log` doesn't exist, the snippet didn't run — re-run `cloud-init clean`
+> in the template before converting.
+
+> **Note on `ciupgrade`:** Setting `ciupgrade: 1` (already done by the deploy flow)
+> triggers `apt-get upgrade` on first boot, but it **does not** force cloud-init to
+> process `cicustom` vendor-data or `runcmd` directives. If `cloud-init clean` wasn't
+> run in the template, `ciupgrade` won't help — cloud-init skips all data sources.
 
 **For RHEL/CentOS/Fedora:**
 ```bash
@@ -261,7 +285,9 @@ sudo dnf install -y cloud-init
 # Configure NoCloud datasource
 sudo sed -i '/^datasource_list:/c\datasource_list: [NoCloud, None]' /etc/cloud/cloud.cfg
 
-# Disable cloud-init persistence
+# CRITICAL: reset cloud-init state — same importance as the Ubuntu/Debian path above.
+# See §1.4.2 for full explanation. Without this, the vendor-data snippet won't
+# process on first boot of cloned VMs.
 sudo cloud-init clean
 
 # Enable serial console getty — required for web terminal access
@@ -348,6 +374,11 @@ Then in Proxmox GUI: shut down the VM and convert it to template (`qm template <
 
 > **The deploy flow will install `qemu-guest-agent` on first boot** via the `cicustom`
 > cloud-init snippet (Section 1.7.2). You only need `cloud-init` in the template.
+>
+> **⚠️ Remember `cloud-init clean`:** If you boot the template VM at any point after
+> installing cloud-init (e.g., to test something), **re-run** `cloud-init clean` before
+> converting to template. Booting creates state files that will cause cloud-init to skip
+> all processing on cloned VMs.
 
 ### 1.5 Enable nesting at LXC container creation
 
@@ -481,6 +512,7 @@ and display the VM's IP.
 | VM clone fails with cloud-init LV collision | A stale cloud-init volume exists for that VMID. Remove it (`qm set <vmid> --delete ide2`) and retry deploy |
 | Hook script not found error on deploy | Confirm `PVE_LXC_HOOKSCRIPT_VOLID` in `acctest-env.ps1` points to the correct storage path |
 | VM IP shows as `?` in UI | Guest agent not installed or not running — check that the template has cloud-init (Section 1.4) and that the snippet was deployed (Section 1.7.2) |
+| VM clone boots but snippet doesn't run (no `/root/snippet.log`) | **Most common:** `cloud-init clean` was NOT run in the template before `qm template` — re-run it, shut down, re-convert. Cloud-init's state files are cloned and it skips all processing if it sees prior state. See §1.4.2 explanation. **Also check:** the snippet file exists on the host (`ls /var/lib/vz/snippets/install-agent.yaml`) and `PVE_SNIPPET_STORAGE` is correct |
 
 ---
 

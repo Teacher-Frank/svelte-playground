@@ -223,28 +223,29 @@ else
 fi
 
 # ---- 8b. Static IP configuration check ----
-echo ""
-NETPLAN_DIR="/etc/netplan"
-NETPLAN_HANDLED=false
-if [ -d "$NETPLAN_DIR" ] && ls "$NETPLAN_DIR"/*.yaml 1>/dev/null 2>&1; then
-    # Netplan exists — check all files across directory
-    if grep -rq 'renderer:.*NetworkManager' "$NETPLAN_DIR" 2>/dev/null; then
-        # Netplan delegates to NetworkManager — let NM check handle it below
-        :
-    else
-        NETPLAN_HANDLED=true
-        # Netplan manages networking directly
-        if grep -rqE '^\s+addresses:' "$NETPLAN_DIR" 2>/dev/null; then
+IP_CHECKED=false
+NETPLAN_DIRS="/run/netplan /etc/netplan"
+for ND in $NETPLAN_DIRS; do
+    if [ -d "$ND" ] && ls "$ND"/*.yaml 1>/dev/null 2>&1; then
+        # Check if Netplan delegates to NetworkManager
+        if grep -rq 'renderer:.*NetworkManager' "$ND" 2>/dev/null; then
+            # Netplan delegates to NetworkManager — skip Netplan, fall through to nmcli
+            break 2
+        fi
+        # Netplan manages networking directly — check for static or DHCP
+        if grep -rqE '^\s+addresses:' "$ND" 2>/dev/null; then
             pass "IP is statically configured (Netplan)"
-        elif grep -rqE '^\s+dhcp4:\s*(true|yes)' "$NETPLAN_DIR" 2>/dev/null; then
+            IP_CHECKED=true
+            break 2
+        elif grep -rqie '^\s+dhcp4:\s*(true|yes)' "$ND" 2>/dev/null; then
             warn "IP is assigned via DHCP (Netplan)"
             echo "       A static IP is recommended for servers to prevent address changes."
-        else
-            warn "Could not determine IP configuration method (Netplan)"
+            IP_CHECKED=true
+            break 2
         fi
     fi
-fi
-if [ "$NETPLAN_HANDLED" = false ]; then
+done
+if [ "$IP_CHECKED" = false ]; then
     if [ -f /etc/network/interfaces ]; then
         if grep -qE '^\s+address\s' /etc/network/interfaces 2>/dev/null; then
             pass "IP is statically configured (/etc/network/interfaces)"
