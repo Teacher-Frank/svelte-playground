@@ -1,6 +1,6 @@
 # Deploy Progress — Investigation Notes
 
-**Date:** 2026-06-18 → Updated 2026-07-01
+**Date:** 2026-06-18 → Updated 2026-07-03
 **Issue:** Ubuntu Desktop VM deployment stays stuck in "Deploying..." mode until the 10-minute hard cap expires.
 
 ---
@@ -21,7 +21,9 @@
 | **vendor= vs user= fix** | 2026-06-27 | Discovered `user=` in `cicustom` replaces Proxmox's auto-generated user-data (losing `cipassword`). Changed to `vendor=` which merges on top, preserving password login |
 | **Deploy shadowing + controls** | 2026-06-27 | Fixed dual-row regression during clone (VMID propagation + VMID-first shadowing). Fixed control disable state machine (extracted `isDisabledStatus()`, delete always enabled on failure states) |
 | **Static IP post-deploy** | 2026-06-29 | Implemented DHCP→static IP conversion in `install-agent.yaml` via `cicustom` vendor snippet. Second `runcmd` extracts DHCP IP + gateway, rewrites Netplan (`dhcp4: false` + static addresses/routes/nameservers), applies. Idempotent. Script updated + featuredoc section added. Awaiting host deployment + E2E test. |
-| **Deploy concurrency guardrail** | 2026-07-01 | Added singleton `pendingDeployLock` in `helpers.ts` to prevent simultaneous deployments that crashed the dev server. All three deploy actions (`cloneFromTemplate`, `cloneLxcGuestTemplate`, `cloneLxcTemplate`) now acquire lock before deploy, release in finally/catch. Returns `fail(409)` with descriptive message when a deploy is already in progress. Lock auto-expires after 10 min. |
+| **Deploy concurrency guardrail** | 2026-07-01 | Added singleton `pendingDeployLock` in `helpers.ts` to prevent simultaneous deployments that crashed the dev server. All three deploy actions (`cloneFromTemplate`, `cloneLxcGuestTemplate`, `cloneLxcTemplate`) now acquire the lock before deploy, release in finally/catch. Returns `fail(409)` with descriptive message when a deploy was already in progress. Lock auto-expire after 10 min. |
+| **Usability test (snippet failure discovery)** | 2026-07-03 | Full deploy→terminal→verify test on template 9000 (debian-12-cloud-template). VM deployed and terminal connected successfully, but cloud-init skipped runcmd entirely. No `snippet.log` marker, no qemu-guest-agent installed. Root cause: `Skipping modules '...runcmd' because no applicable config is provided.` — likely the snippet file `install-agent.yaml` was never deployed to the Proxmox host via `deploy-cloudinit-snippets.sh`. See §Snippet Failure Root Cause for analysis and fix. |
+| **Terminal reconnection fix** | 2026-07-03 | Terminal connection to VM 101 (test-vm-9000-retry) now confirmed working after reconnect. Serial0=socket + serial-getty@ttyS0 service running, login prompt appears, shell responds. Snippet still not running (pending host deploy). |
 
 ---
 
@@ -190,6 +192,58 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 
 3. **Name mismatch**: The workload name comparison is case-insensitive lowercase trimming. If the deployed name differs from the reported name, `workloadExists` will be false.
 
+## Snippet Failure Root Cause — 2026-07-03
+
+### What the test showed
+Deployed VM 101 from template 9000 (debian-12-cloud-template). Steps observed:
+
+| Step | Result |
+|------|--------|
+| Clone & start | ✅ `qmclone OK`, `qmstart OK` |
+| VM running | ✅ Status: running, uptime tracked |
+| Terminal access | ✅ Serial0=socket working, login prompt appeared |
+| Cloud-init status | ✅ `cloud-init status` → done |
+| Snippet ran | ❌ `runcmd` module skipped by cloud-init |
+| Guest agent installed | ❌ `systemctl status qemu-guest-agent` → service not found |
+| Marker file | ❌ `/root/snippet.log` does not exist |
+
+### Cloud-init log evidence
+```bash
+grep -n "runcmd" /var/log/cloud-init.log
+580:2026-07-03 11:52:28,308 - modules.py[INFO]: Skipping modules '...runcmd' because no applicable config is provided.
+```
+
+### What this means
+Cloud-init ran and completed, but the `runcmd` module was skipped entirely because **no vendor data was provided that contains runcmd config**.
+
+This points to one of two root causes:
+
+1. **Snippet file doesn't exist on Proxmox host** — `install-agent.yaml` was never deployed via `scripts/host/deploy-cloudinit-snippets.sh`. The `cicustom` param is set correctly (`vendor=local:snippets/install-agent.yaml`), but if the file is missing on the host, Proxmox can't mount it as an ISO and cloud-init sees no vendor data.
+
+2. **Snippet file exists but is syntactically invalid** — Malformed YAML could cause Proxmox to skip it silently.
+
+### How to verify
+On the Proxmox host (`compute1-dev`):
+```bash
+# Check if snippet exists
+ls -la /var/lib/vz/snippets/install-agent.yaml
+
+# Validate YAML syntax (if python3 available)
+python3 -c "import yaml; yaml.safe_load(open('/var/lib/vz/snippets/install-agent.yaml'))"
+
+# View current cicustom on deployed VM
+qm config 101 | grep cicustom
+```
+
+### Fix
+If the file is missing, deploy it:
+```bash
+# On Proxmox host
+sudo bash /path/to/playground/scripts/host/deploy-cloudinit-snippets.sh
+```
+
+Also add `PVE_SNIPPET_STORAGE` to `acctest-env.ps1` (defaults to `local` but being explicit is safer). After deploying the snippet, deploy a fresh VM from any template and check for `/root/snippet.log`.
+
 ## Next Steps
 
 - [x] Confirm `cicommand` is not a valid Proxmox API parameter
@@ -197,6 +251,7 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 - [x] Remove dead `cicommand` code from `action-template-deployers.ts`
 - [x] Create `scripts/host/deploy-cloudinit-snippets.sh` host setup script
 - [x] Add `configBody.cicustom` to deploy flow with `PVE_SNIPPET_STORAGE` env var
+- [ ] **Deploy cloud-init snippet to Proxmox host** — `install-agent.yaml` must exist on `compute1-dev` at `/var/lib/vz/snippets/install-agent.yaml` for `cicustom` to work. The snippet was created but may never have been deployed to the host.  Run `scripts/host/deploy-cloudinit-snippets.sh` on Proxmox or add `PVE_SNIPPET_STORAGE` to `acctest-env.ps1` to make it explicit.
 - [x] Update `PxMx-Admin-For-Datalab-Guide.md` §2.3 with correct guest agent instructions
 - [x] **Fix stuck delete modal** — added `try/finally` + 30s hard timeout to `enhanceDestroySubmit`
 - [x] **Fix stuck deploy dialog (empty backdrop)** — added `$effect` auto-close in `PxMxTemplateDialog`
@@ -214,9 +269,11 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 
 - [x] **Add serial0=socket during deployment** — `runPostCloneSteps` now checks for a usable serial port and adds `serial0=socket` if missing (same pattern as net0/ipconfig0/agent). This ensures terminal access works on every deployed VM without manual Proxmox UI intervention.
 
-- [x] **Static IP post-deploy** — added DHCP→static `runcmd` to `install-agent.yaml` via `cicustom` vendor snippet. Waits for eth0 IP, reads gateway, rewrites Netplan from `dhcp4: true` to static config (addresses/routes/nameservers 1.1.1.1+8.8.8.8), applies via `netplan apply`. Idempotent (skips if already static). Fixed `${IP/24}` → `${IP}/24` bash bug. Updated script summary docs. Pending: host deployment + E2E test on fresh VM. |
+- [x] **Status IP post-deploy** — added DHCP→static `runcmd` to `install-agent.yaml` via `cicustom` vendor snippet. Waits for eth0 IP, reads gateway, rewrites Netplan from `dhcp4: true` to static config (addresses/routes/nameservers 1.1.1.1+8.8.8.8), applies via `netplan apply`. Idempotent (skips if already static). Fixed `${IP/24}` → `${IP}/24` bash bug.
 
-- [x] **Deploy concurrency guardrail** — added singleton `pendingDeployLock` in `helpers.ts`. All three deploy actions acquire the lock before starting; second request gets `fail(409)" Deployment already in progress for '...'"`. Lock released in `finally`/catch (LXC synchronous) or `runPostCloneSteps finally` (VM background). Auto-expires after 10 min (matches hard cap). `npm run check` + `npm run lint` clean.
+- [x] **Deploy concurrency guardrail** — added singleton `pendingDeployLock` in `helpers.ts`. All three deploy actions acquire the lock before starting; second request gets `fail(409)" Deployment already in progress for '...'"`. Lock released in `finally`/catch (LXC synchronous) or `runPostCloneSteps finally` (VM background). Auto-expire after 10 min (matches hard cap). `npm run check` + `npm run lint` clean.
+
+- [ ] **Static IP E2E test** — verify static IP post-deploy conversion works on fresh deployed VM (blocked by snippet not existing).
 
 ## Policy Added
 

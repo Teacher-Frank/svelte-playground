@@ -136,6 +136,14 @@ Output format: findings ordered by severity with file refs → open questions �
 - **Pattern:** `Get-Content` + index ranges + `Out-File -Encoding UTF8`. Select and export existing lines rather than constructing new arrays.
 - Contiguous: `@('header') + $lines[123..479] | Out-File -Encoding UTF8 output.ts`
 - Non-contiguous: `($lines[480..821] + $lines[998..1065] + $lines[1166..1209]) | Out-File -Encoding UTF8 output.ts`
+
+## Shell Scripts: Fail Fast and Loud (Bash + PowerShell)
+- **Bash:** every script MUST start with `set -euo pipefail` — exit on error (`-e`), fail on undefined vars (`-u`), propagate pipe failures (`-o pipefail`). This is non-negotiable.
+- **PowerShell:** every script MUST start with `$ErrorActionPreference = 'Stop'` (or `-ErrorAction Stop` on individual commands when pipeline-continuing is needed).
+- **Guard critical prerequisites at the top** — fail early with a clear message if a required tool, env var, or file is missing.
+- **Embedding YAML/JSON in heredocs:** validate the heredoc content at the end of the script (e.g., `python3 -c "import yaml; yaml.safe_load(open('$file'))"` for YAML). Syntax errors in embedded data cause silent runtime failures downstream.
+- **Log each step** — use `echo`/`Write-Host` before critical operations, not after. This makes partial execution visible.
+- **Rationale:** The `deploy-cloudinit-snippets.sh` bug (2026-07-03) was caused by embedded YAML that passed local validation but failed at runtime on Proxmox because a glob check (`shopt -s nullglob`) was missing — the script silently skipped a `grep -l` that should have failed, leaving the Netplan conversion step with an empty variable. With `set -uo pipefail` and explicit logging, this would have surfaced immediately during development.
 ## Svelte 5 Runtime Behavior
 - **Avoid assigning a new array/object to the same `$state` inside an `$effect` unless content actually changed** — otherwise tests fail with `effect_update_depth_exceeded`.
 - Use conditional guards or `$derived` when reaction depends on computed state, not unconditional reassignment.
