@@ -203,6 +203,14 @@ These rules are specific to this repository's stack, tooling, and domain.
 - **Multi-machine:** Fri–Tue primary station, Wed–Thu Surface Pro in Rotterdam.
 - Always `git pull` before starting. Re-read `AGENTS.md` and `POLICIES.md`.
 
+## Workspace Tools: graphify knowledge graph
+- **Both `svelte-playground` and `pve-client` have `graphify-out/graph.json`** — query it before scanning the codebase for structural questions (architecture, "where is X?", "what does Y connect to?", import relationships).
+- Use `graphify explain <node>` to get a node's connections, source location, and community in one call.
+- Use `graphify query "<question>"` for BFS traversal across the graph structure.
+- Use `graphify path "A" "B"` to trace the shortest path between two concepts.
+- **Do NOT use graphify for:** reading actual implementation logic, debugging errors, detailed code review, or anything requiring understanding of *how* code works rather than *where* it is.
+- **Rationale:** graphify saves exploration tokens by providing codebase structure upfront (god nodes, community layout, surprising connections) without scanning source files. For structural/architecture questions, it replaces 3-5 grep + read_file calls with one `graphify query`.
+
 ## Workspace Git Repositories
 - **This workspace contains two Git repositories:**
   1. `svelte-playground` (primary — check first for git operations)
