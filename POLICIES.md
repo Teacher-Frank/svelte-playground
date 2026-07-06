@@ -63,6 +63,20 @@ These rules apply to any project. They guide reasoning, prevent mistakes, and po
 - **Bake validation into the generator itself** — add a `--dry-run` or `--validate` flag that generates + checks without deploying.
 - **Rationale:** syntax errors in generated code surface only after full deployment or reboot cycles (deploy → reboot → cloud-init runs → fails silently). A 1-second local syntax check saves hours of debugging across machines.
 
+## P2e: Always Show Explicit State
+- **Never leave UI surfaces in ambiguous states** — explicitly show loading, empty, error, and success states.
+- A blank screen is never acceptable. If data is loading, show a loading indicator. If there's no data, show an empty state message. If data is unavailable, explain why.
+- For remote connections (VNC, terminal, API endpoints): if the connection target is unavailable, render an actionable error message with retry guidance — not a blank canvas.
+- **Rationale:** users interpreting blank screens as "broken" vs "no data" leads to confusion and support requests. Explicit states eliminate inference.
+
+## P2f: Keyboard Accessibility
+- **Interactive UI elements must support keyboard navigation** at minimum input types:
+  - `Enter`: activate/confirm actions, open dialogs
+  - `Escape`: close dialogs, cancel in-progress actions, clear selection
+  - Arrow keys: traverse lists, tables, and tab groups
+- Every focusable element should have visible focus rings.
+- **Rationale:** keyboard-only users are excluded if interactions are mouse-only. Even basic support (Enter/Escape) covers 80% of patterns.
+
 ## P3: Impact Analysis Before Implementation
 - **Before enacting any change**, perform two impact analyses:
   1. **Root cause:** What is the actual cause of the problem? Trace the failure to its source — don't treat symptoms.

@@ -615,9 +615,9 @@
     "semantic_hash": "0b147ed2fa9926d4f81a894b3a7640cf"
   },
   "POLICIES.md": {
-    "mtime": 1783354320.4402714,
-    "ast_hash": "9ad6244dffda11e90da03bc591e5b2e2",
-    "semantic_hash": ""
+    "mtime": 1783113537.4762304,
+    "ast_hash": "491ffb6c72d68f5dd88f53c60b1105fd",
+    "semantic_hash": "491ffb6c72d68f5dd88f53c60b1105fd"
   },
   "README.md": {
     "mtime": 1774446481.3719218,
@@ -828,75 +828,5 @@
     "mtime": 1774715512.9411333,
     "ast_hash": "edee45d7f5b84705d2ecf4647005ee63",
     "semantic_hash": "edee45d7f5b84705d2ecf4647005ee63"
-  },
-  ".agents/skills/mem0/scripts/mem0_doc_search.py": {
-    "mtime": 1783353668.6022267,
-    "ast_hash": "735be0e1b8d6f5cc5850c6240e62d878",
-    "semantic_hash": ""
-  },
-  "skills-lock.json": {
-    "mtime": 1783353668.8733919,
-    "ast_hash": "f055254f8bbba31c7a4007d61ff26d27",
-    "semantic_hash": ""
-  },
-  ".agents/skills/mem0/README.md": {
-    "mtime": 1783353668.598227,
-    "ast_hash": "2c2822a27eea53b0b8b7a456632f6fa1",
-    "semantic_hash": ""
-  },
-  ".agents/skills/mem0/SKILL.md": {
-    "mtime": 1783353668.598227,
-    "ast_hash": "2383cb676f693689b43fe6b6b29f3d79",
-    "semantic_hash": ""
-  },
-  ".agents/skills/mem0/client/differences.md": {
-    "mtime": 1783353668.598227,
-    "ast_hash": "33b358ace5fd9a338df738762b80b243",
-    "semantic_hash": ""
-  },
-  ".agents/skills/mem0/client/node.md": {
-    "mtime": 1783353668.599227,
-    "ast_hash": "05a282fa515fb44658f316d7aeb1e0bb",
-    "semantic_hash": ""
-  },
-  ".agents/skills/mem0/client/python.md": {
-    "mtime": 1783353668.599227,
-    "ast_hash": "cdb37d738d46355950ed04e72a9ec70a",
-    "semantic_hash": ""
-  },
-  ".agents/skills/mem0/references/api-reference.md": {
-    "mtime": 1783353668.599227,
-    "ast_hash": "5829b53ad0de1525ef7cc221f68d230b",
-    "semantic_hash": ""
-  },
-  ".agents/skills/mem0/references/architecture.md": {
-    "mtime": 1783353668.600226,
-    "ast_hash": "2cc266f021a6019ba01296ff2952c0d4",
-    "semantic_hash": ""
-  },
-  ".agents/skills/mem0/references/features.md": {
-    "mtime": 1783353668.600226,
-    "ast_hash": "03559151f8edfbb96b89332ddadb30b3",
-    "semantic_hash": ""
-  },
-  ".agents/skills/mem0/references/integration-patterns.md": {
-    "mtime": 1783353668.600226,
-    "ast_hash": "3030adbb21021987a80d8465a6ed3392",
-    "semantic_hash": ""
-  },
-  ".agents/skills/mem0/references/quickstart.md": {
-    "mtime": 1783353668.601226,
-    "ast_hash": "9f49c824d01157bda5e30ea792f697a7",
-    "semantic_hash": ""
-  },
-  ".agents/skills/mem0/references/sdk-guide.md": {
-    "mtime": 1783353668.601226,
-    "ast_hash": "fad5c64d1ae5dd39eb001c986f142d35",
-    "semantic_hash": ""
-  },
-  ".agents/skills/mem0/references/use-cases.md": {
-    "mtime": 1783353668.601226,
-    "ast_hash": "c611075dab329f3292c8891ea0f57304",
-    "semantic_hash": ""
   }
 }
