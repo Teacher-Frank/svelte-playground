@@ -51,6 +51,18 @@ These rules apply to any project. They guide reasoning, prevent mistakes, and po
 - If the parameter does **not** exist in the spec/types, document the gap and do not use it.
 - **Rationale:** fabricated API parameters (e.g., `cicommand`) silently fail at runtime — the server ignores unknown fields. A compile-time canary is the cheapest early warning.
 
+## P2d: Generated Code Must Validate Before Ship
+- **When code generates code** (templates, heredocs, YAML, JSON, config files, systemd units, shell scripts, etc.), **validate the generated output locally before deploying it to a target runtime.**
+- Don't rely on a remote reboot or deployment cycle to discover syntax errors in generated content.
+- **Examples of pre-ship validation:**
+  - YAML: `python3 -c "import yaml; yaml.safe_load(open('output.yaml'))"`
+  - JSON: `python3 -c "import json; json.load(open('output.json'))"`
+  - Shell: `bash -n script.sh`
+  - TypeScript: `tsc --noEmit` on generated `.ts` files
+  - Config/INI: parse with the target library's parser
+- **Bake validation into the generator itself** — add a `--dry-run` or `--validate` flag that generates + checks without deploying.
+- **Rationale:** syntax errors in generated code surface only after full deployment or reboot cycles (deploy → reboot → cloud-init runs → fails silently). A 1-second local syntax check saves hours of debugging across machines.
+
 ## P3: Impact Analysis Before Implementation
 - **Before enacting any change**, perform two impact analyses:
   1. **Root cause:** What is the actual cause of the problem? Trace the failure to its source — don't treat symptoms.
@@ -141,7 +153,7 @@ Output format: findings ordered by severity with file refs → open questions �
 - **Bash:** every script MUST start with `set -euo pipefail` — exit on error (`-e`), fail on undefined vars (`-u`), propagate pipe failures (`-o pipefail`). This is non-negotiable.
 - **PowerShell:** every script MUST start with `$ErrorActionPreference = 'Stop'` (or `-ErrorAction Stop` on individual commands when pipeline-continuing is needed).
 - **Guard critical prerequisites at the top** — fail early with a clear message if a required tool, env var, or file is missing.
-- **Embedding YAML/JSON in heredocs:** validate the heredoc content at the end of the script (e.g., `python3 -c "import yaml; yaml.safe_load(open('$file'))"` for YAML). Syntax errors in embedded data cause silent runtime failures downstream.
+- **Embedding YAML/JSON in heredocs:** validate the heredoc content at the end of the script (e.g., `python3 -c "import yaml; yaml.safe_load(open('$file'))"` for YAML). Syntax errors in embedded data cause silent runtime failures downstream. See **P2d** for the broader generated-code policy.
 - **Log each step** — use `echo`/`Write-Host` before critical operations, not after. This makes partial execution visible.
 - **Rationale:** The `deploy-cloudinit-snippets.sh` bug (2026-07-03) was caused by invalid YAML embedded in the heredoc — `shopt -s nullglob` and `shopt -u nullglob` directives leaked into the YAML text, producing unparseable `runcmd` content. Cloud-init silently skipped it entirely (`Skipping modules '...runcmd' because no applicable config is provided`). A local YAML syntax check (`python3 -c "import yaml; yaml.safe_load(open('install-agent.yaml'))"`) *before* deploying to Proxmox would have caught this instantly, saving a full day of debugging.
 ## Svelte 5 Runtime Behavior
