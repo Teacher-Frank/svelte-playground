@@ -5,12 +5,12 @@
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1028 nodes · 1252 edges · 90 communities (71 shown, 19 thin omitted)
+- 876 nodes · 1102 edges · 72 communities (52 shown, 20 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 5 edges (avg confidence: 0.74)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `863e3541`
+- Built from commit: `227dcde5`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -69,35 +69,18 @@
 - [[_COMMUNITY_templateDialogEnhance.ts|templateDialogEnhance.ts]]
 - [[_COMMUNITY_PxMxAdmin.svelte.spec.ts|PxMxAdmin.svelte.spec.ts]]
 - [[_COMMUNITY_PxMxAdminRefresh.svelte.spec.ts|PxMxAdminRefresh.svelte.spec.ts]]
-- [[_COMMUNITY_1. Proxmox host configuration|1. Proxmox host configuration]]
-- [[_COMMUNITY_Python vs TypeScript SDK Differences|Python vs TypeScript SDK Differences]]
-- [[_COMMUNITY_Deploy Progress — Investigation Notes|Deploy Progress — Investigation Notes]]
-- [[_COMMUNITY_Static IP Post-Deploy Configuration — 2026-06-29|Static IP Post-Deploy Configuration — 2026-06-29]]
-- [[_COMMUNITY_Deploy Shadowing Regression — 2026-06-27|Deploy Shadowing Regression — 2026-06-27]]
-- [[_COMMUNITY_Mem0 Platform Quickstart|Mem0 Platform Quickstart]]
-- [[_COMMUNITY_Serial Port Configuration via Proxmox API — 2026-06-25 Notes|Serial Port Configuration via Proxmox API — 2026-06-25 Notes]]
-- [[_COMMUNITY_Deploy Failure Detection — 2026-06-24 Session Notes|Deploy Failure Detection — 2026-06-24 Session Notes]]
-- [[_COMMUNITY_✅ Working Solution `cicustom` with cloud-init `runcmd`|✅ Working Solution: `cicustom` with cloud-init `runcmd`]]
-- [[_COMMUNITY_Snippet Failure Root Cause — 2026-07-03|Snippet Failure Root Cause — 2026-07-03]]
-- [[_COMMUNITY_Usability Test — 2026-06-26 Deploy Results|Usability Test — 2026-06-26 Deploy Results]]
-- [[_COMMUNITY_PxMxLxcTemplateList.svelte|PxMxLxcTemplateList.svelte]]
-- [[_COMMUNITY_Deploy Flow Refactor — 2026-06-23 Session Notes|Deploy Flow Refactor — 2026-06-23 Session Notes]]
-- [[_COMMUNITY_❌ Fabricated Fix Discovered — `cicommand` Does Not Exist|❌ Fabricated Fix Discovered — `cicommand` Does Not Exist]]
-- [[_COMMUNITY_Deploy Concurrency Guardrail — 2026-07-01|Deploy Concurrency Guardrail — 2026-07-01]]
-- [[_COMMUNITY_Response Formats|Response Formats]]
-- [[_COMMUNITY_Implementation Details|Implementation Details]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `Workspace-Independent (General Principles)` - 23 edges
-2. `Deploy Progress — Investigation Notes` - 19 edges
-3. `loadResults()` - 19 edges
-4. `scripts` - 18 edges
-5. `../../PxMxAdmin.svelte` - 15 edges
-6. `Workspace-Dependent (This Project)` - 13 edges
-7. `Platform Features -- Mem0 Platform` - 13 edges
-8. `Mem0 SDK Guide` - 13 edges
-9. `constructor()` - 12 edges
-10. `compilerOptions` - 12 edges
+2. `loadResults()` - 19 edges
+3. `scripts` - 18 edges
+4. `../../PxMxAdmin.svelte` - 15 edges
+5. `Platform Features -- Mem0 Platform` - 13 edges
+6. `Mem0 SDK Guide` - 13 edges
+7. `Workspace-Dependent (This Project)` - 13 edges
+8. `constructor()` - 12 edges
+9. `compilerOptions` - 12 edges
+10. `Mem0 Platform Integration` - 11 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `proxmoxAgentStatusPlugin()` --calls--> `handleProxmoxAgentStatus()`  [EXTRACTED]
@@ -114,11 +97,11 @@
 ## Import Cycles
 - None detected.
 
-## Communities (90 total, 19 thin omitted)
+## Communities (72 total, 20 thin omitted)
 
 ### Community 0 - "Proxmox Actions & Types"
-Cohesion: 0.06
-Nodes (53): ToastContext, cloneLxcGuestTemplate(), cloneLxcTemplate(), deployVmFromTemplate(), destroyOrphanVm(), isCloudInitCollisionError(), isUbuntu2404Template(), IMPORTANT: Use `vendor=` NOT `user=` — Proxmox auto-generates the user-data (+45 more)
+Cohesion: 0.07
+Nodes (53): cloneLxcGuestTemplate(), cloneLxcTemplate(), deployVmFromTemplate(), destroyOrphanVm(), isCloudInitCollisionError(), isUbuntu2404Template(), IMPORTANT: Use `vendor=` NOT `user=` — Proxmox auto-generates the user-data, renameLxcGuestTemplate() (+45 more)
 
 ### Community 1 - "Docs Generated Assets"
 Cohesion: 0.08
@@ -185,20 +168,16 @@ Cohesion: 0.50
 Nodes (3): child, vitestEntrypoint, vitestTempDir
 
 ### Community 25 - "ESLint Jiti Config"
-Cohesion: 0.33
-Nodes (7): executeConvertToTemplateAction(), executeDestroyAction(), executeWorkloadAction(), executeWorkloadRenameAction(), actions, buildAction(), formatApiError()
-
-### Community 26 - "Svelte Jiti Config"
-Cohesion: 0.05
-Nodes (40): 2.1 What is a guest and why does it need configuration?, 2.2 Guest-side bash scripts, 2.3 VNC and websockify (required for GUI access), 2.4 Run the verification checklist, 2. Guest VM / container setup, 3.1 First-run setup, 3.2 Environment profiles (Windows admin workstation), 3.3 LXC VNC bridge configuration (+32 more)
+Cohesion: 0.39
+Nodes (6): executeConvertToTemplateAction(), executeDestroyAction(), executeWorkloadAction(), executeWorkloadRenameAction(), buildAction(), formatApiError()
 
 ### Community 50 - "Test Environment Script"
 Cohesion: 0.05
 Nodes (42): Advanced Retrieval, Available MCP Tools, Best Practices, Configuration, Configuration, Create Webhook, Criteria Retrieval, Custom Categories (+34 more)
 
 ### Community 54 - "Python vs TypeScript SDK Differences"
-Cohesion: 0.17
-Nodes (12): All Supported Frameworks, AutoGen, Common Pattern, CrewAI, LangChain, LangGraph, LlamaIndex, Mem0 Integration Patterns (+4 more)
+Cohesion: 0.06
+Nodes (31): Architectural Differences, Common Gotcha, Constructor, Entity ID Passing (v3), Method Naming, OSS Config Naming, OSS Scope Parameter Naming, Parameter Passing (+23 more)
 
 ### Community 55 - "Mem0 Use Cases & Examples"
 Cohesion: 0.05
@@ -214,7 +193,7 @@ Nodes (30): Comparison with Alternatives, Conversation memory, Core Concept, Cre
 
 ### Community 58 - "Workspace-Independent (General Principles)"
 Cohesion: 0.05
-Nodes (41): Agent Customization Skills (VS Code Built-in), AI Skills Installed, Appendix: How to create, maintain and use a POLICIES.md, Claude Skills (User-Level — `~/.claude/skills/`), Directives Playbook, Enforcing the AI Agent to Read POLICIES.md First, Lessons Learned, mem0 Installation Notes (+33 more)
+Nodes (36): Appendix: How to create, maintain and use a POLICIES.md, Directives Playbook, Enforcing the AI Agent to Read POLICIES.md First, Lessons Learned, Notification System, P0: Read This File at Session Start, P10: Repository Guardrails, P10a: Cross-Session Memory (+28 more)
 
 ### Community 59 - "Mem0 SDK Guide"
 Cohesion: 0.11
@@ -225,8 +204,8 @@ Cohesion: 0.12
 Nodes (16): Add memories, Client SDK References, Common edge cases, Common integration pattern, Delete a memory, Get all memories, Live documentation search, Mem0 Platform Integration (+8 more)
 
 ### Community 61 - "Mem0 Platform API Reference"
-Cohesion: 0.22
-Nodes (9): Endpoints, Filter Constraints, Filter System, Filterable Fields, Mem0 Platform API Reference, Memory Object Structure, Processing Model, Scoping Identifiers (+1 more)
+Cohesion: 0.15
+Nodes (13): Add Response (v3), Endpoints, Filter Constraints, Filter System, Filterable Fields, Get All Response (v3), Mem0 Platform API Reference, Memory Object Structure (+5 more)
 
 ### Community 62 - "Mem0 Skill for Claude"
 Cohesion: 0.17
@@ -241,8 +220,8 @@ Cohesion: 0.12
 Nodes (16): Appendix: Development Stack, Architecture: pve-client + playground, Environment and Tooling, External API Research (P0 — before any API call), MCP Tools, Proxmox API Debugging Lessons, Proxmox Behavior, pve-client (Proxmox TypeScript API Client — library) (+8 more)
 
 ### Community 65 - "../../PxMxAdmin.svelte"
-Cohesion: 0.22
-Nodes (3): ./PxMxStyle.css, $app/navigation, ../../PxMxAdmin.svelte
+Cohesion: 0.15
+Nodes (6): ./PxMxStyle.css, $app/navigation, ../../PxMxAdmin.svelte, ./PxMxTemplateActionButtons.svelte, enabled, ./PxMxTemplateTable.svelte
 
 ### Community 67 - "notification-store.svelte.ts"
 Cohesion: 0.25
@@ -256,90 +235,22 @@ Nodes (5): svelte/elements, $app/environment, ./BigRedButton.svelte, ../DemoBigR
 Cohesion: 0.48
 Nodes (5): createOptimisticDialogEnhance(), DialogEnhanceOptions, EnhanceArgs, EnhanceResult, focusAndSelectInput()
 
-### Community 72 - "1. Proxmox host configuration"
-Cohesion: 0.08
-Nodes (25): 1.1 What is the Proxmox host?, 1.2 Install the LXC post-create hook script, 1.3 Prepare a VM template for cloning, 1.4.1 Why cloud-init is required for the deploy flow, 1.4.2 Installing cloud-init in the template, 1.4.3 NoCloud datasource (required for Proxmox), 1.4.4 Serial console getty (required for terminal access), 1.4 Prepare a cloud-init ready VM template (+17 more)
-
-### Community 73 - "Python vs TypeScript SDK Differences"
-Cohesion: 0.18
-Nodes (11): Architectural Differences, Common Gotcha, Constructor, Entity ID Passing (v3), Method Naming, OSS Config Naming, OSS Scope Parameter Naming, Parameter Passing (+3 more)
-
-### Community 74 - "Deploy Progress — Investigation Notes"
-Cohesion: 0.22
-Nodes (8): All Sessions Summary, Cloud-init Snippet — Known Issues Summary, Deploy Progress — Investigation Notes, Deploying State Machine — Still to Investigate, Key Files, Next Steps, Policy Added, Root Cause: Guest Agent Not Installed
-
-### Community 75 - "Static IP Post-Deploy Configuration — 2026-06-29"
-Cohesion: 0.22
-Nodes (9): Alternatives considered, Approach: Extend `cicustom` vendor snippet with DHCP→static conversion, Desired State, Execution order on first boot, Implemented `runcmd` in `deploy-cloudinit-snippets.sh`, Key design decisions, Next implementation steps, Problem (+1 more)
-
-### Community 76 - "Deploy Shadowing Regression — 2026-06-27"
-Cohesion: 0.22
-Nodes (9): Chain, Control Disable State Machine — 2026-06-27, Deploy Shadowing Regression — 2026-06-27, Files Changed, Files Changed, Fix: Federated Deploy Shadowing by VMID, Problem, Root Cause (+1 more)
-
-### Community 78 - "Mem0 Platform Quickstart"
-Cohesion: 0.25
-Nodes (8): Async Client, cURL, Mem0 Platform Quickstart, Next Steps, Prerequisites, Python Setup, Sample Response, TypeScript / JavaScript Setup
-
-### Community 79 - "Serial Port Configuration via Proxmox API — 2026-06-25 Notes"
-Cohesion: 0.25
-Nodes (8): API Reference (pve-client), Background, Notes, Self-Healing Opportunity, Serial Port Configuration via Proxmox API — 2026-06-25 Notes, Serial Port Values, TypeScript Types (pve-client `src/api/nodes/types.ts`), Usage Example
-
-### Community 80 - "Deploy Failure Detection — 2026-06-24 Session Notes"
-Cohesion: 0.25
-Nodes (8): Before vs After, Deploy Failure Detection — 2026-06-24 Session Notes, Files Changed, Fix Applied, Problem, Root Cause, Tests, Timing Constants
-
-### Community 81 - "✅ Working Solution: `cicustom` with cloud-init `runcmd`"
-Cohesion: 0.29
-Nodes (7): Alternative approaches (ranked), ⚠️ Critical: Use `vendor=` NOT `user=`, How `cicustom` works, ⚠️ Prerequisite: cloud-init must be present in the VM, Steps to implement in deployment flow, Why the original approach was wrong, ✅ Working Solution: `cicustom` with cloud-init `runcmd`
-
-### Community 82 - "Snippet Failure Root Cause — 2026-07-03"
-Cohesion: 0.33
-Nodes (6): Cloud-init log evidence, Fix, How to verify, Snippet Failure Root Cause — 2026-07-03, What the test showed, What this means
-
-### Community 83 - "Usability Test — 2026-06-26 Deploy Results"
-Cohesion: 0.33
-Nodes (6): Key Observations, Results Summary, Test Parameters, Timeline, Usability Test — 2026-06-26 Deploy Results, VM Credentials (all 3 VMs)
-
-### Community 84 - "PxMxLxcTemplateList.svelte"
-Cohesion: 0.33
-Nodes (3): ./PxMxTemplateActionButtons.svelte, enabled, ./PxMxTemplateTable.svelte
-
-### Community 85 - "Deploy Flow Refactor — 2026-06-23 Session Notes"
-Cohesion: 0.40
-Nodes (5): Audit: 6 Issues Found, Changes Made (In Working Tree — Not Yet Committed), Deploy Flow Refactor — 2026-06-23 Session Notes, E2E Test — 2026-06-24, Remaining: Issues #2 and #3
-
-### Community 86 - "❌ Fabricated Fix Discovered — `cicommand` Does Not Exist"
-Cohesion: 0.40
-Nodes (5): Canary Test Created, ❌ Fabricated Fix Discovered — `cicommand` Does Not Exist, Resolution, Valid Cloud-Init Parameters, Verification
-
-### Community 87 - "Deploy Concurrency Guardrail — 2026-07-01"
-Cohesion: 0.40
-Nodes (5): Deploy Concurrency Guardrail — 2026-07-01, Fix: Singleton `pendingDeployLock` in `helpers.ts`, Lock semantics, Problem, Validation
-
-### Community 88 - "Response Formats"
-Cohesion: 0.50
-Nodes (4): Add Response (v3), Get All Response (v3), Response Formats, Search Response
-
-### Community 89 - "Implementation Details"
-Cohesion: 0.50
-Nodes (4): Deploy flow (action-template-deployers.ts), Environment variables, Host setup (scripts/host/deploy-cloudinit-snippets.sh), Implementation Details
-
 ## Knowledge Gaps
-- **533 isolated node(s):** `Directives Playbook`, `P0: Read This File at Session Start`, `P1: Single Source of Truth`, `P2: Quality and Refactoring`, `P2b: Consistent Patterns` (+528 more)
+- **412 isolated node(s):** `Summary`, `User Flow`, `Enablement Conditions`, `Client-Side (`PxMxWorkloadControls.svelte`)`, `Server-Side (`proxmox-actions.ts` → `action-executors.ts`)` (+407 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **19 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **20 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `ToastContext` connect `Proxmox Actions & Types` to `notification-store.svelte.ts`?**
-  _High betweenness centrality (0.038) - this node is a cross-community bridge._
+- **Why does `ToastContext` connect `Svelte Jiti Config` to `Proxmox Actions & Types`, `notification-store.svelte.ts`?**
+  _High betweenness centrality (0.048) - this node is a cross-community bridge._
 - **Why does `devDependencies` connect `Fit Addon (Terminal)` to `Package Configuration`, `TypeDoc Dependencies`?**
-  _High betweenness centrality (0.036) - this node is a cross-community bridge._
-- **What connects `Directives Playbook`, `P0: Read This File at Session Start`, `P1: Single Source of Truth` to the rest of the system?**
-  _539 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _High betweenness centrality (0.044) - this node is a cross-community bridge._
+- **What connects `Summary`, `User Flow`, `Enablement Conditions` to the rest of the system?**
+  _418 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Proxmox Actions & Types` be split into smaller, more focused modules?**
-  _Cohesion score 0.05837837837837838 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06804214223002635 - nodes in this community are weakly interconnected._
 - **Should `Docs Generated Assets` be split into smaller, more focused modules?**
   _Cohesion score 0.07744107744107744 - nodes in this community are weakly interconnected._
 - **Should `Fit Addon (Terminal)` be split into smaller, more focused modules?**

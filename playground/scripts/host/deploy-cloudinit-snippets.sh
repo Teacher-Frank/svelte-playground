@@ -1,45 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-###############################################################################
-# deploy-cloudinit-snippets.sh
-#
-# One-time setup script for Proxmox host. Deploys a cloud-init user-data
-# snippet to the Proxmox snippets storage so that VMs cloned from templates
-# can use cicustom to install qemu-guest-agent on first boot.
-#
-# Environment:
-#   PVE_SNIPPET_STORAGE  Proxmox storage ID for snippets (default: local)
-#
-# Usage:
-#   sudo bash deploy-cloudinit-snippets.sh
-#   PVE_SNIPPET_STORAGE=fast-ssd sudo bash deploy-cloudinit-snippets.sh
-###############################################################################
-
 SNIPPET_DIR="/var/lib/vz/snippets"
 SNIPPET_STORAGE="${PVE_SNIPPET_STORAGE:-local}"
 
-# ── colour helpers ──────────────────────────────────────────────────────────
-bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
-green() { printf '\033[1;32m%s\033[0m\n' "$*"; }
-yellow(){ printf '\033[1;33m%s\033[0m\n' "$*"; }
-red()   { printf '\033[1;31m%s\033[0m\n' "$*"; }
+bold()  { printf "\033[1m%s\033[0m\n" "$*"; }
+green() { printf "\033[1;32m%s\033[0m\n" "$*"; }
+yellow(){ printf "\033[1;33m%s\033[0m\n" "$*"; }
+red()   { printf "\033[1;31m%s\033[0m\n" "$*"; }
 
-# ── prerequisites ───────────────────────────────────────────────────────────
 if [ "$(id -u)" -ne 0 ]; then
-  red "This script must be run as root (use sudo)."
-  exit 1
+  red "This script must be run as root (use sudo)."; exit 1
 fi
 
-# ── ensure snippets directory exists ────────────────────────────────────────
-bold "Step 1: Ensuring \$SNIPPET_DIR exists"
+bold "Step 1: Ensuring snippet dir exists"
 mkdir -p "$SNIPPET_DIR"
 green "  $SNIPPET_DIR exists."
 
-# ── create the install-agent.yaml snippet ───────────────────────────────────
-bold "Step 2: Deploying install-agent.yaml cloud-init snippet"
-
-cat > "$SNIPPET_DIR/install-agent.yaml" <<'CLOUD-INIT'
+bold "Step 2: Deploying install-agent.yaml"
+cat > "$SNIPPET_DIR/install-agent.yaml" << 'CLOUD-INIT'
 #cloud-config
 # Cloud-init vendor-data snippet for Proxmox cicustom (vendor=).
 # Installed by playground scripts/host/deploy-cloudinit-snippets.sh
@@ -67,7 +46,7 @@ runcmd:
     fi && \
     systemctl enable --now qemu-guest-agent
 
-  # 2. Enable serial console getty — required for terminal access via termproxy.
+  # 2. Enable serial console getty - required for terminal access via termproxy.
   #    Without this, the serial port connects but shows no login prompt.
   #    Idempotent: systemctl enable is safe to re-run.
   - |
@@ -76,33 +55,25 @@ runcmd:
       exit 1
     fi
 
-  # 3. Convert DHCP→static IP on first boot.
+  # 3. Convert DHCP to static IP on first boot.
   #    Tries multiple methods and stops on the first success:
-  #      A) Netplan direct  — rewrites Netplan YAML when Netplan owns DHCP.
-  #      B) NetworkManager  — uses nmcli when renderer is NetworkManager or
-  #                           nmcli is available and managing the interface.
-  #      C) ifupdown        — writes /etc/network/interfaces when that file exists
-  #                           with a DHCP entry.
+  #      A) Netplan direct - rewrites Netplan YAML when Netplan owns DHCP.
+  #      B) NetworkManager + Netplan - rewrites netplan when renderer is NM.
+  #      C) NetworkManager (nmcli) - pure nmcli when no Netplan involved.
+  #      D) ifupdown - writes /etc/network/interfaces when that file exists.
   #    Idempotent: skips entirely if the interface is already static.
   - |
     set -e
 
-    # Auto-detect the active Ethernet interface (avoids the eth0 vs ens18 naming issue).
-    # Uses the interface that has the default route; falls back to any non-lo interface
-    # with an IPv4 address; last resort: first non-lo interface with carrier UP.
+    # Auto-detect the active Ethernet interface (avoids eth0 vs ens18 naming issue).
     detect_interface() {
-      # Method 1: interface used for default gateway
       local iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
       [ -n "$iface" ] && echo "$iface" && return 0
-
-      # Method 2: any non-loopback interface with an IPv4 address (not 127.x)
       for dev in $(ip -o -4 addr show 2>/dev/null | awk '{print $2}' | sort -u); do
         [ "$dev" = "lo" ] && continue
         ip -4 addr show "$dev" 2>/dev/null | awk '/inet /{print $2}' | grep -q -v '127[.]' \
           && echo "$dev" && return 0
       done
-
-      # Method 3: first non-lo interface with carrier UP
       for dev in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | grep -v '^lo$'); do
         ip link show "$dev" 2>/dev/null | grep -q 'state UP' \
           && echo "$dev" && return 0
@@ -117,39 +88,36 @@ runcmd:
     echo "INFO: Detected interface: ${INTERFACE}" >&2
     MAX_WAIT=30
 
-    # Wait for any IP.
     for i in $(seq 1 $MAX_WAIT); do
       IP=$(ip -4 addr show "$INTERFACE" 2>/dev/null | awk '/inet /{print $2}' | grep -v '127[.]')
       [ -n "$IP" ] && break
       sleep 1
     done
     if [ -z "$IP" ]; then
-      echo "WARN: No IPv4 address found on ${INTERFACE} after ${MAX_WAIT}s; skipping static conversion" >&2
+      echo "WARN: No IPv4 address found on ${INTERFACE} after ${MAX_WAIT}s; skipping" >&2
       exit 0
     fi
 
     IP_ONLY="${IP%%/*}"
     GATEWAY=$(ip route show default 2>/dev/null | awk '/default/{print $3}' | head -1)
     if [ -z "$GATEWAY" ]; then
-      echo "WARN: No default gateway found for ${INTERFACE}; skipping static conversion" >&2
+      echo "WARN: No default gateway found for ${INTERFACE}; skipping" >&2
       exit 0
     fi
     MAC=$(ip link show "$INTERFACE" 2>/dev/null | awk '/link\/ether/{print $2}')
     DNS1="1.1.1.1"
     DNS2="8.8.8.8"
 
-    # Skip if already static (any method).
+    # Skip if already static.
     IS_STATIC=false
     if grep -rq '^\s*addresses:' /etc/netplan/ 2>/dev/null && \
        ! grep -rq '^\s*dhcp4: *[Tt]rue' /etc/netplan/ 2>/dev/null; then
       IS_STATIC=true
     fi
-    # nmcli has it?
     if command -v nmcli &>/dev/null; then
       _NM_METHOD=$(nmcli -t -f ipv4.method con show 2>/dev/null | head -1 | cut -d: -f2)
       [ "$_NM_METHOD" = "manual" ] && IS_STATIC=true
     fi
-    # ifupdown already static?
     if grep -q "static" /etc/network/interfaces 2>/dev/null; then
       IS_STATIC=true
     fi
@@ -160,10 +128,10 @@ runcmd:
 
     CONVERTED=false
 
-     # ---------- A) Netplan (direct, no NetworkManager renderer) ----------
-     if ! grep -rq 'renderer:.*NetworkManager' /etc/netplan/ 2>/dev/null && \
-       NETPLAN_FILE=$(grep -l "dhcp4: *[Tt]rue" /etc/netplan/*.yaml 2>/dev/null | head -1) && \
-       [ -n "$NETPLAN_FILE" ]; then
+    # A) Netplan direct (no NetworkManager renderer)
+    if ! grep -rq 'renderer:.*NetworkManager' /etc/netplan/ 2>/dev/null && \
+      NETPLAN_FILE=$(grep -rl "dhcp4: *[Tt]rue" /etc/netplan/*.yaml 2>/dev/null | head -1) && \
+      [ -n "$NETPLAN_FILE" ]; then
       printf '%s\n' \
         "# Generated by cloud-init snippet on $(date -u +%F\ %T)" \
         'network:' \
@@ -184,15 +152,50 @@ runcmd:
         "          - ${DNS2}" \
         "      set-name: ${INTERFACE}" > "$NETPLAN_FILE"
       if ! netplan apply 2>/dev/null; then
-        echo "WARN: netplan apply failed for ${NETPLAN_FILE}; trying next conversion method" >&2
+        echo "WARN: netplan apply failed for ${NETPLAN_FILE}; trying next method" >&2
       fi
       sleep 2
       [ -n "$(ip -4 addr show to ${IP_ONLY} 2>/dev/null)" ] && CONVERTED=true
     fi
 
-    # ---------- B) NetworkManager (nmcli) ----------
+    # B) NetworkManager + Netplan (renderer: NetworkManager)
+    #    Rewriting netplan YAML is required - nmcli con mod alone gets overwritten
+    #    by subsequent netplan generate which re-creates the 90-NM-*.yaml passthrough.
+    if [ "$CONVERTED" = false ] && grep -rq 'renderer:.*NetworkManager' /etc/netplan/ 2>/dev/null; then
+      NETPLAN_FILE=$(grep -rl "dhcp4: *[Tt]rue" /etc/netplan/*.yaml 2>/dev/null | head -1)
+      if [ -n "$NETPLAN_FILE" ]; then
+        printf '%s\n' \
+          "# Generated by cloud-init snippet on $(date -u +%F\ %T)" \
+          'network:' \
+          '  version: 2' \
+          '  renderer: NetworkManager' \
+          '  ethernets:' \
+          "    ${INTERFACE}:" \
+          '      match:' \
+          "        macaddress: \"${MAC}\"" \
+          '      dhcp4: false' \
+          '      addresses:' \
+          "        - \"${IP}\"" \
+          '      routes:' \
+          '        - to: default' \
+          "          via: \"${GATEWAY}\"" \
+          '      nameservers:' \
+          '        addresses:' \
+          "          - ${DNS1}" \
+          "          - ${DNS2}" > "$NETPLAN_FILE"
+        rm -f /etc/netplan/90-NM-*.yaml 2>/dev/null
+        if ! netplan apply 2>/dev/null; then
+          echo "WARN: netplan apply failed for ${NETPLAN_FILE}; trying next method" >&2
+        else
+          sleep 2
+          _NM_METHOD=$(nmcli -t -f ipv4.method con show 2>/dev/null | head -1 | cut -d: -f2)
+          [ "$_NM_METHOD" = "manual" ] && CONVERTED=true
+        fi
+      fi
+    fi
+
+    # C) NetworkManager (nmcli only, no Netplan renderer)
     if [ "$CONVERTED" = false ] && command -v nmcli &>/dev/null; then
-      # Find the active connection for this device, or any connection that should use it.
       CON_NAME=$(nmcli -t -f NAME,DEVICE con show --active 2>/dev/null | \
                  grep ":${INTERFACE}$" | head -1 | cut -d: -f1 || :)
       [ -z "$CON_NAME" ] && \
@@ -207,9 +210,9 @@ runcmd:
           ipv4.dns-search "hrprefix.hro.nl hr.nl hrnet.hro.nl" \
           ipv4.ignore-auto-dns yes \
           ipv4.ignore-auto-routes yes 2>/dev/null; then
-          echo "WARN: nmcli con mod failed for ${CON_NAME}; trying next conversion method" >&2
+          echo "WARN: nmcli con mod failed for ${CON_NAME}; trying next method" >&2
         elif ! nmcli con up "$CON_NAME" 2>/dev/null; then
-          echo "WARN: nmcli con up failed for ${CON_NAME}; trying next conversion method" >&2
+          echo "WARN: nmcli con up failed for ${CON_NAME}; trying next method" >&2
         fi
         sleep 2
         [ -n "$(ip -4 addr show to ${IP_ONLY} 2>/dev/null)" ] && CONVERTED=true
@@ -218,7 +221,7 @@ runcmd:
       fi
     fi
 
-    # ---------- C) ifupdown (/etc/network/interfaces) ----------
+    # D) ifupdown (/etc/network/interfaces)
     if [ "$CONVERTED" = false ] && [ -f /etc/network/interfaces ]; then
       if grep -qi "dhcp" /etc/network/interfaces 2>/dev/null; then
         ESCAPED=$(sed "s/^address.*/    address ${IP_ONLY}/" \
@@ -247,78 +250,11 @@ CLOUD-INIT
 chmod 644 "$SNIPPET_DIR/install-agent.yaml"
 green "  $SNIPPET_DIR/install-agent.yaml deployed."
 
-# ── verify the snippets storage is available in Proxmox ─────────────────────
-bold "Step 3: Checking Proxmox snippets storage"
-
+bold "Step 3: Checking snippets storage"
 if ! command -v pvesh &>/dev/null && ! command -v pvesm &>/dev/null; then
-  yellow "  pvesh/pvesm not found — skipping snippets storage check."
-  yellow "  This is expected if running outside the Proxmox shell."
-  exit 0
+  yellow "  pvesh/pvesm not found - skipping storage check."; exit 0
 fi
+pvesm status 2>/dev/null | while IFS= read -r line; do bold "    $line"; done
 
-bold "  Storage overview:"
-pvesm status 2>/dev/null | while IFS= read -r line; do
-  bold "    $line"
-done
-
-# ── check content types in storage config ──────────────────────────────────
-if [ -f /etc/pve/storage.cfg ]; then
-  STORAGE_CFG="/etc/pve/storage.cfg"
-  bold "  Checking content types in $STORAGE_CFG for '$SNIPPET_STORAGE':"
-
-  # Extract the storage block for our storage ID and look for the content line.
-  CONTENT_TYPES=$(awk -v target="$SNIPPET_STORAGE" '
-    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
-    /^[[:alnum:]_-]+:[[:space:]]+/ {
-      in_block = ($2 == target)
-      next
-    }
-    in_block && ($1 == "content" || $1 == "content:") {
-      sub(/^[[:space:]]*content:?[[:space:]]*/, "")
-      print
-      exit
-    }
-  ' "$STORAGE_CFG")
-
-  if [ -n "$CONTENT_TYPES" ]; then
-    bold "    Content types: $CONTENT_TYPES"
-    if echo "$CONTENT_TYPES" | grep -qi "snippets"; then
-      green "  ✓ '$SNIPPET_STORAGE' storage has 'snippets' content-type enabled."
-    else
-      red "  ✗ '$SNIPPET_STORAGE' storage is missing 'snippets' content-type."
-      yellow "  To fix: Datacenter → Storage → '$SNIPPET_STORAGE' → Content → check 'Snippets'"
-      yellow "  Or add to $STORAGE_CFG:"
-      yellow "    content: snippets"
-    fi
-  else
-    yellow "  Could not parse content types for '$SNIPPET_STORAGE' from $STORAGE_CFG."
-    bold "  First 15 lines of $STORAGE_CFG:"
-    head -15 "$STORAGE_CFG" | while IFS= read -r line; do
-      bold "    $line"
-    done
-  fi
-else
-  yellow "  $STORAGE_CFG not found — cannot verify content types."
-fi
-
-# ── summary ─────────────────────────────────────────────────────────────────
-bold ""
 bold "=== Deployment complete ==="
-bold ""
-bold "To use this snippet when deploying a VM:"
-bold ""
-bold "  1. In Proxmox GUI (VM → Options → Cloud-init):"
-bold "     Custom user-data volume: ${SNIPPET_STORAGE}:snippets/install-agent.yaml"
-bold ""
-bold "  2. Via API / deploy code:"
-bold "     configBody.cicustom = 'vendor=${SNIPPET_STORAGE}:snippets/install-agent.yaml';"
-bold ""
-bold "  3. Via qm CLI:"
-bold "     qm set <vmid> --cicustom 'vendor=${SNIPPET_STORAGE}:snippets/install-agent.yaml'"
-bold ""
-bold "  The snippet performs three tasks on first boot:"
-bold "    1. Installs qemu-guest-agent (for IP discovery & graceful shutdown)"
-bold "    2. Enables serial-getty on ttyS0 (required for terminal access)"
-bold "    3. Converts the DHCP-assigned IP to static (persists across reboots)"
-bold ""
-yellow "Note: Set PVE_SNIPPET_STORAGE env var to change the target storage."
+bold "qm set <vmid> --cicustom vendor=${SNIPPET_STORAGE}:snippets/install-agent.yaml"
