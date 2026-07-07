@@ -18,7 +18,7 @@ import {
   executeDestroyAction,
   executeConvertToTemplateAction,
   executeWorkloadAction,
-  executeWorkloadConfigureAction,
+  executeWorkloadRenameAction,
 } from './action-executors.js';
 import { acquireDeployLock, releaseDeployLock, clearPendingDestroy } from './helpers.js';
 import {
@@ -102,7 +102,7 @@ export const actions: Actions = {
   stop: buildAction('stop'),
   restart: buildAction('restart'),
 
-  configureWorkload: async ({ request }: RequestEvent) => {
+  renameWorkload: async ({ request }: RequestEvent) => {
     let selectedWorkload: {
       type: WorkloadKind;
       id: number;
@@ -114,100 +114,40 @@ export const actions: Actions = {
       const formData = await request.formData();
       selectedWorkload = parseWorkloadSubmission(formData);
 
-      const cpuShareRaw = formData.get('cpuSharePercent');
-      const memoryRaw = formData.get('memoryMiB');
-      const storageRaw = formData.get('storageGiB');
       const newNameRaw = formData.get('newName');
-
-      if (typeof cpuShareRaw !== 'string' || cpuShareRaw.trim().length === 0) {
+      if (typeof newNameRaw !== 'string' || newNameRaw.trim().length === 0) {
         return fail(400, {
           status: 'error' as const,
-          message: 'CPU share is required.',
+          message: 'Name is required.',
           workloadType: selectedWorkload.type,
           formType: selectedWorkload.type,
         });
       }
 
-      if (typeof memoryRaw !== 'string' || memoryRaw.trim().length === 0) {
+      const newNameTrimmed = newNameRaw.trim();
+      const nameError = validateProxmoxName(newNameTrimmed);
+      if (nameError) {
         return fail(400, {
           status: 'error' as const,
-          message: 'Memory is required.',
+          message: `Name: ${nameError}`,
           workloadType: selectedWorkload.type,
           formType: selectedWorkload.type,
         });
       }
 
-      const cpuSharePercent = Number(cpuShareRaw);
-      const memoryMiB = Number(memoryRaw);
-      const storageGiB =
-        typeof storageRaw === 'string' && storageRaw.trim().length > 0
-          ? Number(storageRaw)
-          : undefined;
-
-      if (storageGiB != null && (!Number.isFinite(storageGiB) || storageGiB < 1)) {
-        return fail(400, {
-          status: 'error' as const,
-          message: `Storage increase must be at least 1 GiB (got ${JSON.stringify(storageRaw)}).`,
-          workloadType: selectedWorkload.type,
-          formType: selectedWorkload.type,
-        });
-      }
-
-      const newNameTrimmed =
-        typeof newNameRaw === 'string'
-          ? newNameRaw.trim()
-          : undefined;
-      if (newNameTrimmed != null && newNameTrimmed.length > 0) {
-        const nameError = validateProxmoxName(newNameTrimmed);
-        if (nameError) {
-          return fail(400, {
-            status: 'error' as const,
-            message: `Name: ${nameError}`,
-            workloadType: selectedWorkload.type,
-            formType: selectedWorkload.type,
-          });
-        }
-      }
-
-      const { upid, appliedCpuLimit, appliedMemoryMiB, appliedCpuCores, appliedStorageGiB, storageTaskUpid, renamed } =
-        await executeWorkloadConfigureAction(
-          selectedWorkload.type,
-          selectedWorkload.id,
-          selectedWorkload.node,
-          cpuSharePercent,
-          memoryMiB,
-          storageGiB,
-          selectedWorkload.name,
-          newNameTrimmed,
-        );
-
-      const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
-      const cpuSummary =
-        selectedWorkload.type === 'vm'
-          ? `cores=${appliedCpuCores ?? Math.max(1, Math.round(appliedCpuLimit))}`
-          : `cpulimit=${appliedCpuLimit}`;
-      const storageSummary = appliedStorageGiB
-        ? `, storage=+${appliedStorageGiB} GiB`
-        : '';
-      const renameSummary = renamed
-        ? `, renamed to "${newNameTrimmed}"`
-        : '';
-      const taskSummary = [upid, storageTaskUpid].filter(
-        (task): task is string => typeof task === 'string' && task.length > 0,
+      const { upid } = await executeWorkloadRenameAction(
+        selectedWorkload.type,
+        selectedWorkload.id,
+        selectedWorkload.node,
+        selectedWorkload.name,
+        newNameTrimmed,
       );
 
+      const kindLabel = selectedWorkload.type === 'vm' ? 'VM' : 'container';
+      const oldName = selectedWorkload.name ?? `ID ${selectedWorkload.id}`;
       return {
         status: 'success' as const,
-        message:
-          taskSummary.length > 0
-            ? `Updated ${kindLabel} ${selectedWorkload.id}${
-                selectedWorkload.name ? ` (${selectedWorkload.name})` : ''
-              }: ${cpuSummary}, memory=${appliedMemoryMiB} MiB${storageSummary}${renameSummary} — task${
-                taskSummary.length > 1 ? 's' : ''
-              } ${taskSummary.join(', ')}.`
-            : `Updated ${kindLabel} ${selectedWorkload.id}${
-                selectedWorkload.name ? ` (${selectedWorkload.name})` : ''
-              }: ${cpuSummary}, memory=${appliedMemoryMiB} MiB${storageSummary}${renameSummary}.`,
+        message: `Renamed ${kindLabel} ${selectedWorkload.id} from "${oldName}" to "${newNameTrimmed}"${upid ? ` — task ${upid}` : ''}.`,
         upid,
         workloadType: selectedWorkload.type,
         formType: selectedWorkload.type,

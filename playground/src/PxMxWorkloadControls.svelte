@@ -103,105 +103,35 @@
     return `Convert ${targetLabel} to template`;
   });
 
-  const hasHostCapacityData = $derived(
-    typeof selectedWorkload?.hostMaxCpu === 'number' &&
-    Number.isFinite(selectedWorkload.hostMaxCpu) &&
-    selectedWorkload.hostMaxCpu > 0 &&
-    typeof selectedWorkload?.hostMaxMemory === 'number' &&
-    Number.isFinite(selectedWorkload.hostMaxMemory) &&
-    selectedWorkload.hostMaxMemory > 0
-  );
-
-  const configureEnabled = $derived(
+  // Rename is enabled whenever a concrete workload is selected and controls aren't disabled.
+  const renameEnabled = $derived(
     !controlsDisabled &&
     (selectedWorkload?.type === 'container' || selectedWorkload?.type === 'vm') &&
     selectedWorkload?.id != null &&
-    selectedWorkload?.node != null &&
-    hasHostCapacityData
+    selectedWorkload?.node != null
   );
 
-  const hostCpuCount = $derived(
-    typeof selectedWorkload?.hostMaxCpu === 'number' && Number.isFinite(selectedWorkload.hostMaxCpu)
-      ? selectedWorkload.hostMaxCpu
-      : 0
-  );
-
-  const hostMemoryMiB = $derived(
-    typeof selectedWorkload?.hostMaxMemory === 'number' && Number.isFinite(selectedWorkload.hostMaxMemory)
-      ? Math.floor(selectedWorkload.hostMaxMemory / (1024 ** 2))
-      : 0
-  );
-
-  const hostStorageGiB = $derived(
-    typeof selectedWorkload?.hostMaxStorage === 'number' && Number.isFinite(selectedWorkload.hostMaxStorage)
-      ? Math.floor(selectedWorkload.hostMaxStorage / (1024 ** 3))
-      : 0
-  );
-
-  const hostAvailableStorageGiB = $derived(
-    typeof selectedWorkload?.hostAvailableStorage === 'number' && Number.isFinite(selectedWorkload.hostAvailableStorage)
-      ? Math.floor(selectedWorkload.hostAvailableStorage / (1024 ** 3))
-      : 0
-  );
-
-  const maxCpuSharePercent = 75;
-
-  const maxMemoryMiB = $derived(
-    hostMemoryMiB > 0 ? Math.max(16, Math.floor(hostMemoryMiB * 0.75)) : 0
-  );
-
-  const defaultCpuSharePercent = $derived.by(() => {
-    if (hostCpuCount <= 0) return 25;
-    const currentCpuLimit = selectedWorkload?.cpulimit;
-    if (typeof currentCpuLimit !== 'number' || !Number.isFinite(currentCpuLimit) || currentCpuLimit <= 0) {
-      return 25;
-    }
-    const percent = Math.round((currentCpuLimit / hostCpuCount) * 100);
-    return Math.min(maxCpuSharePercent, Math.max(1, percent));
-  });
-
-  const defaultMemoryMiB = $derived.by(() => {
-    if (maxMemoryMiB <= 0) return 1024;
-    const currentMemoryLimit = selectedWorkload?.memorylimit;
-    if (typeof currentMemoryLimit !== 'number' || !Number.isFinite(currentMemoryLimit) || currentMemoryLimit <= 0) {
-      return Math.min(maxMemoryMiB, 1024);
-    }
-    const currentMiB = Math.floor(currentMemoryLimit / (1024 ** 2));
-    return Math.min(maxMemoryMiB, Math.max(16, currentMiB));
-  });
-
-  const configureTooltip = $derived.by(() => {
+  const renameTooltip = $derived.by(() => {
     if (selectedWorkload?.type !== 'container' && selectedWorkload?.type !== 'vm') {
-      return 'Configuration is only available for VM and LXC workloads';
+      return 'Rename is only available for VM and LXC workloads';
     }
-    if (!hasHostCapacityData) {
-      return 'Host capacity is unavailable for this node';
-    }
-    return selectedWorkload?.type === 'vm'
-      ? 'Configure VM CPU, memory, and storage'
-      : 'Configure container CPU, memory, and storage';
+    return 'Rename workload';
   });
 
   // Controls visibility of the high-friction delete confirmation dialog.
   let showDeleteConfirm = $state(false);
   let destroySubmitInFlight = $state(false);
-  let showConfigureModal = $state(false);
-  let configureSubmitInFlight = $state(false);
+  let showRenameModal = $state(false);
+  let renameSubmitInFlight = $state(false);
 
   // Unified notification system
   const notify = useToast('config');
 
-  let cpuSharePercent = $state(25);
-  let memoryMiB = $state(1024);
-  let storageGiB = $state(1);
   let workloadName = $state('');
 
-  const openConfigureModal = () => {
-    cpuSharePercent = defaultCpuSharePercent;
-    memoryMiB = defaultMemoryMiB;
-    storageGiB = hostAvailableStorageGiB > 0 ? 1 : 0;
+  const openRenameModal = () => {
     workloadName = selectedWorkload?.name ?? '';
-    showConfigureModal = true;
+    showRenameModal = true;
   };
 
   const preserveScrollOnSubmit = () => {
@@ -273,13 +203,13 @@
     };
   };
 
-  const enhanceConfigureSubmit = () => {
+  const enhanceRenameSubmit = () => {
     if (typeof window === 'undefined') return;
 
     const scrollX = window.scrollX;
     const scrollY = window.scrollY;
-    configureSubmitInFlight = true;
-    showConfigureModal = false;
+    renameSubmitInFlight = true;
+    showRenameModal = false;
 
     // Hard timeout: if the server takes longer than this, force-release the state.
     const TIMEOUT_MS = 30_000;
@@ -294,15 +224,15 @@
         window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
 
         if (result?.type === 'success') {
-          notify.success(result.data?.message ?? 'Container configuration updated.');
+          notify.success(result.data?.message ?? 'Workload renamed.');
           return;
         }
 
         if (result?.type === 'failure') {
-          notify.error(result.data?.message ?? 'Failed to update container configuration.');
+          notify.error(result.data?.message ?? 'Failed to rename workload.');
         }
       } finally {
-        configureSubmitInFlight = false;
+        renameSubmitInFlight = false;
       }
     };
   };
@@ -312,7 +242,7 @@
       return;
     }
     showDeleteConfirm = false;
-    showConfigureModal = false;
+    showRenameModal = false;
   });
 </script>
 
@@ -376,13 +306,13 @@
 
   <button
     type="button"
-    class="configure-btn"
-    title={configureTooltip}
-    aria-label={configureTooltip}
-    disabled={!configureEnabled || configureSubmitInFlight}
-    onclick={openConfigureModal}
+    class="rename-btn"
+    title={renameTooltip}
+    aria-label={renameTooltip}
+    disabled={!renameEnabled || renameSubmitInFlight}
+    onclick={openRenameModal}
   >
-    <img src="/settings.svg" alt="" aria-hidden="true" />
+    <img src="/rename.svg" alt="" aria-hidden="true" />
   </button>
 
   <form class="convert-form" method="POST" action="?/convertToTemplate" use:enhance={preserveScrollOnSubmit}>
@@ -457,18 +387,18 @@
     </div>
   {/if}
 
-  {#if showConfigureModal}
-    <div class="config-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="config-modal-title">
+  {#if showRenameModal}
+    <div class="config-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="rename-modal-title">
       <div class="config-modal-box">
-        <h3 id="config-modal-title">Workload Configuration</h3>
+        <h3 id="rename-modal-title">Rename Workload</h3>
         <p class="config-modal-subtitle">
-          Set required CPU share, memory, and optional storage expansion. CPU/memory limits remain capped at 75% of host capacity.
+          Enter a new name for this workload. Use letters, digits, hyphens, and dots.
         </p>
 
         <form
           method="POST"
-          action="?/configureWorkload"
-          use:enhance={enhanceConfigureSubmit}
+          action="?/renameWorkload"
+          use:enhance={enhanceRenameSubmit}
         >
           <input name="type" type="hidden" value={selectedWorkload?.type ?? ''} />
           <input name="id" type="hidden" value={selectedWorkload?.id?.toString() ?? ''} />
@@ -485,55 +415,16 @@
             maxlength="253"
             bind:value={workloadName}
             placeholder="Workload name"
-          />
-          <p class="config-hint">Leave unchanged to keep the current name. Use letters, digits, hyphens, and dots.</p>
-
-          <label class="config-label" for="cpu-share-percent">Needed CPU share (%)</label>
-          <input
-            id="cpu-share-percent"
-            name="cpuSharePercent"
-            type="number"
-            min="1"
-            max={maxCpuSharePercent}
-            step="1"
-            bind:value={cpuSharePercent}
             required
           />
-          <p class="config-hint">Host CPU: {hostCpuCount.toFixed(0)} core(s) • Max share: {maxCpuSharePercent}%</p>
-
-          <label class="config-label" for="memory-mib">Needed memory (MiB)</label>
-          <input
-            id="memory-mib"
-            name="memoryMiB"
-            type="number"
-            min="16"
-            max={maxMemoryMiB}
-            step="1"
-            bind:value={memoryMiB}
-            required
-          />
-          <p class="config-hint">Host memory: {hostMemoryMiB.toLocaleString()} MiB • Max memory: {maxMemoryMiB.toLocaleString()} MiB</p>
-
-          <label class="config-label" for="storage-gib">Add storage (GiB)</label>
-          <input
-            id="storage-gib"
-            name="storageGiB"
-            type="number"
-            min="0"
-            max={hostAvailableStorageGiB}
-            step="1"
-            bind:value={storageGiB}
-            disabled={hostAvailableStorageGiB <= 0}
-          />
-          <p class="config-hint">Host storage: {hostStorageGiB.toLocaleString()} GiB total • {hostAvailableStorageGiB.toLocaleString()} GiB available</p>
 
           <div class="config-modal-actions">
-            <button type="submit" class="config-ok-btn" disabled={configureSubmitInFlight || controlsDisabled}>OK</button>
+            <button type="submit" class="config-ok-btn" disabled={renameSubmitInFlight || controlsDisabled}>OK</button>
             <button
               type="button"
               class="config-cancel-btn"
-              disabled={configureSubmitInFlight || controlsDisabled}
-              onclick={() => { showConfigureModal = false; }}
+              disabled={renameSubmitInFlight || controlsDisabled}
+              onclick={() => { showRenameModal = false; }}
             >
               Cancel
             </button>

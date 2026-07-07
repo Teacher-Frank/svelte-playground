@@ -130,18 +130,11 @@ describe('proxmox page server actions', () => {
     mocks.taskWait.mockResolvedValue([]);
     mocks.nextid.mockResolvedValue(200);
     mocks.storageContentList.mockResolvedValue([]);
-    mocks.request.mockImplementation(async (path: string, method?: string, payload?: Record<string, unknown>) => {
-      if (path === '/nodes/{node}/status') {
-        return {
-          cpuinfo: { cpus: 16 },
-          memory: { total: 64 * 1024 * 1024 * 1024 },
-          rootfs: { total: 500 * 1024 * 1024 * 1024, avail: 200 * 1024 * 1024 * 1024 },
-        };
-      }
-      if (path === '/nodes/{node}/qemu/{vmid}/config' && method === 'GET') return {};
+    mocks.request.mockImplementation(async (path: string, method?: string, _payload?: Record<string, unknown>) => {
       if (path === '/nodes/{node}/lxc/{vmid}/template') return 'UPID:convert-task';
       if (path === '/nodes/{node}/qemu/{vmid}/template') return 'UPID:vm-convert-task';
-      if (path === '/nodes/{node}/lxc/{vmid}/config' && payload?.$body) return 'UPID:lxc-config-task';
+      // PUT config for rename
+      if (path === '/nodes/{node}/lxc/{vmid}/config') return 'UPID:lxc-rename-task';
       // PUT is synchronous cloud-init config; POST is rename/configure
       if (path === '/nodes/{node}/qemu/{vmid}/config' && method === 'PUT') return null;
       if (path === '/nodes/{node}/qemu/{vmid}/config') return 'UPID:rename-task';
@@ -196,72 +189,74 @@ describe('proxmox page server actions', () => {
     expect(result.message).toContain('Stopped VM 100 (web-vm)');
   });
 
-  it('configureWorkload applies LXC cpulimit and memory settings', async () => {
-    const result = await actions.configureWorkload(
+  it('renameWorkload renames an LXC container', async () => {
+    const result = await actions.renameWorkload(
       makeEvent({
         type: 'container',
         id: '202',
         node: 'pve1',
         name: 'api-ct',
-        cpuSharePercent: '50',
-        memoryMiB: '2048',
+        newName: 'new-api-ct',
       })
     );
 
-    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/status', 'GET', {
-      $path: { node: 'pve1' },
-    });
     expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/lxc/{vmid}/config', 'PUT', {
       $path: { node: 'pve1', vmid: 202 },
-      $body: { cpulimit: 8, memory: 2048 },
+      $body: { name: 'new-api-ct' },
     });
 
     expect(result.status).toBe('success');
-    expect(result.message).toContain('Updated container 202 (api-ct): cpulimit=8, memory=2048 MiB');
+    expect(result.message).toContain('Renamed container 202 from "api-ct" to "new-api-ct"');
   });
 
-  it('configureWorkload applies VM cores and memory settings', async () => {
-    const result = await actions.configureWorkload(
+  it('renameWorkload renames a QEMU VM', async () => {
+    const result = await actions.renameWorkload(
       makeEvent({
         type: 'vm',
         id: '110',
         node: 'pve1',
         name: 'build-vm',
-        cpuSharePercent: '50',
-        memoryMiB: '4096',
+        newName: 'new-build-vm',
       })
     );
 
-    // QEMU config endpoint uses PUT (not POST) and expects memory as number (not string)
     expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/qemu/{vmid}/config', 'PUT', {
       $path: { node: 'pve1', vmid: 110 },
-      $body: { cores: 8, memory: 4096 },
+      $body: { name: 'new-build-vm' },
     });
 
     expect(result.status).toBe('success');
-    expect(result.message).toContain('Updated VM 110 (build-vm): cores=8, memory=4096 MiB');
+    expect(result.message).toContain('Renamed VM 110 from "build-vm" to "new-build-vm"');
   });
 
-  it('configureWorkload optionally expands container storage', async () => {
-    const result = await actions.configureWorkload(
+  it('renameWorkload rejects empty new name', async () => {
+    const result = await actions.renameWorkload(
       makeEvent({
         type: 'container',
         id: '203',
         node: 'pve1',
         name: 'disk-ct',
-        cpuSharePercent: '25',
-        memoryMiB: '1024',
-        storageGiB: '10',
+        newName: '',
       })
     );
 
-    expect(mocks.request).toHaveBeenCalledWith('/nodes/{node}/lxc/{vmid}/resize', 'PUT', {
-      $path: { node: 'pve1', vmid: 203 },
-      $body: { disk: 'rootfs', size: '+10G' },
-    });
+    expect((result as { status: number }).status).toBe(400);
+    expect((result as { data: { message: string } }).data.message).toContain('Name is required');
+  });
 
-    expect(result.status).toBe('success');
-    expect(result.message).toContain('storage=+10 GiB');
+  it('renameWorkload rejects invalid Proxmox names', async () => {
+    const result = await actions.renameWorkload(
+      makeEvent({
+        type: 'vm',
+        id: '111',
+        node: 'pve1',
+        name: 'test-vm',
+        newName: 'vm with spaces',
+      })
+    );
+
+    expect((result as { status: number }).status).toBe(400);
+    expect((result as { data: { message: string } }).data.message).toMatch(/^Name:/);
   });
 
   it('cloneFromTemplate clones, applies cloud-init credentials, configures guest agent, and starts the VM', async () => {

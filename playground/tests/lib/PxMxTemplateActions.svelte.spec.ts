@@ -42,7 +42,7 @@ describe('template action controls', () => {
     await expect.element(convertButton).toBeEnabled();
   });
 
-  it('shows configure and convert actions for VM workloads', async () => {
+  it('shows rename and convert actions for VM workloads', async () => {
     render(PxMxWorkloadControls, {
       selectedWorkload: {
         type: 'vm',
@@ -50,18 +50,16 @@ describe('template action controls', () => {
         name: 'web-vm',
         node: 'pve1',
         status: 'running',
-        hostMaxCpu: 16,
-        hostMaxMemory: 64 * 1024 * 1024 * 1024,
       },
       selectedLabel: 'web-vm (VM 101)',
       compact: true,
     });
 
-    const configureButton = page.getByRole('button', { name: 'Configure VM CPU, memory, and storage' });
+    const renameButton = page.getByRole('button', { name: 'Rename workload' });
     const convertButton = page.getByRole('button', { name: 'Stop and convert VM to template' });
 
-    await expect.element(configureButton).toBeVisible();
-    await expect.element(configureButton).toBeEnabled();
+    await expect.element(renameButton).toBeVisible();
+    await expect.element(renameButton).toBeEnabled();
     await expect.element(convertButton).toBeVisible();
     await expect.element(convertButton).toBeEnabled();
   });

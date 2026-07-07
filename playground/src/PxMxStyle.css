@@ -392,7 +392,7 @@
 
 .workload-controls .action-buttons button,
 .workload-controls .convert-form button,
-.workload-controls .configure-btn,
+.workload-controls .rename-btn,
 .workload-controls .terminal-btn,
 .workload-controls .vnc-btn,
 .workload-controls .delete-btn {
@@ -487,21 +487,21 @@
   margin: 0;
 }
 
-.workload-controls .configure-btn {
+.workload-controls .rename-btn {
   background: #fff3e0;
   border: 1px solid #f39c12;
 }
 
-.workload-controls .configure-btn:hover:not(:disabled) {
+.workload-controls .rename-btn:hover:not(:disabled) {
   background: #ffe0b2;
   border-color: #e67e22;
 }
 
-.workload-controls .configure-btn:active:not(:disabled) {
+.workload-controls .rename-btn:active:not(:disabled) {
   transform: scale(0.95);
 }
 
-.workload-controls .configure-btn:disabled {
+.workload-controls .rename-btn:disabled {
   background: #f2d4b5;
   border-color: #d9b691;
   cursor: not-allowed;
