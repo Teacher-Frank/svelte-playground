@@ -402,5 +402,31 @@ Critical startup directives (especially P0: read this file) should also be recor
 - Placing instructions only inside POLICIES.md without an external trigger — the model won't know to read it before processing the user's request.
 - Storing `copilot-instructions.md` outside any git repo — changes become untracked and unreviewable. 
 
+---
 
+# AI Skills Installed
 
+These skills are available in the development environment and can be invoked during sessions.
+
+## Claude Skills (User-Level — `~/.claude/skills/`)
+
+| Skill | Source | Trigger | Purpose |
+|-------|--------|---------|---------|
+| **graphify** | Local skill | `/graphify` or structural questions | Converts codebase/input to persistent knowledge graph with god nodes, community detection, and query/path/explain tools. Use for architecture exploration, "where is X?", import relationships. |
+| **doc-coauthoring** | Local skill | User requests to write docs | Structured workflow for co-authoring documentation, proposals, technical specs, and decision docs. |
+| **frontend-design** | Local skill | User requests UI/visual design | Guidance for distinctive, intentional visual design when building new UI or reshaping existing UI. Covers typography, aesthetic direction, and avoiding templated defaults. |
+| **webapp-testing** | Local skill | Frontend testing tasks | Playwright toolkit for interacting with and testing local web applications. Captures screenshots, validates frontend functionality, and debugs UI behavior. |
+
+## Agent Customization Skills (VS Code Built-in)
+
+| Skill | Purpose |
+|-------|---------|
+| **project-setup-info-local** | Comprehensive workspace/project scaffolding for full project initialization (TypeScript, React, Node.js, MCP servers, VS Code extensions, Next.js, Vite, etc.). |
+| **agent-customization** | Create, update, review, fix, or debug VS Code agent customization files (`.instructions.md`, `.prompt.md`, `.agent.md`, `SKILL.md`, `copilot-instructions.md`, `AGENTS.md`). |
+| **get-search-view-results** | Get current search results from the VS Code Search view. |
+
+## Repository-Level Skills (`pve-client/skills-lock.json`)
+
+| Skill | Source | Purpose |
+|-------|--------|---------|
+| **mem0** | `mem0ai/mem0` (GitHub) | Memory/persistence skill (see `pve-client/skills-lock.json` for details). |
