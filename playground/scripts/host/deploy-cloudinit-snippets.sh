@@ -86,7 +86,35 @@ runcmd:
   #    Idempotent: skips entirely if the interface is already static.
   - |
     set -e
-    INTERFACE="eth0"
+
+    # Auto-detect the active Ethernet interface (avoids the eth0 vs ens18 naming issue).
+    # Uses the interface that has the default route; falls back to any non-lo interface
+    # with an IPv4 address; last resort: first non-lo interface with carrier UP.
+    detect_interface() {
+      # Method 1: interface used for default gateway
+      local iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
+      [ -n "$iface" ] && echo "$iface" && return 0
+
+      # Method 2: any non-loopback interface with an IPv4 address (not 127.x)
+      for dev in $(ip -o -4 addr show 2>/dev/null | awk '{print $2}' | sort -u); do
+        [ "$dev" = "lo" ] && continue
+        ip -4 addr show "$dev" 2>/dev/null | awk '/inet /{print $2}' | grep -q -v '127[.]' \
+          && echo "$dev" && return 0
+      done
+
+      # Method 3: first non-lo interface with carrier UP
+      for dev in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | grep -v '^lo$'); do
+        ip link show "$dev" 2>/dev/null | grep -q 'state UP' \
+          && echo "$dev" && return 0
+      done
+      return 1
+    }
+
+    INTERFACE=$(detect_interface) || {
+      echo "ERROR: Cannot detect active network interface; skipping static conversion" >&2
+      exit 0
+    }
+    echo "INFO: Detected interface: ${INTERFACE}" >&2
     MAX_WAIT=30
 
     # Wait for any IP.
@@ -164,8 +192,12 @@ runcmd:
 
     # ---------- B) NetworkManager (nmcli) ----------
     if [ "$CONVERTED" = false ] && command -v nmcli &>/dev/null; then
-      CON_NAME=$(nmcli -t -f NAME,DEVICE con show 2>/dev/null | \
-                 grep ":${INTERFACE}$" | cut -d: -f1 || :)
+      # Find the active connection for this device, or any connection that should use it.
+      CON_NAME=$(nmcli -t -f NAME,DEVICE con show --active 2>/dev/null | \
+                 grep ":${INTERFACE}$" | head -1 | cut -d: -f1 || :)
+      [ -z "$CON_NAME" ] && \
+        CON_NAME=$(nmcli -t -f NAME,DEVICE con show 2>/dev/null | \
+                   grep ":${INTERFACE}$" | head -1 | cut -d: -f1 || :)
       if [ -n "$CON_NAME" ]; then
         if ! nmcli con mod "$CON_NAME" \
           ipv4.method manual \
