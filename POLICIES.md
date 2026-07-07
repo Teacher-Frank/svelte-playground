@@ -410,12 +410,21 @@ These skills are available in the development environment and can be invoked dur
 
 ## Claude Skills (User-Level — `~/.claude/skills/`)
 
+**Active:**
+
 | Skill | Source | Trigger | Purpose |
 |-------|--------|---------|---------|
 | **graphify** | Local skill | `/graphify` or structural questions | Converts codebase/input to persistent knowledge graph with god nodes, community detection, and query/path/explain tools. Use for architecture exploration, "where is X?", import relationships. |
-| **doc-coauthoring** | Local skill | User requests to write docs | Structured workflow for co-authoring documentation, proposals, technical specs, and decision docs. |
-| **frontend-design** | Local skill | User requests UI/visual design | Guidance for distinctive, intentional visual design when building new UI or reshaping existing UI. Covers typography, aesthetic direction, and avoiding templated defaults. |
-| **webapp-testing** | Local skill | Frontend testing tasks | Playwright toolkit for interacting with and testing local web applications. Captures screenshots, validates frontend functionality, and debugs UI behavior. |
+
+**Optional (deleted to save context tokens):**
+
+The skills below were created but removed — they provided no executable tooling, only markdown-guided best practices. Reinstall if you want explicit checklists:
+
+| Skill | Topic | Removed because... |
+|-------|-------|-------------------|
+| ~~**doc-coauthoring**~~ | Documentation workflow | Knowledge I already have (Understand → Outline → Draft → Review). Dead weight in context. |
+| ~~**frontend-design**~~ | UI design guidance | Generic design principles (typography, color, spacing) — not project-specific enough to justify context load. |
+| ~~**webapp-testing**~~ | Playwright/browser testing | Browser testing already has dedicated tools (`open_browser_page`, `click_element`, etc.) in the toolbelt. Skill file was redundant documentation. |
 
 ## Agent Customization Skills (VS Code Built-in)
 
@@ -425,8 +434,17 @@ These skills are available in the development environment and can be invoked dur
 | **agent-customization** | Create, update, review, fix, or debug VS Code agent customization files (`.instructions.md`, `.prompt.md`, `.agent.md`, `SKILL.md`, `copilot-instructions.md`, `AGENTS.md`). |
 | **get-search-view-results** | Get current search results from the VS Code Search view. |
 
-## Repository-Level Skills (`pve-client/skills-lock.json`)
+## Repository-Level Skills (both `svelte-playground/` and `pve-client/`)
 
 | Skill | Source | Purpose |
 |-------|--------|---------|
-| **mem0** | `mem0ai/mem0` (GitHub) | Memory/persistence skill (see `pve-client/skills-lock.json` for details). |
+| **mem0** | `mem0ai/mem0` (GitHub) | Memory/persistence skill. Installed in both repos via `.agents/skills/mem0/` + `skills-lock.json`. |
+
+## mem0 Installation Notes
+
+- **Both repos have `mem0ai` SDK** — `pve-client` as direct dep; `svelte-playground/playground` gets it transitively via `pve-client`.
+- **`.env` in both repos** — contains `MEM0_API_KEY`. Already tracked in `.gitignore`.
+- **CLI: `@mem0/cli`** — installed globally (`v0.2.10`). Use `mem0` commands in terminal.
+- **Agent skill path**: `.agents/skills/mem0/SKILL.md` (both repos)
+- **Lock files**: `skills-lock.json` in both repo roots
+- **To use**: set `$env:MEM0_API_KEY` (from `.env`) then `mem0 add`, `mem0 search`, etc.

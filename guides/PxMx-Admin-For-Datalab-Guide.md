@@ -46,7 +46,14 @@ Git repository under `playground/scripts/`. Transfer them to the target machine 
       - [1.7.2 Option A: auto-install via cloud-init snippet (cicustom)](#172-option-a-auto-install-via-cloud-init-snippet-cicustom)
       - [1.7.3 Option B: pre-install in the base template](#173-option-b-pre-install-in-the-base-template)
       - [1.7.4 Option C: install manually on an existing guest](#174-option-c-install-manually-on-an-existing-guest)
-    - [1.8 Troubleshooting host-side issues](#18-troubleshooting-host-side-issues)
+    - [1.8 Cloud-init snippet — known issues and limitations](#18-cloud-init-snippet--known-issues-and-limitations)
+      - [1.8.1 How the snippet executes](#181-how-the-snippet-executes)
+      - [1.8.2 Interface rename aborts entire cloud-init (Ubuntu 24.04)](#182-interface-rename-aborts-entire-cloud-init-ubuntu-2404)
+      - [1.8.3 Hardcoded interface name (resolved)](#183-hardcoded-interface-name-resolved)
+      - [1.8.4 Reported failures and lessons](#184-reported-failures-and-lessons)
+      - [1.8.5 Malformed netplan during partial conversion](#185-malformed-netplan-during-partial-conversion)
+      - [1.8.6 Verifying snippet execution](#186-verifying-snippet-execution)
+    - [1.9 Troubleshooting host-side issues](#19-troubleshooting-host-side-issues)
   - [2. Guest VM / container setup](#2-guest-vm--container-setup)
     - [2.1 What is a guest and why does it need configuration?](#21-what-is-a-guest-and-why-does-it-need-configuration)
     - [2.2 Guest-side bash scripts](#22-guest-side-bash-scripts)
@@ -503,7 +510,131 @@ If you're adding the agent to an already-deployed VM, or the other methods faile
 After installation, the playground will detect the guest agent on the next data refresh
 and display the VM's IP.
 
-### 1.8 Troubleshooting host-side issues
+### 1.8 Cloud-init snippet — known issues and limitations
+
+The `install-agent.yaml` snippet deployed by `deploy-cloudinit-snippets.sh` uses
+cloud-init's `runcmd` mechanism to install the QEMU guest agent, enable serial-getty,
+and convert DHCP to static IP on first boot. This section documents observed issues,
+their root causes, and recommended workarounds.
+
+#### 1.8.1 How the snippet executes
+
+The snippet runs via `runcmd` during the `modules:final` cloud-init stage — the last
+stage of the cloud-init pipeline:
+
+```
+Cloud-init stages
+│
+├─ init-local
+│  └─ network interface rename (can fail on some systems — aborts everything below)
+│
+├─ init   → configures network (may fail after rename)
+├─ modules:config
+└─ modules:final
+   └─ runcmd                              ← runs here if cloud-init succeeded
+      ├─ echo marker > /root/snippet.log  ← proof of execution
+      ├─ install qemu-guest-agent         ← apt + systemctl
+      ├─ enable serial-getty@ttyS0
+      └─ inline static IP conversion
+         ├─ detect_interface()  →  ens18 (or whatever NIC name)
+         ├─ wait for DHCP IP
+         ├─ skip if already static
+         ├─ try A: Netplan rewrite (only if not NM-rendered)
+         ├─ try B: nmcli con mod ipv4.method manual
+         └─ try C: ifupdown /etc/network/interfaces sed
+```
+
+**Key property:** if cloud-init aborts at an earlier stage (e.g., during `init-local`),
+`runcmd` never runs. The VM boots normally but without the agent, serial-getty, or
+static IP from the snippet.
+
+#### 1.8.2 Interface rename aborts entire cloud-init (Ubuntu 24.04)
+
+**Symptom:** `cloud-init status --long` reports `status: error` and:
+
+```
+Unable to rename interfaces: [['bc:24:11:0b:f7:85', 'eth0', None, None]]
+due to errors: ['[busy] Error renaming mac=... from ens18 to eth0']
+```
+
+All `runcmd` scripts are skipped.
+
+**Root cause:** Proxmox's NoCloud datasource supplies user-data that instructs
+cloud-init to rename `ens18 → eth0`. On Ubuntu 24.04 (especially Desktop editions),
+this rename fails because NetworkManager/Udev already owns the device. The rename
+error is raised during the `init-local` stage, which causes cloud-init to abort all
+subsequent modules — including `scripts_user` / `runcmd`.
+
+**Impact:** On affected systems, the entire `runcmd` block (agent install, serial-getty,
+IP conversion) is skipped. The VM boots normally but without the snippet's benefits.
+
+**Status:** This is a known cloud-init bug on Ubuntu 24.04 Desktop.
+See [Launchpad #2045041](https://bugs.launchpad.net/cloud-init/+bug/2045041).
+
+**Workarounds (in order of preference):**
+1. **Pre-install in template** — install `qemu-guest-agent` and enable `serial-getty@ttyS0`
+   directly in the golden template before converting it (Section 1.7.3). This removes two
+   of three snippet tasks, leaving only the IP conversion which also runs via the
+   playground server side (Section 4.3).
+2. **Use a cloud server image** — Proxmox Cookbook cloud images (Debian, Ubuntu Server)
+   don't typically hit this rename issue since they're designed for cloud-init workflows.
+   Desktop images are the primary affected category.
+3. **Manual post-deploy install** — if the snippet didn't run, SSH into the guest and
+   run `sudo bash install-guest-agent.sh` (Section 1.7.4).
+
+#### 1.8.3 Hardcoded interface name (resolved)
+
+**Historical issue:** The original snippet used `INTERFACE="eth0"` for the IP conversion
+script, but many guests report their primary NIC as `ens18` or similar.
+
+**Fix:** The snippet now uses a `detect_interface()` shell function that auto-detects
+the active interface via: (1) default-gateway route, (2) first non-lo interface with
+an IPv4 address, (3) first non-lo interface with carrier UP.
+
+**Limitation:** This fix only helps when `runcmd` actually runs. When cloud-init
+aborts early (see [Section 1.8.2](#182-interface-rename-aborts-entire-cloud-init-ubuntu-2404)),
+the conversion script never executes.
+
+#### 1.8.4 Reported failures and lessons
+
+The following approaches were attempted to work around the rename abort, but caused
+regressions and were reverted:
+
+| Attempt | Result | Lesson |
+|---|---|---|
+| Switch `runcmd` to `bootcmd` + `write_files` | **REGRESSION** — VMs stuck in boot loop indefinitely; `apt` hangs because network isn't available yet at `bootcmd` time | Reverted to `runcmd` only — the early-execution benefit of `bootcmd` is negated when the commands need `apt` + network |
+| Drop `network: rename: disable: true` to `/etc/cloud/cloud.cfg.d/` | Schema error on cloud-init v26+ — `rename` is not a valid top-level key for drop-in network-config files | Don't drop invalid schema into `cloud.cfg.d/` — cloud-init v26+ treats files in `cloud.cfg.d/` as network-config when they lack `version:` at the top level |
+| Use `rm -rf /var/lib/cloud/instance/*` for manual cleanup | Symlink corruption — `/var/lib/cloud/instance` is expected to be a symlink, not a plain directory | Always use `cloud-init clean` instead of manual state directory removal |
+
+#### 1.8.5 Malformed netplan during partial conversion
+
+**Symptom:** `/etc/netplan/50-cloud-init.yaml` contained two `network:` blocks,
+causing `netplan apply` to fail entirely.
+
+**Root cause:** The original conversion script overwrote the Netplan file without
+preserving the `renderer: NetworkManager` directive. Since Ubuntu Desktop uses
+NetworkManager as renderer, the Netplan direct path was applied when it shouldn't have been.
+
+**Current state:** The three-method fallback chain now checks for `renderer: NetworkManager`
+before attempting the Netplan direct path. The wrong-name issue is also resolved via
+`detect_interface()`. The malformed case can still occur if there's a race condition
+where cloud-init rewrites netplan simultaneously with the conversion script.
+
+#### 1.8.6 Verifying snippet execution
+
+After deploying a VM with `cicustom: vendor=local:snippets/install-agent.yaml`:
+
+| Check | Command | Expected |
+|---|---|---|
+| Snippet activated | `cat /root/snippet.log` | Timestamp present |
+| Guest agent running | `systemctl is-active qemu-guest-agent` | `active` |
+| Serial getty enabled | `systemctl is-enabled serial-getty@ttyS0` | `enabled` |
+| Cloud-init status | `cloud-init status --long` | `done` (if `error`, runcmd was skipped) |
+
+If `cloud-init status --long` reports `error`, check the output section for rename failures
+(Section 1.8.2). When runcmd was skipped, fall back to manual install (Section 1.7.4).
+
+### 1.9 Troubleshooting host-side issues
 
 | Symptom | Fix |
 |---|---|
@@ -513,6 +644,8 @@ and display the VM's IP.
 | Hook script not found error on deploy | Confirm `PVE_LXC_HOOKSCRIPT_VOLID` in `acctest-env.ps1` points to the correct storage path |
 | VM IP shows as `?` in UI | Guest agent not installed or not running — check that the template has cloud-init (Section 1.4) and that the snippet was deployed (Section 1.7.2) |
 | VM clone boots but snippet doesn't run (no `/root/snippet.log`) | **Most common:** `cloud-init clean` was NOT run in the template before `qm template` — re-run it, shut down, re-convert. Cloud-init's state files are cloned and it skips all processing if it sees prior state. See §1.4.2 explanation. **Also check:** the snippet file exists on the host (`ls /var/lib/vz/snippets/install-agent.yaml`) and `PVE_SNIPPET_STORAGE` is correct |
+| VM boots normally but cloud-init reports `error` (rename failure) | Ubuntu 24.04 Desktop cloud-init bug — see [Section 1.8.2](#182-interface-rename-aborts-entire-cloud-init-ubuntu-2404). Use pre-installed agent in template (Section 1.7.3) or manual post-deploy install (Section 1.7.4) |
+| VM boots normally but cloud-init reports `error` (rename failure) | Ubuntu 24.04 Desktop cloud-init bug — see [Section 1.8.2](#182-interface-rename-aborts-entire-cloud-init-ubuntu-2404). Use pre-installed agent in template (Section 1.7.3) or manual post-deploy install (Section 1.7.4) |
 
 ---
 
@@ -923,7 +1056,7 @@ Bridge runtime configuration details are in [Section 3.3](#33-lxc-vnc-bridge-con
 | Terminal stuck on "starting serial terminal" | No `serial-getty@ttyS0` running in guest | [1.4.4 Serial console getty](#144-serial-console-getty-required-for-terminal-access) |
 | Xorg fails with "no screens found" in LXC | Missing device passthrough; hook script not installed | [1.5 LXC device passthrough](#15-lxc-device-passthrough-done-automatically-by-the-hook-script) |
 | Container created but no `/dev/dri` | Hook script didn't run | [1.2 Install the LXC post-create hook script](#12-install-the-lxc-post-create-hook-script) |
-| VM clone fails with cloud-init LV collision | Stale cloud-init volume for that VMID | Section [1.8 Troubleshooting host-side issues](#18-troubleshooting-host-side-issues) |
+| VM clone fails with cloud-init LV collision | Stale cloud-init volume for that VMID | Section [1.9 Troubleshooting host-side issues](#19-troubleshooting-host-side-issues) |
 | Hook script "file not found" on deploy | `PVE_LXC_HOOKSCRIPT_VOLID` path is wrong | [1.2 Install the LXC post-create hook script](#12-install-the-lxc-post-create-hook-script) |
 | Static IP conversion doesn't happen | Guest agent hasn't reported an IP yet, or cloud-init snippet failed to install the agent | [Section 1.7](#17-qemu-guest-agent---how-it-gets-installed), [Section 4.3](#43-dhcp-to-static-ip-conversion) |
 | Deploy stuck for 10 minutes then disappears | No cloud-init in template, so `cicustom` snippet can't run — agent never installs | [Section 1.4](#14-prepare-a-cloud-init-ready-vm-template) |
@@ -931,6 +1064,9 @@ Bridge runtime configuration details are in [Section 3.3](#33-lxc-vnc-bridge-con
 | GUI action is grayed/disabled | Guest IP not yet discovered | [2.4 Run the verification checklist](#24-run-the-verification-checklist) |
 | VNC page shows "Target closed connection" | VNC server auth failing inside guest | [3.4 VNC troubleshooting](#34-troubleshooting-vnc-page-stuck-on-submitting-credentials) |
 | Ubuntu 24.04 LXC has no console or network | Missing `nesting=1` feature flag | [1.4 Enable nesting](#14-enable-nesting-at-lxc-container-creation) |
+| Cloud-init reports `error` (rename failure) on Ubuntu Desktop 24.04 | NetworkManager owns the device, rename fails during `init-local` | [Section 1.8.2](#182-interface-rename-aborts-entire-cloud-init-ubuntu-2404) |
+| Snippet didn't run but cloud-init says `done` | Interface name mismatch (historical) or race condition | [Section 1.8.3](#183-hardcoded-interface-name-resolved) |
+| Netplan file is malformed after partial conversion | Script overwrote Netplan without preserving `renderer: NetworkManager` | [Section 1.8.5](#185-malformed-netplan-during-partial-conversion) |
 
 ---
 

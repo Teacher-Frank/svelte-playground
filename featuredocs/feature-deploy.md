@@ -24,6 +24,7 @@
 | **Deploy concurrency guardrail** | 2026-07-01 | Added singleton `pendingDeployLock` in `helpers.ts` to prevent simultaneous deployments that crashed the dev server. All three deploy actions (`cloneFromTemplate`, `cloneLxcGuestTemplate`, `cloneLxcTemplate`) now acquire the lock before deploy, release in finally/catch. Returns `fail(409)` with descriptive message when a deploy was already in progress. Lock auto-expire after 10 min. |
 | **Usability test (snippet failure discovery)** | 2026-07-03 | Full deploy→terminal→verify test on template 9000 (debian-12-cloud-template). VM deployed and terminal connected successfully, but cloud-init skipped runcmd entirely. No `snippet.log` marker, no qemu-guest-agent installed. Root cause: `Skipping modules '...runcmd' because no applicable config is provided.` — likely the snippet file `install-agent.yaml` was never deployed to the Proxmox host via `deploy-cloudinit-snippets.sh`. See §Snippet Failure Root Cause for analysis and fix. |
 | **Terminal reconnection fix** | 2026-07-03 | Terminal connection to VM 101 (test-vm-9000-retry) now confirmed working after reconnect. Serial0=socket + serial-getty@ttyS0 service running, login prompt appears, shell responds. Snippet still not running (pending host deploy). |
+| **Cloud-init snippet issue integration** | 2026-07-07 | Integrated known snippet issues into admin guide §1.8. Added session summary below. |
 
 ---
 
@@ -191,6 +192,26 @@ The user reported it stays deployed until the 10-minute cap. Two likely causes r
 2. **Task stuck or failing silently**: `isTaskActive` returns `true` if a task has no `endtime` and status isn't `ok`/`stopped`/`error`/`warnings`. If task data is stale or missing from `recentTasks`, `isTaskActive` returns `undefined` which is neither `true` nor `false` — the code treats `undefined` as "not active" so `states.some(state => state === true)` is false.
 
 3. **Name mismatch**: The workload name comparison is case-insensitive lowercase trimming. If the deployed name differs from the reported name, `workloadExists` will be false.
+
+## Cloud-init Snippet — Known Issues Summary
+
+The `install-agent.yaml` snippet (deployed via `cicustom` + `vendor=`) has several known
+issues that affect whether `runcmd` executes on first boot. **Full details, diagrams, and
+workarounds are in `PxMx-Admin-For-Datalab-Guide.md` §1.8.** Summary below:
+
+| # | Issue | Status | Guide § |
+|---|---|--------|----------|
+| 1 | **Interface rename abort** — Proxmox's NoCloud datasource tells cloud-init to rename `ens18 → eth0`. On Ubuntu 24.04 Desktop, NetworkManager already owns the device, the rename fails during `init-local`, and all subsequent `runcmd` is skipped. | **Open** (known upstream bug) | [1.8.2](https://github.com/user/hrgit/blob/main/svelte-playground/guides/PxMx-Admin-For-Datalab-Guide.md#182-interface-rename-aborts-entire-cloud-init-ubuntu-2404) |
+| 2 | **Hardcoded `eth0`** — original conversion script used `INTERFACE="eth0"`; many guests report `ens18` or similar. | **Resolved** — replaced with `detect_interface()` auto-detect | [1.8.3](https://github.com/user/hrgit/blob/main/svelte-playground/guides/PxMx-Admin-For-Datalab-Guide.md#183-hardcoded-interface-name-resolved) |
+| 3 | **`bootcmd` regression** — attempted to move from `runcmd` to `bootcmd` to run before rename failure; caused VMs to hang in boot loop (`apt` has no network at `bootcmd` time). | **Reverted** to `runcmd` | [1.8.4](https://github.com/user/hrgit/blob/main/svelte-playground/guides/PxMx-Admin-For-Datalab-Guide.md#184-reported-failures-and-lessons) |
+| 4 | **Malformed netplan** — partial conversion overwrote Netplan without preserving `renderer: NetworkManager`. | **Reduced** — fallback chain now checks renderer before Netplan direct path | [1.8.5](https://github.com/user/hrgit/blob/main/svelte-playground/guides/PxMx-Admin-For-Datalab-Guide.md#185-malformed-netplan-during-partial-conversion) |
+| 5 | **Snippet file missing on host** — if `deploy-cloudinit-snippets.sh` was never run on the Proxmox host, `cicustom` points to a non-existent file and cloud-init silently skips `runcmd`. | **Operational** — requires host setup | [1.7.2](https://github.com/user/hrgit/blob/main/svelte-playground/guides/PxMx-Admin-For-Datalab-Guide.md#172-option-a-auto-install-via-cloud-init-snippet-cicustom) |
+
+**Preferred workaround when rename abort affects a template:** Pre-install `qemu-guest-agent`
+and `serial-getty@ttyS0` directly in the golden template (guide §1.7.3). This removes two
+of three snippet tasks. IP conversion also happens via the playground server side (§4.3).
+
+---
 
 ## Snippet Failure Root Cause — 2026-07-03
 
