@@ -1,8 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import './PxMxStyle.css';
-  import { useToast } from './notification-store.svelte.js';
-  import ToastNotification from './ToastNotification.svelte';
 
   type SelectedWorkload = {
     type: 'vm' | 'container';
@@ -142,8 +140,9 @@
   let showRenameModal = $state(false);
   let renameSubmitInFlight = $state(false);
 
-  // Unified notification system
-  const notify = useToast('config');
+  // Notifications for config actions (destroy, rename, convert) are handled
+  // by PxMxWorkloadList via server form response to avoid showing both toast
+  // AND inline bar for the same action.
 
   let workloadName = $state('');
 
@@ -201,19 +200,15 @@
 
           showDeleteConfirm = false;
 
-          // Show notification only after server confirms destroy was initiated.
-          // Clean it after Proxmox confirms the destroy completed.
-          // NOTE: The workload row shows a "destroying" badge as persistent feedback,
-          // so we only toast the short-lived "initiated" notification and not floating
-          // pending bar that would get stuck if the workload disappears before a success/error
-          // notification arrives to clear it.
-          notify.toast(`Destroying ${typeLabel} ${workloadId}…`);
+          // Notification for this action is handled by PxMxWorkloadList via server
+          // form response (vm-workloads/container-workloads scope, inline bar).
+          // We don't fire a notification here to avoid showing both toast AND bar.
         }
 
         if (result?.type === 'failure') {
           setWaitCursor(false);
           showDeleteConfirm = false;
-          notify.error(result.data?.message ?? 'Failed to destroy workload.');
+          // Error notification handled by PxMxWorkloadList via server form response.
         }
       } finally {
         destroySubmitInFlight = false;
@@ -242,12 +237,11 @@
         window.scrollTo({ left: scrollX, top: scrollY, behavior: 'auto' });
 
         if (result?.type === 'success') {
-          notify.success(result.data?.message ?? 'Workload renamed.');
-          return;
+          // Notification handled by PxMxWorkloadList via server form response.
         }
 
         if (result?.type === 'failure') {
-          notify.error(result.data?.message ?? 'Failed to rename workload.');
+          // Error notification handled by PxMxWorkloadList via server form response.
         }
       } finally {
         renameSubmitInFlight = false;
@@ -452,6 +446,5 @@
     </div>
   {/if}
 
-  <!-- Unified notification: floating toast for config actions -->
-  <ToastNotification {notify} inline={false} />
+
 </div>
