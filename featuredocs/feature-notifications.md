@@ -73,7 +73,7 @@ Each scope returns a `ToastContext` with these methods:
 
 | Method | Kind Set | Auto-Dismiss | Dismissible |
 |--------|----------|-------------|-------------|
-| `toast(message)` | `'toast'` | 3 s | no |
+| `toast(message)` | `'toast'` | one refresh interval | no |
 | `pending(message)` | `'pending'` | never | no (until replaced) |
 | `success(message)` | `'success'` | 10 s | yes |
 | `error(message)` | `'error'` | never | yes |
@@ -107,8 +107,8 @@ Each scope is a closure over `$state` and a timer:
 
 2. **`scheduleAutoDismiss()`** — sets `setTimeout` based on kind's duration
 
-3. **`AUTO_DISMISS_MS`** — hardcoded durations:
-   - `toast`: 3000 ms
+3. **`AUTO_DISMISS_MS`** — durations (toast reads from `getRefreshIntervalSeconds()` at module load, others hardcoded):
+   - `toast`: `getRefreshIntervalSeconds() * 1000` ms (tied to data refresh cadence)
    - `warning`: 10 000 ms
    - `success`: 10 000 ms
    - `error`: null (stays forever until manual dismiss)
@@ -121,7 +121,7 @@ Each scope is a closure over `$state` and a timer:
 import { useToast } from './notification-store.svelte.js';
 
 const notify = useToast('config');          // get scope context
-notify.toast('Starting deployment…');       // transient, 3s auto-dismiss
+notify.toast('Starting deployment…');       // transient, auto-dismisses after refresh interval
 notify.success('Deployed successfully');    // inline, 10s auto-dismiss
 notify.error('Deploy failed');              // inline, stays until dismissed
 ```
@@ -239,7 +239,7 @@ Unified notification styles live in the `/* ── Unified Notification System �
 | Rule | Rationale |
 |------|-----------|
 | **One notification per action** — toast OR inline bar, never both | Prevents duplicate feedback confusing the user |
-| **Toast** = transient "task started" → auto-dismisses 3s | Quick acknowledgment, no clutter |
+| **Toast** = transient "task started" → auto-dismisses after one refresh interval | Quick acknowledgment, no clutter |
 | **Pending** = long-running "work in progress" → stays until replaced | Visible progress for async server calls |
 | **Success** = final outcome → auto-dismisses 10s | Confirmation that fades away |
 | **Error** = final outcome → stays until manual dismiss | User must acknowledge and read |
@@ -311,7 +311,7 @@ The only genuine data loss is `PxMxWorkloadList`'s for-loop calling `scopeNotify
 ### Notification System (dedicated section)
 
 - **One notification per action** — never show both a toast AND an inline bar for the same action.
-- **Toast** (floating bottom): transient "work-in-progress" or "task started" feedback → auto-dismisses after 3–5 seconds.
+| **Toast** (floating bottom): transient "task started" acknowledgment → auto-dismisses after one refresh interval. |
 - **Inline bar** (in-page, above the relevant section): final outcome → success auto-dismisses after 10s, errors stay until manually dismissed.
 - When an inline bar arrives (e.g., server response), any pending toast for the same action MUST be cleared.
 - Use the unified `toast-notification.ts` store and `ToastNotification.svelte` — do not create ad-hoc notification elements.
