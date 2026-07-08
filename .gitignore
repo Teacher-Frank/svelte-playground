@@ -1,3 +1,6 @@
 playground/eslint.config.ts
 
 playground/storybook-static
+
+# Graphify output
+graphify-out/
