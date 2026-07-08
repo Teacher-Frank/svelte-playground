@@ -196,7 +196,7 @@ Output format: findings ordered by severity with file refs → open questions �
 
 ## Notification System
 - **One notification per action** — never show both a toast AND an inline bar for the same action.
-- **Toast** (floating bottom): transient "work-in-progress" or "task started" feedback → auto-dismisses after 3–5 seconds.
+- **Toast** (floating bottom): transient "work-in-progress" or "task started" feedback → auto-dismisses after 3 seconds.
 - **Inline bar** (in-page, above the relevant section): final outcome → success auto-dismisses after 10s, errors stay until manually dismissed.
 - When an inline bar arrives (e.g., server response), any pending toast for the same action MUST be cleared.
 - Use the unified `toast-notification.ts` store and `ToastNotification.svelte` — do not create ad-hoc notification elements.
