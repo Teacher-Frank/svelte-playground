@@ -37,14 +37,6 @@
     disabled || selectedWorkload?.status === 'deploying' || selectedWorkload?.status === 'destroyFailed' || selectedWorkload?.status === 'deployFailed'
   );
 
-  // Terminal is only useful when the selected guest is currently running.
-  const terminalEnabled = $derived(
-    !controlsDisabled &&
-    selectedWorkload?.status === 'running' &&
-    selectedWorkload?.id != null &&
-    selectedWorkload?.node != null
-  );
-
   const supportsGuiAccess = $derived(
     selectedWorkload?.type === 'vm' || containerGuiEnabled
   );
@@ -53,11 +45,30 @@
     typeof selectedWorkload?.primaryIp === 'string' && selectedWorkload.primaryIp.trim().length > 0
   );
 
+  // When the guest is running but the IP hasn't resolved yet, treat it as
+  // "discovering" — disable all non-destructive controls until an address
+  // appears. Destroy (delete) stays enabled so the user can clean up a stuck VM.
+  const ipUnknownForRunningWorkload = $derived(
+    selectedWorkload?.status === 'running' && !hasResolvedWorkloadIp
+  );
+
+  // Terminal is only useful when the selected guest is currently running
+  // and has a resolved IP.
+  const terminalEnabled = $derived(
+    !controlsDisabled &&
+    !ipUnknownForRunningWorkload &&
+    selectedWorkload?.status === 'running' &&
+    selectedWorkload?.id != null &&
+    selectedWorkload?.node != null
+  );
+
   // GUI/VNC access eligibility differs by workload type:
   // - VMs use native Proxmox VNC (vncproxy) — no IP address needed, just running state.
   // - Containers use bridge mode (websockify on guest) — requires resolved IPv4.
+  // In both cases, disabled while IP is unknown (discovery in progress).
   const vncEnabled = $derived(
     !controlsDisabled &&
+    !ipUnknownForRunningWorkload &&
     supportsGuiAccess &&
     selectedWorkload?.status === 'running' &&
     selectedWorkload?.id != null &&
@@ -68,6 +79,10 @@
   const vncTooltip = $derived.by(() => {
     if (selectedWorkload?.type === 'container' && !containerGuiEnabled) {
       return 'GUI is not available for containers without an LXC VNC bridge';
+    }
+
+    if (ipUnknownForRunningWorkload) {
+      return 'Waiting for IP address discovery before enabling GUI (VNC)';
     }
 
     if (selectedWorkload?.type === 'container' && !hasResolvedWorkloadIp) {
@@ -87,9 +102,10 @@
   );
 
   // Conversion applies to any selected VM/container; running workloads are
-  // stopped server-side before conversion.
+  // stopped server-side before conversion. Disabled while IP is unknown.
   const convertToTemplateEnabled = $derived(
     !controlsDisabled &&
+    !ipUnknownForRunningWorkload &&
     (selectedWorkload?.type === 'container' || selectedWorkload?.type === 'vm') &&
     selectedWorkload?.id != null &&
     selectedWorkload?.node != null
@@ -104,8 +120,10 @@
   });
 
   // Rename is enabled whenever a concrete workload is selected and controls aren't disabled.
+  // Disabled while IP is unknown (discovery in progress).
   const renameEnabled = $derived(
     !controlsDisabled &&
+    !ipUnknownForRunningWorkload &&
     (selectedWorkload?.type === 'container' || selectedWorkload?.type === 'vm') &&
     selectedWorkload?.id != null &&
     selectedWorkload?.node != null

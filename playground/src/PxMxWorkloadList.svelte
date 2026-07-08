@@ -190,6 +190,32 @@
       }
     });
   });
+
+  // Show transient toast for workloads that are running but their IP hasn't
+  // been discovered yet. Collects all such workloads into a single toast
+  // so the user knows discovery is in progress.
+  $effect(() => {
+    const scopeNotify = kind === 'vm' ? _vmNotify : _containerNotify;
+    const discovering: string[] = [];
+
+    for (const workload of workloads) {
+      if (workload.status !== 'running') continue;
+      const ip = workload.primaryIp;
+      if (ip && ip.trim().length > 0) continue;
+      discovering.push(workload.name ?? String(workload.id ?? '?'));
+    }
+
+    untrack(() => {
+      if (discovering.length > 0) {
+        const msg = discovering.length === 1
+          ? `Determining IP for ${discovering[0]}…`
+          : `Determining IP for: ${discovering.join(', ')}…`;
+        scopeNotify.toast(msg);
+      } else {
+        scopeNotify.clear();
+      }
+    });
+  });
 </script>
 
 <section>

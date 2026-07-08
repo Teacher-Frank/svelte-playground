@@ -9,6 +9,7 @@
 
 | Session | Date | Changes |
 |---------|------|---------|
+| **IP-unknown control disable + toast** | 2026-07-08 | When a workload is running but its IP is unknown (`?`), disable all controls except Destroy. Added transient "Determining IP…" toast that appears while discovery is in progress and clears when resolved. See §Control Disable State Machine — IP-Unknown Gate below |
 | **cicommand fabrication discovery** | 2026-06-19 | Found that `cicommand` is not a real Proxmox API parameter. Removed dead code from `action-template-deployers.ts`, created canary test in pve-client, consolidated test assertions |
 | **cicustom solution** | 2026-06-19 | Implemented `cicustom` + `runcmd` approach for guest agent installation via cloud-init snippet. Created `install-agent.yaml` and `deploy-cloudinit-snippets.sh` host script |
 | **Deploy flow refactor** | 2026-06-23 | Fixed 6 issues: YAML syntax error, notification gap (added `pending` kind), duplicate notifications consolidated, modal timeouts added (try/finally + 30s timeout), sticky dialog backdrop fix |
@@ -293,6 +294,8 @@ Also add `PVE_SNIPPET_STORAGE` to `acctest-env.ps1` (defaults to `local` but bei
 - [x] **Status IP post-deploy** — added DHCP→static `runcmd` to `install-agent.yaml` via `cicustom` vendor snippet. Waits for eth0 IP, reads gateway, rewrites Netplan from `dhcp4: true` to static config (addresses/routes/nameservers 1.1.1.1+8.8.8.8), applies via `netplan apply`. Idempotent (skips if already static). Fixed `${IP/24}` → `${IP}/24` bash bug.
 
 - [x] **Deploy concurrency guardrail** — added singleton `pendingDeployLock` in `helpers.ts`. All three deploy actions acquire the lock before starting; second request gets `fail(409)" Deployment already in progress for '...'"`. Lock released in `finally`/catch (LXC synchronous) or `runPostCloneSteps finally` (VM background). Auto-expire after 10 min (matches hard cap). `npm run check` + `npm run lint` clean.
+
+- [x] **IP-unknown control disable** — added `ipUnknownForRunningWorkload` derived in `PxMxWorkloadControls.svelte`. Disables Terminal, VNC, Rename, and Convert when workload is running but IP is `?`. Delete stays enabled. Updated `vncTooltip`. Documented in feature-deploy.md.
 
 - [ ] **Static IP E2E test** — verify static IP post-deploy conversion works on fresh deployed VM (blocked by snippet not existing).
 
@@ -637,7 +640,8 @@ The deploy/destroy flow also surfaced a control disable regression:
 
 | Status | Start/Stop/Restart | Delete | Configure/Convert |
 |--------|-------------------|--------|-------------------|
-| `running` | ✅ | ✅ | ✅ |
+| `running` (IP known) | ✅ | ✅ | ✅ |
+| `running` (IP unknown / `?`) | ❌ (disabled) | ✅ (clean-up escape hatch) | ❌ |
 | `deploying` | ❌ (all disabled) | ❌ | ❌ |
 | `destroying` | ❌ (all disabled) | ❌ | ❌ |
 | `deployFailed` | ❌ (controlled by component) | ✅ (enable cleanup) | ❌ |
@@ -650,6 +654,28 @@ The deploy/destroy flow also surfaced a control disable regression:
 | `PxMxWorkloadList.svelte` | Add `isDisabledStatus()` helper + `DISABLED_STATUSES` constant, use in `disabled=` bindings |
 | `PxMxWorkloadControls.svelte` | Add `deployFailed` to `controlsDisabled` (delete stays enabled) |
 
+### Control Disable State Machine — IP-Unknown Gate (2026-07-08)
+
+**Requirement:** When a workload is `running` but its IP address is unknown (displayed as `?`), disable all controls **except** the Destroy (Delete) button.
+
+**Rationale:** After deploy, the VM may be running but the guest agent hasn't reported an IP yet. Attempting Terminal, VNC, Rename, or Convert operations on an unaddressable workload will fail at runtime. Explicitly disabling them prevents confusing error paths. Destroy stays enabled as a cleanup escape hatch — if the deployment is truly stuck, the user needs a way to clean up.
+
+**Implementation:** `ipUnknownForRunningWorkload` derived in `PxMxWorkloadControls.svelte`:
+- `true` when `status === 'running'` AND `primaryIp` is not resolved
+- Gated on: `terminalEnabled`, `vncEnabled`, `convertToTemplateEnabled`, `renameEnabled`
+- `deleteEnabled` is NOT gated (destroy always available)
+- Tooltips updated to explain the waiting state
+
+**Control matrix (IP-unknown, running):**
+
+| Control | Enabled? | Tooltip |
+|---------|---------|---------|
+| Terminal | ❌ | (default disabled) |
+| VNC/GUI | ❌ | `"Waiting for IP address discovery before enabling GUI (VNC)"` |
+| Rename | ❌ | (default disabled) |
+| Convert to Template | ❌ | (default disabled) |
+| Delete | ✅ | (unchanged) |
+
 ### Validation
 
 - ✅ `npm run check` — 0 errors
@@ -657,7 +683,23 @@ The deploy/destroy flow also surfaced a control disable regression:
 
 ---
 
-## Static IP Post-Deploy Configuration — 2026-06-29
+## IP-Unknown Control Disable — 2026-07-08
+
+### Problem
+When a workload is `running` but its IP hasn't been discovered yet (shown as `?`), the control buttons (Terminal, VNC, Rename, Convert) remain enabled. Clicking them produces failures or confusing behavior since the workload is unaddressable.
+
+### Fix
+Added `ipUnknownForRunningWorkload` derived state in `PxMxWorkloadControls.svelte` that disables all non-destroy controls when:
+- `status === 'running'` AND
+- `primaryIp` is not a resolved (non-empty) string
+
+**Delete stays enabled** — serves as a cleanup escape hatch for stuck deployments.
+
+#### Files Changed
+
+| File | Change |
+|------|--------|
+| `PxMxWorkloadControls.svelte` | Added `ipUnknownForRunningWorkload` derived, gated `terminalEnabled`, `vncEnabled`, `convertToTemplateEnabled`, `renameEnabled` on it. Updated `vncTooltip` to mention IP discovery. |
 
 ### Problem
 
