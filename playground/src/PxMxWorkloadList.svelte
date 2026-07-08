@@ -191,9 +191,10 @@
     });
   });
 
-  // Show transient toast for workloads that are running but their IP hasn't
-  // been discovered yet. Collects all such workloads into a single toast
-  // so the user knows discovery is in progress.
+  // Show persistent pending notification for workloads that are running but
+  // their IP hasn't been discovered yet. Uses 'pending' kind (no auto-dismiss)
+  // so it stays visible until resolved — avoids the blink cycle from toast's
+  // 3s auto-dismiss firing between data refresh cycles.
   $effect(() => {
     const scopeNotify = kind === 'vm' ? _vmNotify : _containerNotify;
     const discovering: string[] = [];
@@ -210,7 +211,7 @@
         const msg = discovering.length === 1
           ? `Determining IP for ${discovering[0]}…`
           : `Determining IP for: ${discovering.join(', ')}…`;
-        scopeNotify.toast(msg);
+        scopeNotify.pending(msg);
       } else {
         scopeNotify.clear();
       }

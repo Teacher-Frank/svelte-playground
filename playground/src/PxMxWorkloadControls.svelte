@@ -193,11 +193,6 @@
         if (result?.type === 'success') {
           setWaitCursor(false);
 
-          // Capture workload details before closing dialog (selectedWorkload may
-          // become undefined on the next tick when the delete form is removed from DOM).
-          const typeLabel = selectedWorkload?.type === 'vm' ? 'VM' : 'container';
-          const workloadId = selectedWorkload?.id;
-
           showDeleteConfirm = false;
 
           // Notification for this action is handled by PxMxWorkloadList via server

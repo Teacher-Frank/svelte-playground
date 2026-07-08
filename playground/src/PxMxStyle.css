@@ -824,6 +824,10 @@
   background: #166534;
 }
 
+.notify-toast.pending {
+  background: #1e40af;
+}
+
 .notify-toast.error {
   background: #c62828;
 }
