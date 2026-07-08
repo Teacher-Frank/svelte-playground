@@ -196,11 +196,14 @@ Output format: findings ordered by severity with file refs → open questions �
 
 ## Notification System
 - **One notification per action** — never show both a toast AND an inline bar for the same action.
-- **Toast** (floating bottom): transient "work-in-progress" or "task started" feedback → auto-dismisses after 3 seconds.
-- **Inline bar** (in-page, above the relevant section): final outcome → success auto-dismisses after 10s, errors stay until manually dismissed.
+- **Toast** (floating bottom): transient "task started" acknowledgment → auto-dismisses after 3 seconds.
+- **Pending** (inline bar): long-running "work in progress" indicator → stays until replaced by success/error (no auto-dismiss).
+- **Success** (inline bar): final outcome → auto-dismisses after 10s.
+- **Error** (inline bar): final outcome → stays until manually dismissed.
+- **Warning** (inline bar): advisory → dismissible, auto-dismisses after 10s.
 - When an inline bar arrives (e.g., server response), any pending toast for the same action MUST be cleared.
-- Use the unified `toast-notification.ts` store and `ToastNotification.svelte` — do not create ad-hoc notification elements.
-- Shared auto-dismiss logic lives in `toast-notification.ts`, never duplicated per component.
+- Use the unified `notification-store.svelte.ts` store and `ToastNotification.svelte` — do not create ad-hoc notification elements.
+- Shared auto-dismiss logic lives in `notification-store.svelte.ts`, never duplicated per component.
 - Type safety is most effective at library boundaries; consumer-side casts create brittle debt.
 - Most regressions come from environment/setup drift, not core logic.
 - Reliable Proxmox actions depend on accurate node propagation end-to-end.
