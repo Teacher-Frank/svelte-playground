@@ -232,9 +232,13 @@ Unified notification styles live in the `/* ── Unified Notification System �
 
 ## 5. Design Rules (from POLICIES.md)
 
+> **Either a toast or an inline bar — never both.** A single action produces one visual feedback element. If an inline bar is the appropriate final outcome, any transient toast for that scope must be cleared when the bar appears.
+>
+> **Single owner per scope.** Each notification scope has exactly one component that fires notifications and renders `<ToastNotification>`. Sibling or child components must not independently fire notifications for the same action. When in doubt, the parent/list component owns notifications.
+
 | Rule | Rationale |
 |------|-----------|
-| **One notification per action** — never show both toast AND inline bar for the same action | Prevents duplicate feedback confusing the user |
+| **One notification per action** — toast OR inline bar, never both | Prevents duplicate feedback confusing the user |
 | **Toast** = transient "task started" → auto-dismisses 3s | Quick acknowledgment, no clutter |
 | **Pending** = long-running "work in progress" → stays until replaced | Visible progress for async server calls |
 | **Success** = final outcome → auto-dismisses 10s | Confirmation that fades away |

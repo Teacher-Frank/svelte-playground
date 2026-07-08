@@ -204,6 +204,7 @@ Output format: findings ordered by severity with file refs → open questions �
 - When an inline bar arrives (e.g., server response), any pending toast for the same action MUST be cleared.
 - Use the unified `notification-store.svelte.ts` store and `ToastNotification.svelte` — do not create ad-hoc notification elements.
 - Shared auto-dismiss logic lives in `notification-store.svelte.ts`, never duplicated per component.
+- **Single owner per scope** — each notification scope has exactly one component that fires notifications and renders `<ToastNotification>`. Sibling or child components MUST NOT independently fire notifications from the same or overlapping scopes for the same action. When in doubt, the parent/list component owns notifications.
 - Type safety is most effective at library boundaries; consumer-side casts create brittle debt.
 - Most regressions come from environment/setup drift, not core logic.
 - Reliable Proxmox actions depend on accurate node propagation end-to-end.
