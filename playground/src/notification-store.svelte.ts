@@ -3,12 +3,14 @@
  *
  * Rules (per POLICIES.md):
  * - One notification per action — never both toast AND inline bar.
- * - Toast (floating): transient "work-in-progress" → auto-dismisses after 3s.
+ * - Toast (floating): transient "work-in-progress" → auto-dismisses after refresh interval.
  * - Pending (inline bar): long-running "work-in-progress" → stays until success/error replaces it.
  * - Inline bar (success/error/warning): final outcome → success 10s, error stays until manual dismiss.
  * - When an inline bar arrives, any pending toast for the same scope is cleared.
  * - Do not create ad-hoc notification elements in components.
  */
+
+import { getRefreshIntervalSeconds } from './routes/proxmox/helpers.js';
 
 export type NotificationKind = 'toast' | 'warning' | 'success' | 'error' | 'pending';
 export type NotificationScope = 'page' | 'vm-templates' | 'lxc-templates' | 'vm-workloads' | 'container-workloads' | 'config';
@@ -31,7 +33,7 @@ export interface ToastContext {
   /** Immediately clear without timeout. */
   clear(): void;
 
-  /** Transient "task started" toast → auto-dismisses after 3s. */
+  /** Transient "task started" toast → auto-dismisses after one refresh interval. */
   toast(message: string): void;
 
   /** Inline pending bar → stays until replaced by success/error (no auto-dismiss). */
@@ -47,9 +49,14 @@ export interface ToastContext {
   warning(message: string): void;
 }
 
+// Read at module load — controls how long transient toasts stay visible.
+// Matches the data refresh cadence so toasts are cleared in sync with the
+// next refresh that would supersede them with updated data.
+const refreshIntervalMs = getRefreshIntervalSeconds() * 1000;
+
 // Auto-dismiss durations per kind (null = no auto-dismiss)
 const AUTO_DISMISS_MS: Record<NotificationKind, number | null> = {
-  toast: 3000,
+  toast: refreshIntervalMs,
   warning: 10000,
   success: 10000,
   error: null,

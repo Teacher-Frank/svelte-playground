@@ -1,9 +1,5 @@
 <script lang="ts">
   type ServerStatusData = {
-    apiHost: string;
-    configuredNode: string;
-    configuredNodeExists: boolean;
-    serverNode: string;
     serverStatus: string;
     lastSuccessfulRefresh: number | null;
   };
@@ -24,6 +20,6 @@
 </script>
 
 <p class="server-status">
-  Server status ({results.serverNode}): {results.serverStatus} | Configured node exists: {results.configuredNodeExists ? 'yes' : 'no'} | Configured node: {results.configuredNode} | API host: {results.apiHost}
+  {results.serverStatus}
 </p>
 <p class="last-refresh">Last successful refresh: {formatRefreshTime(results.lastSuccessfulRefresh)}</p>

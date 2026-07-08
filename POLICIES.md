@@ -196,7 +196,7 @@ Output format: findings ordered by severity with file refs → open questions �
 
 ## Notification System
 - **One notification per action** — never show both a toast AND an inline bar for the same action.
-- **Toast** (floating bottom): transient "task started" acknowledgment → auto-dismisses after 3 seconds.
+- **Toast** (floating bottom): transient "task started" acknowledgment → auto-dismisses after one refresh interval.
 - **Pending** (inline bar): long-running "work in progress" indicator → stays until replaced by success/error (no auto-dismiss).
 - **Success** (inline bar): final outcome → auto-dismisses after 10s.
 - **Error** (inline bar): final outcome → stays until manually dismissed.
