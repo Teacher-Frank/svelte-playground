@@ -9,6 +9,8 @@
 
 | Session | Date | Changes |
 |---------|------|---------|
+| **4-port serial per-port rollout** | 2026-07-09 | Fixed all-or-nothing serial port logic in `action-template-deployers.ts`. Templates with `serial0` from prior deploys skipped adding serial1-3 entirely. Now checks each of serial0–serial3 individually and adds only the missing ones. |
+| **Dynamic serial-getty provisioning** | 2026-07-09 | `install-agent.yaml` snippet runcmd #2 now auto-detects serial port count from `/proc/tty/driver/serial` and enables `serial-getty@ttyS{i}` for each (ttyS0–ttyS2), instead of hardcoding `ttyS0` only. Pairs with 4-port serial deploy (serial0–serial3) so every port gets a getty. |
 | **4-port serial during deploy** | 2026-07-09 | Changed `detectUsableSerial()` in `action-template-deployers.ts` to check all 4 serial ports (serial0–serial3). When none exist, adds all 4 as `socket` in a single config PUT instead of serial0 only. |
 |---------|------|---------|
 | **Snippet confirmed working** | 2026-07-09 | After host-side script modifications on Proxmox, `install-agent.yaml` snippet via `cicustom` + `vendor=` is confirmed working end-to-end: agent install, serial-getty, DHCP→static conversion all execute via `runcmd`. See updated §Snippet Failure Root Cause below. |
@@ -457,7 +459,7 @@ The terminal feature (`svelte-playground/playground/server/proxmoxTerminalWs.ts`
 
 **Serial ports can be added via the Proxmox API** — no manual Proxmox web UI intervention required.
 
-**Update 2026-07-09:** Deploy flow now opens all 4 serial ports (serial0–serial3) as `socket` instead of just serial0. The `detectUsableSerial()` function checks all 4 ports — if any one is already usable (non-empty, non-`none`), no ports are added. If none exist, all 4 are configured in a single `config.put()` call.
+**Update 2026-07-09:** Deploy flow now configures all 4 serial ports (serial0–serial3) as `socket`. Each port is checked individually against the cloned config — only missing ones (empty, `undefined`, or `"none"`) are added to the `config.put()` body. This means templates that already have `serial0` from prior deploys will still get `serial1`–`serial3` added on next deploy.
 
 ### API Reference (pve-client)
 
