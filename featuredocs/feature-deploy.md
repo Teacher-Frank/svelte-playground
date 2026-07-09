@@ -9,10 +9,9 @@
 
 | Session | Date | Changes |
 |---------|------|---------|
+| **Dynamic serial-getty provisioning** | 2026-07-09 | `install-agent.yaml` snippet runcmd #2 now auto-detects serial port count from `/proc/tty/driver/serial` (grep `uart:` lines) and enables `serial-getty@ttyS{i}` for each port (ttyS0–ttyS3). Replaces the hardcoded `serial-getty@ttyS0` only. Pairs with 4-port serial deploy so every socket port gets a getty without needing a new template. |
 | **4-port serial per-port rollout** | 2026-07-09 | Fixed all-or-nothing serial port logic in `action-template-deployers.ts`. Templates with `serial0` from prior deploys skipped adding serial1-3 entirely. Now checks each of serial0–serial3 individually and adds only the missing ones. |
-| **Dynamic serial-getty provisioning** | 2026-07-09 | `install-agent.yaml` snippet runcmd #2 now auto-detects serial port count from `/proc/tty/driver/serial` and enables `serial-getty@ttyS{i}` for each (ttyS0–ttyS2), instead of hardcoding `ttyS0` only. Pairs with 4-port serial deploy (serial0–serial3) so every port gets a getty. |
-| **4-port serial during deploy** | 2026-07-09 | Changed `detectUsableSerial()` in `action-template-deployers.ts` to check all 4 serial ports (serial0–serial3). When none exist, adds all 4 as `socket` in a single config PUT instead of serial0 only. |
-|---------|------|---------|
+| **4-port serial during deploy** | 2026-07-09 | Changed serial port detection to check all 4 serial ports (serial0–serial3). When none exist, adds all 4 as `socket` in a single config PUT instead of serial0 only. |
 | **Snippet confirmed working** | 2026-07-09 | After host-side script modifications on Proxmox, `install-agent.yaml` snippet via `cicustom` + `vendor=` is confirmed working end-to-end: agent install, serial-getty, DHCP→static conversion all execute via `runcmd`. See updated §Snippet Failure Root Cause below. |
 | **IP-unknown control disable + toast** | 2026-07-08 | When a workload is running but its IP is unknown (`?`), disable all controls except Destroy. Added transient "Determining IP…" toast that appears while discovery is in progress and clears when resolved. See §Control Disable State Machine — IP-Unknown Gate below |
 | **cicommand fabrication discovery** | 2026-06-19 | Found that `cicommand` is not a real Proxmox API parameter. Removed dead code from `action-template-deployers.ts`, created canary test in pve-client, consolidated test assertions |
