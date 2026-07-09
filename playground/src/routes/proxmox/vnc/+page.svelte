@@ -9,6 +9,8 @@
   type VncStatusState = 'connecting' | 'credentials' | 'connected' | 'warning' | 'error';
   let statusText = $state('Connecting to GUI...');
   let statusState = $state<VncStatusState>('connecting');
+  // Separate overlay message so the header bar stays short.
+  let overlayMessage = $state<string | null>(null);
   let requestedCredentialTypes = $state<string[]>([]);
   let credentialUsername = $state('');
   let credentialPassword = $state('');
@@ -63,11 +65,55 @@
     let facade: { disconnect: () => void } | undefined;
     let connectedAtLeastOnce = false;
     let connectWatchdog: ReturnType<typeof setTimeout> | undefined;
+    let staleWatchdog: ReturnType<typeof setTimeout> | undefined;
 
     const clearConnectWatchdog = () => {
       if (connectWatchdog) {
         clearTimeout(connectWatchdog);
         connectWatchdog = undefined;
+      }
+    };
+
+    const clearStaleWatchdog = () => {
+      if (staleWatchdog) {
+        clearTimeout(staleWatchdog);
+        staleWatchdog = undefined;
+      }
+    };
+
+    // When stale timer fires, we can't just assume "no GUI" — the desktop might
+    // be idle. Sample the noVNC canvas: if pixels are mostly black, it's likely
+    // a headless VM. If there's visible content, the desktop is just idle.
+    const checkAndWarnStale = () => {
+      if (disposed || statusState === 'error') return;
+      const canvas = containerEl?.querySelector('canvas');
+      if (!canvas) return;
+
+      try {
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return;
+        const w = canvas.width;
+        const h = canvas.height;
+        if (w === 0 || h === 0) return;
+
+        // Sample a 16×16 tile from center of the framebuffer.
+        const sample = ctx.getImageData(Math.floor(w / 2) - 8, Math.floor(h / 2) - 8, 16, 16);
+        let nonblack = 0;
+        for (let i = 0; i < sample.data.length; i += 4) {
+          const r = sample.data[i];
+          const g = sample.data[i + 1];
+          const b = sample.data[i + 2];
+          if (r > 30 || g > 30 || b > 30) nonblack++;
+        }
+        // If any sampled pixel has significant brightness, it's an idle desktop.
+        if (nonblack > 0) return;
+
+        statusText = 'No GUI desktop detected';
+        overlayMessage =
+          'This VM appears to be running without a graphical desktop. The VNC framebuffer has not updated since connection. Use the Terminal button on the workload page for live console output.';
+        statusState = 'warning';
+      } catch {
+        // Canvas sampling failed — don't warn, leave as connected.
       }
     };
 
@@ -130,12 +176,30 @@
         autoCredentialsSubmitted = false;
         requestedCredentialTypes = [];
         credentialError = null;
+
+        // Start stale framebuffer detection — headless VMs (e.g., Debian without
+        // X11/desktop) connect fine but their QEMU VGA framebuffer never updates
+        // after the initial boot splash. We wait for the first `update` event
+        // (canvas rendered), then start a timer that resets on each subsequent
+        // update. During credential/security negotiation we clear the timer so
+        // auth pauses don't trigger false warnings.
+        let staleFirstFrameSeen = false;
+        const onFramebufferUpdate = () => {
+          if (disposed || statusState === 'warning' || statusState === 'error') return;
+          if (!staleFirstFrameSeen) {
+            staleFirstFrameSeen = true;
+          }
+          clearStaleWatchdog();
+          staleWatchdog = setTimeout(checkAndWarnStale, 8000);
+        };
+        rfb.addEventListener('update', onFramebufferUpdate);
       });
 
       rfb.addEventListener('disconnect', (event: Event) => {
         if (disposed) return;
         if (reconnectInProgress) return;
         clearConnectWatchdog();
+        clearStaleWatchdog();
         // Preserve more specific credential/security states instead of
         // overwriting them with a generic disconnect warning.
         if (statusState === 'credentials' || statusState === 'error') return;
@@ -154,6 +218,8 @@
 
       rfb.addEventListener('credentialsrequired', (event: Event) => {
         if (disposed) return;
+        // Clear stale timer — no framebuffer updates during credential exchange.
+        clearStaleWatchdog();
         const detail = (event as CustomEvent<{ types?: string[] }>).detail;
         requestedCredentialTypes = Array.isArray(detail?.types) ? detail.types : [];
 
@@ -190,6 +256,7 @@
       rfb.addEventListener('securityfailure', (event: Event) => {
         if (disposed) return;
         clearConnectWatchdog();
+        clearStaleWatchdog();
         const detail = (event as CustomEvent<{ status: number; reason?: string }>).detail;
         const code = Number.isFinite(detail.status) ? detail.status : -1;
         statusText = describeSecurityFailure(code, detail.reason);
@@ -238,6 +305,7 @@
     reconnectSession = async () => {
       if (disposed || reconnectInProgress) return;
       reconnectInProgress = true;
+      clearStaleWatchdog();
       statusText = 'Reconnecting GUI session...';
       statusState = 'connecting';
       credentialError = null;
@@ -263,6 +331,7 @@
     return () => {
       disposed = true;
       clearConnectWatchdog();
+      clearStaleWatchdog();
       reconnectSession = undefined;
       facade?.disconnect();
       rfbSession = undefined;
@@ -331,7 +400,7 @@
       <div class="vnc-overlay" class:error={statusState === 'error'}>
         {#if showCredentialPrompt}
           <div class="overlay-title">GUI Login Required</div>
-          <div class="overlay-text">{statusText}</div>
+          <div class="overlay-text">{overlayMessage ?? statusText}</div>
 
           <form class="credential-form" onsubmit={submitCredentials}>
             {#if requiresUsername}
@@ -363,7 +432,7 @@
           </form>
         {:else}
           <div class="overlay-title">GUI Console</div>
-          <div class="overlay-text">{statusText}</div>
+          <div class="overlay-text">{overlayMessage ?? statusText}</div>
           {#if statusState === 'warning' || statusState === 'error'}
             <!-- Provide explicit in-place reconnect so operators do not need a full refresh. -->
             <button
