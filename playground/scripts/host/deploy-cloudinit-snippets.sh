@@ -46,13 +46,23 @@ runcmd:
     fi && \
     systemctl enable --now qemu-guest-agent
 
-  # 2. Enable serial console getty - required for terminal access via termproxy.
+  # 2. Enable serial console getty for all serial ports present.
   #    Without this, the serial port connects but shows no login prompt.
+  #    /proc/tty/driver/serial lists ports as "0: uart:16550A port:000003F8 ...".
+  #    We count those definition lines, then enable getty on each ttyS{i}.
   #    Idempotent: systemctl enable is safe to re-run.
   - |
-    if ! systemctl enable --now serial-getty@ttyS0.service; then
-      echo "ERROR: Failed to enable serial-getty@ttyS0.service" >&2
-      exit 1
+    COUNT=$(grep -c 'uart:' /proc/tty/driver/serial 2>/dev/null || echo 0)
+    if [ "$COUNT" -eq 0 ]; then
+      echo "No serial ports detected; skipping getty setup" >&2
+    else
+      echo "Detected $COUNT serial port(s), enabling getty for each" >&2
+      for i in $(seq 0 $((COUNT - 1))); do
+        if ! systemctl enable --now "serial-getty@ttyS${i}.service"; then
+          echo "ERROR: Failed to enable serial-getty@ttyS${i}.service" >&2
+          exit 1
+        fi
+      done
     fi
 
   # 3. Convert DHCP to static IP on first boot.

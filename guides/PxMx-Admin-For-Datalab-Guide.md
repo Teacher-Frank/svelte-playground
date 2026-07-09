@@ -317,7 +317,9 @@ interface serial0"` then hangs forever. No shell prompt appears, typing does not
 This also affects the native Proxmox web console.
 
 **Automatic path (default):** The deploy flow's cloud-init vendor snippet enables
-`serial-getty@ttyS0` on every cloned VM during first boot (Section 1.7.2). This is
+serial-getty for each serial port detected on the VM (ttyS0 through ttyS3) during
+first boot (Section 1.7.2). The snippet reads `/proc/tty/driver/serial` to discover
+the port count, so it adapts whether a VM has 1 or 4 serial ports. This is
 idempotent, so if you also enable it in the template there's no conflict.
 
 **Fix in template (recommended for non-cloud images):** If your template uses a distro or
@@ -446,6 +448,13 @@ On first boot, cloud-init reads the snippet and executes:
 ```bash
 apt-get update && apt-get install -y qemu-guest-agent
 systemctl enable --now qemu-guest-agent
+
+# Detect serial port count from /proc/tty/driver/serial, then enable
+# serial-getty for each (e.g., ttyS0–ttyS3 on a 4-port deploy).
+COUNT=$(grep -c 'uart:' /proc/tty/driver/serial)
+for i in $(seq 0 $((COUNT - 1))); do
+  systemctl enable --now "serial-getty@ttyS${i}.service"
+done
 ```
 
 **Prerequisites for this path:**
@@ -534,7 +543,8 @@ Cloud-init stages
    └─ runcmd                              ← runs here if cloud-init succeeded
       ├─ echo marker > /root/snippet.log  ← proof of execution
       ├─ install qemu-guest-agent         ← apt + systemctl
-      ├─ enable serial-getty@ttyS0
+      ├─ detect serial port count        ← grep uart: /proc/tty/driver/serial
+      │  └─ enable serial-getty@ttyS{i}  ← per port (ttyS0–ttyS3)
       └─ inline static IP conversion
          ├─ detect_interface()  →  ens18 (or whatever NIC name)
          ├─ wait for DHCP IP
@@ -627,7 +637,7 @@ After deploying a VM with `cicustom: vendor=local:snippets/install-agent.yaml`:
 |---|---|---|
 | Snippet activated | `cat /root/snippet.log` | Timestamp present |
 | Guest agent running | `systemctl is-active qemu-guest-agent` | `active` |
-| Serial getty enabled | `systemctl is-enabled serial-getty@ttyS0` | `enabled` |
+| Serial getty enabled | `systemctl is-enabled serial-getty@\{ttyS0,ttyS1,ttyS2,ttyS3\}` | `enabled` (count matches \`grep -c 'uart:' /proc/tty/driver/serial\) |
 | Cloud-init status | `cloud-init status --long` | `done` (if `error`, runcmd was skipped) |
 
 If `cloud-init status --long` reports `error`, check the output section for rename failures
