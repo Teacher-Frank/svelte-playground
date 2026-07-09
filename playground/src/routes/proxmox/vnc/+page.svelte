@@ -96,16 +96,30 @@
         const h = canvas.height;
         if (w === 0 || h === 0) return;
 
-        // Sample a 16×16 tile from center of the framebuffer.
-        const sample = ctx.getImageData(Math.floor(w / 2) - 8, Math.floor(h / 2) - 8, 16, 16);
+        // Sample multiple 16×16 tiles across the framebuffer so we catch
+        // content whether it's at the top (boot text), center (desktop),
+        // or anywhere else.
         let nonblack = 0;
-        for (let i = 0; i < sample.data.length; i += 4) {
-          const r = sample.data[i];
-          const g = sample.data[i + 1];
-          const b = sample.data[i + 2];
-          if (r > 30 || g > 30 || b > 30) nonblack++;
+        const offsets = [
+          { x: 0, y: 0 }, // top-left
+          { x: Math.floor(w / 2), y: 0 }, // top-center
+          { x: 0, y: Math.floor(h / 2) }, // middle-left
+          { x: Math.floor(w / 2), y: Math.floor(h / 2) }, // center
+          { x: Math.floor(w / 4), y: Math.floor(h / 4) }, // quarter
+        ];
+
+        for (const o of offsets) {
+          const sx = Math.max(0, Math.min(o.x, w - 16));
+          const sy = Math.max(0, Math.min(o.y, h - 16));
+          const sample = ctx.getImageData(sx, sy, 16, 16);
+          for (let i = 0; i < sample.data.length; i += 4) {
+            const r = sample.data[i];
+            const g = sample.data[i + 1];
+            const b = sample.data[i + 2];
+            if (r > 30 || g > 30 || b > 30) nonblack++;
+          }
         }
-        // If any sampled pixel has significant brightness, it's an idle desktop.
+        // If any sampled pixels have significant brightness, it's an idle desktop.
         if (nonblack > 0) return;
 
         statusText = 'No GUI desktop detected';
@@ -179,16 +193,15 @@
 
         // Start stale framebuffer detection — headless VMs (e.g., Debian without
         // X11/desktop) connect fine but their QEMU VGA framebuffer never updates
-        // after the initial boot splash. We wait for the first `update` event
-        // (canvas rendered), then start a timer that resets on each subsequent
-        // update. During credential/security negotiation we clear the timer so
-        // auth pauses don't trigger false warnings.
-        let staleFirstFrameSeen = false;
+        // after the initial boot splash. The first framebuffer arrives *before*
+        // the 'connect' event, so we start the timer here. Subsequent 'update'
+        // events reset it. During credential/security negotiation we clear the
+        // timer so auth pauses don't trigger false warnings.
+        clearStaleWatchdog();
+        staleWatchdog = setTimeout(checkAndWarnStale, 8000);
+
         const onFramebufferUpdate = () => {
           if (disposed || statusState === 'warning' || statusState === 'error') return;
-          if (!staleFirstFrameSeen) {
-            staleFirstFrameSeen = true;
-          }
           clearStaleWatchdog();
           staleWatchdog = setTimeout(checkAndWarnStale, 8000);
         };
