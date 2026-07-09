@@ -96,16 +96,17 @@
         const h = canvas.height;
         if (w === 0 || h === 0) return;
 
-        // Sample multiple 16×16 tiles across the framebuffer so we catch
-        // content whether it's at the top (boot text), center (desktop),
-        // or anywhere else.
+        // Sample the middle-lower portion of the framebuffer. Boot/serial text
+        // on headless VMs sits at the top rows, while a GUI desktop fills the
+        // full screen. Skipping the top third reliably distinguishes the two.
         let nonblack = 0;
+        const midY = Math.max(16, Math.floor(h * 0.4));
         const offsets = [
-          { x: 0, y: 0 }, // top-left
-          { x: Math.floor(w / 2), y: 0 }, // top-center
-          { x: 0, y: Math.floor(h / 2) }, // middle-left
-          { x: Math.floor(w / 2), y: Math.floor(h / 2) }, // center
-          { x: Math.floor(w / 4), y: Math.floor(h / 4) }, // quarter
+          { x: 0, y: midY }, // lower-left
+          { x: Math.floor(w / 2), y: midY }, // lower-center
+          { x: Math.floor(w * 3 / 4), y: midY }, // lower-right
+          { x: Math.floor(w / 3), y: midY }, // lower third
+          { x: Math.floor(w / 2), y: Math.min(midY + 64, h - 16) }, // lower center +offset
         ];
 
         for (const o of offsets) {
