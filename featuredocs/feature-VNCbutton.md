@@ -125,15 +125,12 @@ The `ip` parameter is included when `primaryIp` is available, allowing the serve
 **Flow:**
 
 1. **Validate URL params** — `vmid` (positive integer), `node` (non-empty), `type` (`vm` | `container`), optional `name` and `ip`
-2. **Bridge mode check** — if `LXC_VNC_BRIDGE_WS_URL` or `LXC_VNC_BRIDGE_DERIVE_FROM_IPV4` is configured:
+2. **VM path (native Proxmox VNC)** — Create Proxmox client, call `client.helpers.display(vmid).getConnectionInfo()`, extract `vncPassword` from ticket
+3. **Container path (bridge mode)** — if `LXC_VNC_BRIDGE_WS_URL` or `LXC_VNC_BRIDGE_DERIVE_FROM_IPV4` is configured:
    a. Resolve guest IPv4 (from `?ip` param, LXC `/interfaces` endpoint, or QEMU guest agent `network-get-interfaces`)
    b. If template mode (`LXC_VNC_BRIDGE_WS_URL`): substitute `{node}`, `{vmid}`, `{ip}/{ipv4}` placeholders
    c. If derived mode (`LXC_VNC_BRIDGE_DERIVE_FROM_IPV4=true`): construct `ws://<ipv4>:<port><path>` from env vars
    d. Return bridge URL with empty credentials (bridge auth is handled on the guest)
-3. **Native mode fallback** — when bridge mode is not configured or fails:
-   a. Create Proxmox client, call `client.helpers.display(vmid).getConnectionInfo()`
-   b. Extract `vncPassword` from ticket (`info.ticket.password ?? info.ticket.ticket`)
-   c. Return native WebSocket URL + ticket credentials
 
 **IP resolution (bridge mode):**
 
@@ -186,10 +183,11 @@ Three upstream types are allowed (all validated before any connection):
 
 1. `openRfbSession()` — lazy-loads `@novnc/novnc`, constructs WebSocket URL pointing to local bridge, creates `RFB` instance with `shared: true`
 2. **Connect watchdog** — 8-second timeout fires if no `connect` event; shows error overlay
-3. `connect` event — clears watchdog, sets `connected` state
-4. `disconnect` event — shows warning or error based on clean/pending connection state
-5. `credentialsrequired` event — auto-submits server-provided credentials if available; otherwise shows credential prompt
-6. `securityfailure` event — shows appropriate message; for native mode, offers reconnect (to get fresh ticket)
+3. `connect` event — clears watchdog, sets `connected` state, starts stale framebuffer detection timer
+4. **Stale framebuffer detection** — 8-second timer on `connect`, resets on each `update` event. When it fires, `checkAndWarnStale()` samples 5×16×16 pixel tiles from the middle-lower framebuffer region. If all pixels are dark (<30 RGB), the VM has no GUI desktop — shows warning overlay with suggestion to use Terminal. Timer is cleared during `credentialsrequired`, `securityfailure`, `disconnect`, and `reconnect` to avoid false triggers.
+5. `disconnect` event — shows warning or error based on clean/pending connection state
+6. `credentialsrequired` event — auto-submits server-provided credentials if available; otherwise shows credential prompt
+7. `securityfailure` event — shows appropriate message; for native mode, offers reconnect (to get fresh ticket)
 
 **Auto-credential flow:**
 
