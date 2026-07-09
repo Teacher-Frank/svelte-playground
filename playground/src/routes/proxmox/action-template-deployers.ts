@@ -174,14 +174,16 @@ async function runPostCloneSteps(
       typeof clonedConfig.ipconfig0 === 'string' &&
       clonedConfig.ipconfig0.trim().length > 0;
     const serialKeys = ['serial0', 'serial1', 'serial2', 'serial3'];
-    const hasUsableSerial = serialKeys.some((key) => {
+    const missingSerialPorts = serialKeys.filter((key) => {
       const val = clonedConfig[key] as string | undefined;
-      return (
+      return !(
         typeof val === 'string' &&
         val.length > 0 &&
         val.toLowerCase() !== 'none'
       );
     });
+    const hasUsableSerial = missingSerialPorts.length < serialKeys.length;
+
     if (hasCloudInitDisk) {
       console.info(
         `[proxmox] Cloned VM ${newid} already has a cloud-init disk; skipping ide2 reattach and only updating cloud-init credentials.`
@@ -197,9 +199,9 @@ async function runPostCloneSteps(
         `[proxmox] Cloned VM ${newid} has no ipconfig0 cloud-init network setting; applying ipconfig0=ip=dhcp.`
       );
     }
-    if (!hasUsableSerial) {
+    if (missingSerialPorts.length > 0) {
       console.info(
-        `[proxmox] Cloned VM ${newid} has no usable serial port; adding serial0..serial3=socket for terminal access.`
+        `[proxmox] Cloned VM ${newid} missing serial port(s) ${missingSerialPorts.join(', ')}; adding socket for terminal access.`
       );
     }
 
@@ -217,11 +219,8 @@ async function runPostCloneSteps(
     if (!hasIpConfig0) {
       configBody.ipconfig0 = 'ip=dhcp';
     }
-    if (!hasUsableSerial) {
-      configBody['serial0'] = 'socket';
-      configBody['serial1'] = 'socket';
-      configBody['serial2'] = 'socket';
-      configBody['serial3'] = 'socket';
+    for (const key of missingSerialPorts) {
+      configBody[key] = 'socket';
     }
 
     const existingAgent = clonedConfig.agent as string | undefined;
