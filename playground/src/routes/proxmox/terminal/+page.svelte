@@ -17,8 +17,14 @@
     data.name ? `${data.name} (${data.vmid})` : `${data.vmid}`,
   );
 
+  const serialLabel = $derived(
+    data.serial !== 'serial0'
+      ? ` — ${data.serial}`
+      : '',
+  );
+
   const workloadLabel = $derived(
-    `${data.type === 'vm' ? 'VM' : 'Container'} ${workloadIdentity} on ${data.node}`,
+    `${data.type === 'vm' ? 'VM' : 'Container'} ${workloadIdentity} on ${data.node}${serialLabel}`,
   );
 
   onMount(() => {
@@ -194,7 +200,8 @@
         `/proxmox/terminal/ws` +
         `?vmid=${encodeURIComponent(data.vmid)}` +
         `&node=${encodeURIComponent(data.node)}` +
-        `&type=${encodeURIComponent(data.type)}`;
+        `&type=${encodeURIComponent(data.type)}` +
+        `&serial=${encodeURIComponent(data.serial)}`;
 
       ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';

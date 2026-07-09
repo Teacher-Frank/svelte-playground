@@ -104,7 +104,14 @@ async function handleTerminalWs(browserWs: WsWebSocket, params: URLSearchParams)
       console.warn('[proxmox-terminal-ws] PVE_API_TOKEN is set but ignored for terminal sessions. Using username/password login.');
     }
 
-    const terminal = client.helpers.terminal(vmid);
+    // Read optional serial port parameter (multi-terminal support).
+    const serial = params.get('serial');
+    const validSerials = ['serial0', 'serial1', 'serial2', 'serial3'];
+    const serialPort = serial && validSerials.includes(serial)
+      ? serial as 'serial0' | 'serial1' | 'serial2' | 'serial3'
+      : 'serial0';
+
+    const terminal = client.helpers.terminal(vmid, serialPort);
     const browserSocket = adaptWsToBrowserSocket(browserWs);
 
     /*

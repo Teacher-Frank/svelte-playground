@@ -346,6 +346,84 @@ Current policy:
 | API token auth unsupported | Medium | Terminal sessions require username/password login; API tokens are explicitly unsupported in the playground server. The pve-client library supports both via auth header vs cookie. |
 | Resize convergence complexity | Low | The client-side resize system is the most complex subsystem (8 retry attempts, 7 convergence deadlines, fallback geometry, private xterm accessor). Works well but is fragile. |
 
+### Up Next
+
+See section 5.1 below (`## 5.1 Requirement: Multiple Concurrent Terminals per VM`) for the upcoming multi-serial-port feature.
+
+---
+
+## 5.1 Requirement: Multiple Concurrent Terminals per VM
+
+**Status:** Proposed
+**Date:** 2026-07-09
+
+### Problem
+Each Proxmox serial/port proxy (`termproxy`) supports only one active connection at a time. A VM with only `serial0` can therefore host only a single browser terminal session. Users cannot maintain parallel shell workflows (e.g., monitoring logs in one terminal while working in another) without using VNC or external SSH.
+
+### Requirement
+Support **up to 4 concurrent terminal sessions per QEMU VM**, each connected to a distinct serial port (`serial0` through `serial3`).
+
+### API Surface
+Proxmox's `POST /nodes/{node}/qemu/{vmid}/termproxy` endpoint accepts an optional `serial` body parameter:
+
+```ts
+$body: { serial?: "serial0" | "serial1" | "serial2" | "serial3" }
+```
+
+When omitted, Proxmox defaults to `serial0`. Passing a specific port connects to that serial port's console.
+
+Each serial port is **independent and lock-free** — 4 configured serial ports = 4 simultaneous terminal sessions.
+
+### Changes Required
+
+#### pve-client (library)
+
+**`Terminal` class** — add optional `serial` parameter to constructor/config:
+
+```ts
+// Current
+new Terminal(vmid, client)  // always serial0 (default)
+
+// New
+new Terminal(vmid, client, { serial: "serial1" })  // explicit port
+```
+
+- `createTicket()` passes `$body: { serial }` when `serial` is provided
+- `TerminalOpenOptions` gains optional `serial?: "serial0" | "serial1" | "serial2" | "serial3"` field
+
+**`TerminalSession`** — no changes needed; already handles the socket/protocol agnostic to port selection.
+
+**`terminal-bridge.ts`** — no changes needed; bridge operates on sessions, not ticket creation.
+
+#### svelte-playground (application)
+
+**`proxmoxTerminalWs.ts`** — accept `serial` query param, pass to terminal helper:
+
+```ts
+// Current: /proxmox/terminal/ws?vmid=1--??--?vmid=104&node=compute1-dev&type=vm
+// New:    /proxmox/terminal/ws?vmid=104&node=compute1-dev&type=vm&serial=serial1
+```
+
+**`+page.server.ts`** — validate optional `serial` param (`serial0`–`serial3`, QEMU only)
+
+**`+page.svelte`** — update terminal label to show which serial port is active (e.g., "Terminal 1", "Terminal 2")
+
+**VM list page** — when a VM already has terminal tabs open, enable button/tab to open additional terminals (up to 4 for VMs, 1 for containers).
+
+### LXC Containers (out of scope initially)
+
+LXC termproxy API has no `serial` parameter — single TTY only. Multiple concurrent sessions not possible through termproxy. If needed, SSH is the alternative path.
+
+### Most Common Scenario
+
+Based on user feedback, the **most frequent case is 2 terminals** (e.g., one for active work, one for monitoring). 4-terminal max provides headroom for power users but should not require UI complexity proportional to 4.
+
+### Prerequisites
+
+- VM must have `serial0` through `serialN` configured as `socket` in Proxmox (e.g., `serial0: socket`, `serial1: socket`)
+- Deploy code already adds all 4 serial ports during provisioning (`action-template-deployers.ts`)
+- Manually added serial ports on existing VMs also work, as long as they're configured as `socket` type
+
 ---
 
 ## 6. File Map
