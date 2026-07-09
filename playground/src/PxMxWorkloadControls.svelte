@@ -50,6 +50,47 @@
     selectedWorkload?.status === 'running' && !hasResolvedWorkloadIp
   );
 
+  // Terminal serial port cycling: each click gets the next serial port
+  // so users open concurrent sessions (serial0 → serial1 → serial2 → serial3).
+  const SERIAL_PORTS = ['serial0', 'serial1', 'serial2', 'serial3'] as const;
+  const nextSerialPort = new Map<string, number>();
+
+  function getNextSerialPort(w: SelectedWorkload) {
+    if (w.type !== 'vm') return 'serial0';
+    const key = `${w.type}:${w.id}`;
+    const cur = nextSerialPort.get(key) ?? 0;
+    const nxt = (cur + 1) % SERIAL_PORTS.length;
+    nextSerialPort.set(key, nxt);
+    return SERIAL_PORTS[nxt];
+  }
+
+  function peekNextSerialPort() {
+    if (!selectedWorkload || selectedWorkload.type !== 'vm') return 'serial0';
+    const key = `${selectedWorkload.type}:${selectedWorkload.id}`;
+    const cur = nextSerialPort.get(key) ?? 0;
+    return SERIAL_PORTS[(cur + 1) % SERIAL_PORTS.length];
+  }
+
+  function openSerialTerminal() {
+    if (!selectedWorkload || !terminalEnabled) return;
+    const port = getNextSerialPort(selectedWorkload);
+    const params = [
+      `vmid=${selectedWorkload.id!}`,
+      `node=${encodeURIComponent(selectedWorkload.node!)}`,
+      `type=${selectedWorkload.type}`,
+      `serial=${port}`,
+    ];
+    if (selectedWorkload.name) {
+      params.push(`name=${encodeURIComponent(selectedWorkload.name)}`);
+    }
+    window.open(`/proxmox/terminal?${params.join('&')}`, '_blank');
+  }
+
+  const terminalTooltip = $derived.by(() => {
+    const port = peekNextSerialPort();
+    return port === 'serial0' ? 'Open terminal' : `Open terminal — ${port}`;
+  });
+
   // Terminal is only useful when the selected guest is currently running
   // and has a resolved IP.
   const terminalEnabled = $derived(
@@ -280,20 +321,17 @@
   </form>
 
   <!-- Opens the in-browser terminal route for the selected workload. -->
-  <a
+  <button
+    type="button"
     class="terminal-btn"
-    href={terminalEnabled
-      ? `/proxmox/terminal?vmid=${encodeURIComponent(selectedWorkload!.id!)}&node=${encodeURIComponent(selectedWorkload!.node!)}&type=${encodeURIComponent(selectedWorkload!.type)}${selectedWorkload!.name ? `&name=${encodeURIComponent(selectedWorkload!.name)}` : ''}`
-      : undefined}
-    target={terminalEnabled ? '_blank' : undefined}
-    rel={terminalEnabled ? 'noopener noreferrer' : undefined}
-    title="Open terminal"
-    aria-label="Open terminal"
+    title={terminalTooltip}
+    aria-label={terminalTooltip}
+    disabled={!terminalEnabled}
     aria-disabled={!terminalEnabled}
-    tabindex={terminalEnabled ? 0 : -1}
+    onclick={openSerialTerminal}
   >
     <img src="/terminal.svg" alt="" aria-hidden="true" />
-  </a>
+  </button>
 
   <!-- Opens the in-browser noVNC route for GUI access to the selected workload. -->
   <a

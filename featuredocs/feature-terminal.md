@@ -352,9 +352,9 @@ See section 5.1 below (`## 5.1 Requirement: Multiple Concurrent Terminals per VM
 
 ---
 
-## 5.1 Requirement: Multiple Concurrent Terminals per VM
+## 5.1 Feature: Multiple Concurrent Terminals per VM
 
-**Status:** Proposed
+**Status:** Implemented
 **Date:** 2026-07-09
 
 ### Problem
@@ -418,11 +418,23 @@ LXC termproxy API has no `serial` parameter — single TTY only. Multiple concur
 
 Based on user feedback, the **most frequent case is 2 terminals** (e.g., one for active work, one for monitoring). 4-terminal max provides headroom for power users but should not require UI complexity proportional to 4.
 
+### Auto-Cycle Serial Port on "Open Terminal" Button (Implemented)
+
+**Requirement:** Clicking the "Open terminal" button in the workload list should cycle through available serial ports (`serial0` → `serial1` → `serial2` → `serial3` → `serial0`…), so each click opens a terminal on the *next* serial port rather than always connecting to `serial0`.
+
+**Behavior:**
+- First click → `serial0`, second → `serial1`, third → `serial2`, fourth → `serial3`, fifth → `serial0` again
+- Cycling state is tracked per workload (keyed by `type:id`) using a module-level `Map`, so selecting a different VM doesn't reset the counter
+- LXC containers skip cycling (always `serial0` — no serial port selection supported)
+- Tooltip preview shows the next port before clicking (e.g., "Open terminal — serial1")
+- Implementation: `PxMxWorkloadControls.svelte` — `getNextSerialPort()` advances the counter on click, `peekNextSerialPort()` previews without advancing
+
 ### Prerequisites
 
 - VM must have `serial0` through `serialN` configured as `socket` in Proxmox (e.g., `serial0: socket`, `serial1: socket`)
 - Deploy code already adds all 4 serial ports during provisioning (`action-template-deployers.ts`)
 - Manually added serial ports on existing VMs also work, as long as they're configured as `socket` type
+- **Guest OS must have `agetty` enabled on each serial TTY** — `systemctl enable --now serial-getty@ttyS1` (etc.) — otherwise the port connects but shows no prompt
 
 ---
 
