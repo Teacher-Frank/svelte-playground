@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { onMount, onDestroy } from 'svelte';
   import './PxMxStyle.css';
 
   type SelectedWorkload = {
@@ -50,30 +51,49 @@
     selectedWorkload?.status === 'running' && !hasResolvedWorkloadIp
   );
 
-  // Terminal serial port cycling: each click gets the next serial port
-  // so users open concurrent sessions (serial0 → serial1 → serial2 → serial3).
+  // Terminal serial port cycling + open-count tracking.
+  // Cycles serial0 → serial1 → serial2 → serial3, blocks 5th open.
+  // Uses BroadcastChannel for cross-window count updates when tabs close.
   const SERIAL_PORTS = ['serial0', 'serial1', 'serial2', 'serial3'] as const;
-  const nextSerialPort = new Map<string, number>();
+  const MAX_VM_TERMINALS = SERIAL_PORTS.length;
+  const MAX_LXC_TERMINALS = 1;
+  const TERMINAL_CHANNEL = 'svelte-playground-terminal-count';
 
-  function getNextSerialPort(w: SelectedWorkload) {
-    if (w.type !== 'vm') return 'serial0';
-    const key = `${w.type}:${w.id}`;
+  const nextSerialPort = new Map<string, number>();
+  const openTerminalCount = new Map<string, number>();
+
+  const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(TERMINAL_CHANNEL) : null;
+
+  function workloadKey(w: SelectedWorkload): string {
+    return `${w.type}:${w.id}`;
+  }
+
+  function getMaxTerminals(w: SelectedWorkload): number {
+    return w.type === 'vm' ? MAX_VM_TERMINALS : MAX_LXC_TERMINALS;
+  }
+
+  function getOpenCount(w: SelectedWorkload): number {
+    return openTerminalCount.get(workloadKey(w)) ?? 0;
+  }
+
+  function incrementPort(w: SelectedWorkload): void {
+    const key = workloadKey(w);
     const cur = nextSerialPort.get(key) ?? 0;
     const nxt = (cur + 1) % SERIAL_PORTS.length;
     nextSerialPort.set(key, nxt);
-    return SERIAL_PORTS[nxt];
   }
 
-  function peekNextSerialPort() {
+  function getNextPort(): string {
     if (!selectedWorkload || selectedWorkload.type !== 'vm') return 'serial0';
-    const key = `${selectedWorkload.type}:${selectedWorkload.id}`;
+    const key = workloadKey(selectedWorkload);
     const cur = nextSerialPort.get(key) ?? 0;
     return SERIAL_PORTS[(cur + 1) % SERIAL_PORTS.length];
   }
 
   function openSerialTerminal() {
     if (!selectedWorkload || !terminalEnabled) return;
-    const port = getNextSerialPort(selectedWorkload);
+    incrementPort(selectedWorkload);
+    const port = getNextPort();
     const params = [
       `vmid=${selectedWorkload.id!}`,
       `node=${encodeURIComponent(selectedWorkload.node!)}`,
@@ -82,13 +102,37 @@
     ];
     if (selectedWorkload.name) {
       params.push(`name=${encodeURIComponent(selectedWorkload.name)}`);
-    }
-    window.open(`/proxmox/terminal?${params.join('&')}`, '_blank');
+    };
+    const url = `/proxmox/terminal?${params.join('&')}`;
+    const w = window.open(url, '_blank');
+    // Track count locally
+    const key = workloadKey(selectedWorkload);
+    openTerminalCount.set(key, (openTerminalCount.get(key) ?? 0) + 1);
+    // Broadcast to other windows
+    channel?.postMessage({ type: 'opened', workloadKey: key });
+    // Decrement when the new window closes (fallback for same-origin)
+    if (w) {
+      const checkClosed = setInterval(() => {
+        if (w.closed) {
+          clearInterval(checkClosed);
+          const c = openTerminalCount.get(key) ?? 0;
+          openTerminalCount.set(key, Math.max(0, c - 1));
+        }
+      }, 500);
+    };
   }
 
-  const terminalTooltip = $derived.by(() => {
-    const port = peekNextSerialPort();
-    return port === 'serial0' ? 'Open terminal' : `Open terminal — ${port}`;
+  // Terminal button state: enabled + tooltip derived from open count.
+  const terminalButtonState = $derived.by(() => {
+    if (!selectedWorkload || !terminalEnabled) return { enabled: false, tooltip: '' };
+    const count = getOpenCount(selectedWorkload);
+    const max = getMaxTerminals(selectedWorkload);
+    if (count >= max) {
+      return { enabled: false, tooltip: `All terminal ports busy (${count}/${max})` };
+    };
+    const port = getNextPort();
+    const label = port === 'serial0' ? 'Open terminal' : `Open terminal — ${port}`;
+    return { enabled: true, tooltip: label };
   });
 
   // Terminal is only useful when the selected guest is currently running
@@ -292,6 +336,28 @@
     showDeleteConfirm = false;
     showRenameModal = false;
   });
+
+  // Listen for terminal-opened/closed messages from other windows/tabs.
+  // "opened" comes from other dashboard windows, "closed" comes from terminal pages.
+  onMount(() => {
+    if (!channel) return;
+    channel.onmessage = (event) => {
+      if (typeof event.data !== 'object' || event.data === null) return;
+      const key = event.data.workloadKey;
+      if (!key) return;
+
+      if (event.data.type === 'opened') {
+        openTerminalCount.set(key, (openTerminalCount.get(key) ?? 0) + 1);
+      } else if (event.data.type === 'closed') {
+        const c = openTerminalCount.get(key) ?? 0;
+        openTerminalCount.set(key, Math.max(0, c - 1));
+      }
+    };
+  });
+
+  onDestroy(() => {
+    channel?.close();
+  });
 </script>
 
 <div class="workload-controls" class:compact>
@@ -324,10 +390,10 @@
   <button
     type="button"
     class="terminal-btn"
-    title={terminalTooltip}
-    aria-label={terminalTooltip}
-    disabled={!terminalEnabled}
-    aria-disabled={!terminalEnabled}
+    title={terminalButtonState.tooltip}
+    aria-label={terminalButtonState.tooltip}
+    disabled={!terminalButtonState.enabled}
+    aria-disabled={!terminalButtonState.enabled}
     onclick={openSerialTerminal}
   >
     <img src="/terminal.svg" alt="" aria-hidden="true" />

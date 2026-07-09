@@ -429,6 +429,20 @@ Based on user feedback, the **most frequent case is 2 terminals** (e.g., one for
 - Tooltip preview shows the next port before clicking (e.g., "Open terminal — serial1")
 - Implementation: `PxMxWorkloadControls.svelte` — `getNextSerialPort()` advances the counter on click, `peekNextSerialPort()` previews without advancing
 
+### Limit Open Terminals to Available Serial Port Count (Open — Blocked)
+
+**Requirement:** The "Open terminal" button must respect the maximum number of concurrent sessions per workload. When a VM has 4 serial ports configured, no more than 4 terminal tabs should be open for that VM. When the user attempts to open a 5th terminal (or any number exceeding available ports), the button must be disabled or blocked with a clear message.
+
+**Behavior:**
+- For QEMU VMs: max 4 terminal tabs per VM (serial0–serial3)
+- For LXC containers: max 1 terminal tab (single TTY)
+- When all ports are in use: button shows a tooltip message such as "All terminal ports busy (4/4)" instead of opening another tab
+- Cycling resets to `serial0` once all 4 tabs have been opened, but the N+1 attempt is still blocked
+- If a terminal tab is closed, its port becomes available again and the counter decrements
+- Implemented in `PxMxWorkloadControls.svelte` alongside the cycling logic (same per-workload `Map` tracks open count)
+
+**Open question:** Tracking which tabs are open requires cross-tab communication (`BroadcastChannel`) or server-side session tracking. The simplest approach is a short-lived local `Map` that increments on each successful `window.open` and never decrements (practical: users rarely close/reopen within a session, and the browser's own tab limit provides a hard ceiling). A more robust approach uses `BroadcastChannel` for cross-tab close notifications.
+
 ### Prerequisites
 
 - VM must have `serial0` through `serialN` configured as `socket` in Proxmox (e.g., `serial0: socket`, `serial1: socket`)
