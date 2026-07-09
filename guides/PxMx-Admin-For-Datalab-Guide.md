@@ -568,17 +568,16 @@ subsequent modules — including `scripts_user` / `runcmd`.
 **Impact:** On affected systems, the entire `runcmd` block (agent install, serial-getty,
 IP conversion) is skipped. The VM boots normally but without the snippet's benefits.
 
-**Status:** This is a known cloud-init bug on Ubuntu 24.04 Desktop.
-See [Launchpad #2045041](https://bugs.launchpad.net/cloud-init/+bug/2045041).
+**Status:** **Resolved** (2026-07-09) — The `detect_interface()` function in the snippet's
+IP conversion step queries the actual interface name from the routing table rather than
+assuming `eth0`, so the rename abort no longer causes downstream failures in the snippet.
+Upstream bug reference: [Launchpad #2045041](https://bugs.launchpad.net/cloud-init/+bug/2045041).
 
-**Workarounds (in order of preference):**
+**Historical context:** Before the fix, workarounds were:
 1. **Pre-install in template** — install `qemu-guest-agent` and enable `serial-getty@ttyS0`
-   directly in the golden template before converting it (Section 1.7.3). This removes two
-   of three snippet tasks, leaving only the IP conversion which also runs via the
-   playground server side (Section 4.3).
+   directly in the golden template before converting it (Section 1.7.3).
 2. **Use a cloud server image** — Proxmox Cookbook cloud images (Debian, Ubuntu Server)
    don't typically hit this rename issue since they're designed for cloud-init workflows.
-   Desktop images are the primary affected category.
 3. **Manual post-deploy install** — if the snippet didn't run, SSH into the guest and
    run `sudo bash install-guest-agent.sh` (Section 1.7.4).
 
@@ -591,9 +590,9 @@ script, but many guests report their primary NIC as `ens18` or similar.
 the active interface via: (1) default-gateway route, (2) first non-lo interface with
 an IPv4 address, (3) first non-lo interface with carrier UP.
 
-**Limitation:** This fix only helps when `runcmd` actually runs. When cloud-init
-aborts early (see [Section 1.8.2](#182-interface-rename-aborts-entire-cloud-init-ubuntu-2404)),
-the conversion script never executes.
+This auto-detection also resolved the interface rename abort issue that previously
+caused cloud-init to skip `runcmd` entirely on Ubuntu 24.04 Desktop (see
+[Section 1.8.2](#182-interface-rename-aborts-entire-cloud-init-ubuntu-2404)).
 
 #### 1.8.4 Reported failures and lessons
 
@@ -644,8 +643,7 @@ If `cloud-init status --long` reports `error`, check the output section for rena
 | Hook script not found error on deploy | Confirm `PVE_LXC_HOOKSCRIPT_VOLID` in `acctest-env.ps1` points to the correct storage path |
 | VM IP shows as `?` in UI | Guest agent not installed or not running — check that the template has cloud-init (Section 1.4) and that the snippet was deployed (Section 1.7.2) |
 | VM clone boots but snippet doesn't run (no `/root/snippet.log`) | **Most common:** `cloud-init clean` was NOT run in the template before `qm template` — re-run it, shut down, re-convert. Cloud-init's state files are cloned and it skips all processing if it sees prior state. See §1.4.2 explanation. **Also check:** the snippet file exists on the host (`ls /var/lib/vz/snippets/install-agent.yaml`) and `PVE_SNIPPET_STORAGE` is correct |
-| VM boots normally but cloud-init reports `error` (rename failure) | Ubuntu 24.04 Desktop cloud-init bug — see [Section 1.8.2](#182-interface-rename-aborts-entire-cloud-init-ubuntu-2404). Use pre-installed agent in template (Section 1.7.3) or manual post-deploy install (Section 1.7.4) |
-| VM boots normally but cloud-init reports `error` (rename failure) | Ubuntu 24.04 Desktop cloud-init bug — see [Section 1.8.2](#182-interface-rename-aborts-entire-cloud-init-ubuntu-2404). Use pre-installed agent in template (Section 1.7.3) or manual post-deploy install (Section 1.7.4) |
+| VM boots normally but cloud-init reports `error` (rename failure) | Historically an Ubuntu 24.04 Desktop cloud-init bug (see [Section 1.8.2](#182-interface-rename-aborts-entire-cloud-init-ubuntu-2404)). **Resolved 2026-07-09** via `detect_interface()`. If still occurring, ensure the snippet on your host includes the auto-detect function. Fallback: pre-install agent in template (Section 1.7.3) or manual post-deploy install (Section 1.7.4) |
 
 ---
 

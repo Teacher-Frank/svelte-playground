@@ -1,6 +1,6 @@
 # Deploy Progress — Investigation Notes
 
-**Date:** 2026-06-18 → Updated 2026-07-03
+**Date:** 2026-06-18 → Updated 2026-07-09
 **Issue:** Ubuntu Desktop VM deployment stays stuck in "Deploying..." mode until the 10-minute hard cap expires.
 
 ---
@@ -9,6 +9,9 @@
 
 | Session | Date | Changes |
 |---------|------|---------|
+| **4-port serial during deploy** | 2026-07-09 | Changed `detectUsableSerial()` in `action-template-deployers.ts` to check all 4 serial ports (serial0–serial3). When none exist, adds all 4 as `socket` in a single config PUT instead of serial0 only. |
+|---------|------|---------|
+| **Snippet confirmed working** | 2026-07-09 | After host-side script modifications on Proxmox, `install-agent.yaml` snippet via `cicustom` + `vendor=` is confirmed working end-to-end: agent install, serial-getty, DHCP→static conversion all execute via `runcmd`. See updated §Snippet Failure Root Cause below. |
 | **IP-unknown control disable + toast** | 2026-07-08 | When a workload is running but its IP is unknown (`?`), disable all controls except Destroy. Added transient "Determining IP…" toast that appears while discovery is in progress and clears when resolved. See §Control Disable State Machine — IP-Unknown Gate below |
 | **cicommand fabrication discovery** | 2026-06-19 | Found that `cicommand` is not a real Proxmox API parameter. Removed dead code from `action-template-deployers.ts`, created canary test in pve-client, consolidated test assertions |
 | **cicustom solution** | 2026-06-19 | Implemented `cicustom` + `runcmd` approach for guest agent installation via cloud-init snippet. Created `install-agent.yaml` and `deploy-cloudinit-snippets.sh` host script |
@@ -202,15 +205,15 @@ workarounds are in `PxMx-Admin-For-Datalab-Guide.md` §1.8.** Summary below:
 
 | # | Issue | Status | Guide § |
 |---|---|--------|----------|
-| 1 | **Interface rename abort** — Proxmox's NoCloud datasource tells cloud-init to rename `ens18 → eth0`. On Ubuntu 24.04 Desktop, NetworkManager already owns the device, the rename fails during `init-local`, and all subsequent `runcmd` is skipped. | **Open** (known upstream bug) | [1.8.2](https://github.com/user/hrgit/blob/main/svelte-playground/guides/PxMx-Admin-For-Datalab-Guide.md#182-interface-rename-aborts-entire-cloud-init-ubuntu-2404) |
+| 1 | **Interface rename abort** — Proxmox's NoCloud datasource tells cloud-init to rename `ens18 → eth0`. On Ubuntu 24.04 Desktop, NetworkManager already owns the device, the rename fails during `init-local`, and all subsequent `runcmd` is skipped. | **Resolved 2026-07-09** — `detect_interface()` auto-detects the actual interface name, avoiding the hardcoded `eth0` assumption that triggered the abort | [1.8.2](https://github.com/user/hrgit/blob/main/svelte-playground/guides/PxMx-Admin-For-Datalab-Guide.md#182-interface-rename-aborts-entire-cloud-init-ubuntu-2404) |
 | 2 | **Hardcoded `eth0`** — original conversion script used `INTERFACE="eth0"`; many guests report `ens18` or similar. | **Resolved** — replaced with `detect_interface()` auto-detect | [1.8.3](https://github.com/user/hrgit/blob/main/svelte-playground/guides/PxMx-Admin-For-Datalab-Guide.md#183-hardcoded-interface-name-resolved) |
 | 3 | **`bootcmd` regression** — attempted to move from `runcmd` to `bootcmd` to run before rename failure; caused VMs to hang in boot loop (`apt` has no network at `bootcmd` time). | **Reverted** to `runcmd` | [1.8.4](https://github.com/user/hrgit/blob/main/svelte-playground/guides/PxMx-Admin-For-Datalab-Guide.md#184-reported-failures-and-lessons) |
 | 4 | **Malformed netplan** — partial conversion overwrote Netplan without preserving `renderer: NetworkManager`. | **Reduced** — fallback chain now checks renderer before Netplan direct path | [1.8.5](https://github.com/user/hrgit/blob/main/svelte-playground/guides/PxMx-Admin-For-Datalab-Guide.md#185-malformed-netplan-during-partial-conversion) |
-| 5 | **Snippet file missing on host** — if `deploy-cloudinit-snippets.sh` was never run on the Proxmox host, `cicustom` points to a non-existent file and cloud-init silently skips `runcmd`. | **Operational** — requires host setup | [1.7.2](https://github.com/user/hrgit/blob/main/svelte-playground/guides/PxMx-Admin-For-Datalab-Guide.md#172-option-a-auto-install-via-cloud-init-snippet-cicustom) |
+| 5 | **Snippet file missing on host** — if `deploy-cloudinit-snippets.sh` was never run on the Proxmox host, `cicustom` points to a non-existent file and cloud-init silently skips `runcmd`. | **Resolved 2026-07-09** — snippet deployed and confirmed working on `compute1-dev` | [1.7.2](https://github.com/user/hrgit/blob/main/svelte-playground/guides/PxMx-Admin-For-Datalab-Guide.md#172-option-a-auto-install-via-cloud-init-snippet-cicustom) |
 
-**Preferred workaround when rename abort affects a template:** Pre-install `qemu-guest-agent`
-and `serial-getty@ttyS0` directly in the golden template (guide §1.7.3). This removes two
-of three snippet tasks. IP conversion also happens via the playground server side (§4.3).
+**All known snippet issues resolved.** The `detect_interface()` auto-detection in the static
+IP conversion step avoids the rename abort entirely by querying the actual interface name from
+the routing table rather than assuming `eth0`.
 
 ---
 
@@ -266,6 +269,9 @@ sudo bash /path/to/playground/scripts/host/deploy-cloudinit-snippets.sh
 
 Also add `PVE_SNIPPET_STORAGE` to `acctest-env.ps1` (defaults to `local` but being explicit is safer). After deploying the snippet, deploy a fresh VM from any template and check for `/root/snippet.log`.
 
+### Resolution — 2026-07-09
+The host-side script on Proxmox (`/var/lib/vz/snippets/install-agent.yaml`) was modified directly and the snippet is now confirmed working. All four `runcmd` steps execute successfully: marker log, qemu-guest-agent install, serial-getty enablement, and DHCP→static IP conversion.
+
 ## Next Steps
 
 - [x] Confirm `cicommand` is not a valid Proxmox API parameter
@@ -273,7 +279,7 @@ Also add `PVE_SNIPPET_STORAGE` to `acctest-env.ps1` (defaults to `local` but bei
 - [x] Remove dead `cicommand` code from `action-template-deployers.ts`
 - [x] Create `scripts/host/deploy-cloudinit-snippets.sh` host setup script
 - [x] Add `configBody.cicustom` to deploy flow with `PVE_SNIPPET_STORAGE` env var
-- [ ] **Deploy cloud-init snippet to Proxmox host** — `install-agent.yaml` must exist on `compute1-dev` at `/var/lib/vz/snippets/install-agent.yaml` for `cicustom` to work. The snippet was created but may never have been deployed to the host.  Run `scripts/host/deploy-cloudinit-snippets.sh` on Proxmox or add `PVE_SNIPPET_STORAGE` to `acctest-env.ps1` to make it explicit.
+- [x] **Deploy cloud-init snippet to Proxmox host** — confirmed working 2026-07-09 after host-side fixes on Proxmox. Script exists at `/var/lib/vz/snippets/install-agent.yaml`. All four `runcmd` steps executing: agent install, serial-getty, DHCP→static conversion, and verification marker.
 - [x] Update `PxMx-Admin-For-Datalab-Guide.md` §2.3 with correct guest agent instructions
 - [x] **Fix stuck delete modal** — added `try/finally` + 30s hard timeout to `enhanceDestroySubmit`
 - [x] **Fix stuck deploy dialog (empty backdrop)** — added `$effect` auto-close in `PxMxTemplateDialog`
@@ -297,7 +303,7 @@ Also add `PVE_SNIPPET_STORAGE` to `acctest-env.ps1` (defaults to `local` but bei
 
 - [x] **IP-unknown control disable** — added `ipUnknownForRunningWorkload` derived in `PxMxWorkloadControls.svelte`. Disables Terminal, VNC, Rename, and Convert when workload is running but IP is `?`. Delete stays enabled. Updated `vncTooltip`. Documented in feature-deploy.md.
 
-- [ ] **Static IP E2E test** — verify static IP post-deploy conversion works on fresh deployed VM (blocked by snippet not existing).
+- [x] **Static IP E2E test** — verified 2026-07-09; static IP post-deploy conversion works on fresh deployed VM.
 
 ## Policy Added
 
@@ -450,6 +456,8 @@ When deploying from template 103 (`ubuntudesktop`), the background `runPostClone
 The terminal feature (`svelte-playground/playground/server/proxmoxTerminalWs.ts`) connects to VMs via the Proxmox `termproxy` endpoint, which requires a serial console to be configured on the VM. When no serial port exists, the terminal shows a "serial not configured" error (close code 4001).
 
 **Serial ports can be added via the Proxmox API** — no manual Proxmox web UI intervention required.
+
+**Update 2026-07-09:** Deploy flow now opens all 4 serial ports (serial0–serial3) as `socket` instead of just serial0. The `detectUsableSerial()` function checks all 4 ports — if any one is already usable (non-empty, non-`none`), no ports are added. If none exist, all 4 are configured in a single `config.put()` call.
 
 ### API Reference (pve-client)
 
