@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types.js';
 import { Client } from 'pve-client';
-import { createClient, extractPrimaryContainerIPv4, buildBridgeWsUrlFromIpv4, resolveLxcBridgeWsUrl, isIPv4Address } from '../helpers.js';
+import { createClient, extractPrimaryContainerIPv4, buildBridgeWsUrlFromIpv4, resolveLxcBridgeWsUrl, isIPv4Address } from '../helpers.server.js';
 import type { LxcInterface } from '../types.js';
 
 export const load: PageServerLoad = async ({ url }) => {

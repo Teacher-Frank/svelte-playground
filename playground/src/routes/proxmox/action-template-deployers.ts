@@ -4,7 +4,7 @@
  * Extracted from proxmox-actions.ts to keep that module under the 750-line threshold.
  */
 import type { NodeScopedAPI } from 'pve-client';
-import { createClient, pendingStaticConversion, releaseDeployLock } from './helpers.js';
+import { createClient, pendingStaticConversion, releaseDeployLock } from './helpers.server.js';
 
 // ---------------------------------------------------------------------------
 // Environment configuration

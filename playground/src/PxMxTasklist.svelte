@@ -18,7 +18,7 @@
     tasks: ProxmoxTask[];
   } = $props();
 
-  let isExpanded = $state(true);
+  let isExpanded = $state(false);
 
   const formatTaskTime = (unixSeconds?: number): string => {
     if (!unixSeconds || unixSeconds <= 0) {

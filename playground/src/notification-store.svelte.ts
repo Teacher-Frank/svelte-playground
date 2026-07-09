@@ -10,7 +10,20 @@
  * - Do not create ad-hoc notification elements in components.
  */
 
-import { getRefreshIntervalSeconds } from './routes/proxmox/helpers.js';
+/**
+ * Reads the refresh interval from the environment variable.
+ * Client-safe version — doesn't depend on any server-only code.
+ */
+function getRefreshIntervalSeconds(): number {
+  const raw = import.meta.env.PLAYGROUND_REFRESH_INTERVAL_SECONDS?.trim();
+  if (!raw || raw === 'undefined') return 5;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 5;
+  const normalized = Math.floor(parsed);
+  if (normalized < 5) return 5;
+  if (normalized > 3600) return 3600;
+  return normalized;
+}
 
 export type NotificationKind = 'toast' | 'warning' | 'success' | 'error' | 'pending';
 export type NotificationScope = 'page' | 'vm-templates' | 'lxc-templates' | 'vm-workloads' | 'container-workloads' | 'config';

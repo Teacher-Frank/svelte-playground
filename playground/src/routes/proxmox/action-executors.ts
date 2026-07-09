@@ -6,13 +6,13 @@
  */
 import type { NodeScopedAPI } from 'pve-client';
 import type { WorkloadKind, WorkloadAction } from './types.js';
-import { createClient } from './helpers.js';
+import { createClient } from './helpers.server.js';
 
 // ---------------------------------------------------------------------------
 // Execute helpers
 // ---------------------------------------------------------------------------
 
-import { pendingDestroy } from './helpers.js';
+import { pendingDestroy } from './helpers.server.js';
 
 /**
  * Permanently destroys a VM or LXC container via the Proxmox API.

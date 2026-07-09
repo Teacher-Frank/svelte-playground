@@ -35,7 +35,7 @@ import {
   vmAgentRetryAfterById,
   withTimeout,
   compareByName,
-} from './helpers.js';
+} from './helpers.server.js';
 
 // ---------------------------------------------------------------------------
 // Node resolution

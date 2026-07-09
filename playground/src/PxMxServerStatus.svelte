@@ -1,5 +1,6 @@
 <script lang="ts">
   type ServerStatusData = {
+    apiHost: string;
     serverStatus: string;
     lastSuccessfulRefresh: number | null;
   };
@@ -20,6 +21,6 @@
 </script>
 
 <p class="server-status">
-  {results.serverStatus}
+  {results.apiHost}: {results.serverStatus}
 </p>
 <p class="last-refresh">Last successful refresh: {formatRefreshTime(results.lastSuccessfulRefresh)}</p>

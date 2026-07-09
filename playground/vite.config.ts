@@ -78,6 +78,13 @@ export default defineConfig(({ command, mode }) => {
     server: {
       https: true,
       port: 8000
+    },
+    ssr: {
+      noExternal: ['pve-client'],
+      external: ['terminal.js']
+    },
+    optimizeDeps: {
+      exclude: ['terminal.js']
     }
   };
 });

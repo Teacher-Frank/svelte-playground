@@ -20,7 +20,7 @@ import {
   executeWorkloadAction,
   executeWorkloadRenameAction,
 } from './action-executors.js';
-import { acquireDeployLock, releaseDeployLock, clearPendingDestroy } from './helpers.js';
+import { acquireDeployLock, releaseDeployLock, clearPendingDestroy } from './helpers.server.js';
 import {
   deployVmFromTemplate,
   renameVmTemplate,
@@ -694,7 +694,7 @@ async function renameLxcGuestTemplateFn(
   templateNode: string,
   newName: string,
 ): Promise<string | unknown> {
-  const { createClient } = await import('./helpers.js');
+  const { createClient } = await import('./helpers.server.js');
   const client = await createClient();
   // TODO(pve-client): 'hostname' is a valid LXC config field but missing from
   // the generated PUT body type. Fix in pve-client types; cast for now.
